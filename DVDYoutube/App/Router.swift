@@ -17,6 +17,7 @@ enum Route: Hashable {
     case downloads
     case subscriptionsManager
     case accountFeed(title: String, browseId: String)
+    case notifications
     case settings
 }
 
@@ -106,6 +107,7 @@ extension View {
             case .downloads: DownloadsView()
             case .subscriptionsManager: SubscriptionsManagerView()
             case .accountFeed(let title, let browseId): AccountFeedView(title: title, browseId: browseId)
+            case .notifications: NotificationsView()
             case .settings: SettingsView()
             }
         }

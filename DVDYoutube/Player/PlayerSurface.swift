@@ -33,7 +33,10 @@ struct PlayerSurface: View {
                 )
                 .allowsHitTesting(mode != .mini)
             } else {
-                PlayerLayerView(player: player.player) { layer in
+                PlayerLayerView(
+                    player: player.player,
+                    gravity: mode == .fullscreen && player.videoFill ? .resizeAspectFill : .resizeAspect
+                ) { layer in
                     player.attach(layer: layer)
                 }
             }
@@ -69,6 +72,8 @@ struct PlayerSurface: View {
                 if player.adWaitRemaining > 0 { adWaitBanner }
                 if let error = player.playbackError { errorOverlay(error) }
                 if let skipFeedback { skipFeedbackView(skipFeedback) }
+                if player.isSpeedBoosted { speedBoostBadge }
+                if let next = player.upNext { upNextOverlay(next) }
             }
         }
         .background(Color.black)
@@ -145,6 +150,77 @@ struct PlayerSurface: View {
         HStack(spacing: 0) {
             tapRegion(forward: false)
             tapRegion(forward: true)
+        }
+        // Touch and hold: 2x speed until the finger is lifted.
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45)
+                .sequenced(before: DragGesture(minimumDistance: 0))
+                .onChanged { value in
+                    if case .second(true, _) = value { player.beginSpeedBoost() }
+                }
+                .onEnded { _ in player.endSpeedBoost() }
+        )
+        // Pinch in fullscreen to fill the screen or fit the whole picture.
+        .gesture(
+            MagnifyGesture().onEnded { value in
+                player.setVideoFill(value.magnification > 1)
+            },
+            including: mode == .fullscreen ? .all : .subviews
+        )
+    }
+
+    private var speedBoostBadge: some View {
+        VStack {
+            Label("2x", systemImage: "forward.fill")
+                .font(.caption.weight(.bold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(Color.black.opacity(0.6)))
+                .foregroundStyle(.white)
+                .padding(.top, mode == .fullscreen ? 20 : 10)
+            Spacer()
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func upNextOverlay(_ next: VideoItem) -> some View {
+        let thumbWidth: CGFloat = mode == .fullscreen ? 220 : 110
+        return ZStack {
+            Color.black.opacity(0.8)
+            VStack(spacing: mode == .fullscreen ? 14 : 8) {
+                Text("Tiếp theo sau \(player.upNextCountdown) giây")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.8))
+                HStack(spacing: 12) {
+                    RemoteImage(url: next.displayThumbnail)
+                        .frame(width: thumbWidth, height: thumbWidth * 9 / 16)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(next.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                        Text(next.channelName ?? "")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: 260, alignment: .leading)
+                }
+                HStack(spacing: 12) {
+                    Button("Hủy") { player.cancelUpNext() }
+                        .buttonStyle(.bordered)
+                        .tint(.white)
+                    Button {
+                        player.playUpNextNow()
+                    } label: {
+                        Label("Phát ngay", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .controlSize(.small)
+            }
+            .foregroundStyle(.white)
+            .padding()
         }
     }
 
@@ -241,6 +317,12 @@ struct PlayerSurface: View {
                 }
             }
             Spacer()
+            Button {
+                player.toggleAutoplay()
+            } label: {
+                Image(systemName: player.autoplayEnabled ? "autostartstop" : "autostartstop.slash")
+                    .controlIcon()
+            }
             RoutePickerView()
                 .frame(width: 36, height: 36)
             if !player.captionTracks.isEmpty {
@@ -342,6 +424,19 @@ struct PlayerSurface: View {
                     onSeek: { time in player.seek(to: time) }
                 )
                 .padding(.horizontal, mode == .fullscreen ? 4 : 0)
+                .overlay(alignment: .bottomLeading) {
+                    if let time = scrubTime, let storyboard = player.playerInfo?.storyboard, player.duration > 0 {
+                        GeometryReader { geo in
+                            let width: CGFloat = mode == .fullscreen ? 200 : 140
+                            let height = width * CGFloat(storyboard.height) / CGFloat(storyboard.width)
+                            let x = min(max(geo.size.width * CGFloat(time / player.duration) - width / 2, 0), max(geo.size.width - width, 0))
+                            StoryboardPreview(storyboard: storyboard, time: time, duration: player.duration)
+                                .frame(width: width, height: height + 20)
+                                .offset(x: x, y: -(height + 26))
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
             }
         }
     }
@@ -526,6 +621,26 @@ struct PlayerSettingsSheet: View {
                         Text("Video này không có phụ đề").foregroundStyle(.secondary)
                     }
                 }
+                Section("Khác") {
+                    Toggle("Phát lặp lại", isOn: Binding(
+                        get: { player.isLooping },
+                        set: { player.setLooping($0) }
+                    ))
+                    Menu {
+                        Button("Tắt") { player.setSleepTimer(minutes: nil) }
+                        ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
+                            Button("\(minutes) phút") { player.setSleepTimer(minutes: minutes) }
+                        }
+                        Button("Khi hết video này") { player.setSleepTimer(minutes: 0) }
+                    } label: {
+                        HStack {
+                            Label("Hẹn giờ tắt", systemImage: "moon.zzz")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(sleepTimerLabel).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 Section {
                     if player.usesWebPlayer {
                         Button("Thử lại trình phát gốc (không quảng cáo)") {
@@ -572,6 +687,14 @@ struct PlayerSettingsSheet: View {
         }
     }
 
+    private var sleepTimerLabel: String {
+        if player.sleepAtEndOfVideo { return "Khi hết video" }
+        if let end = player.sleepTimerEnd {
+            return "còn \(max(Int(end.timeIntervalSinceNow / 60) + 1, 1)) phút"
+        }
+        return "Tắt"
+    }
+
     private func checkRow(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
@@ -582,5 +705,52 @@ struct PlayerSettingsSheet: View {
                 }
             }
         }
+    }
+}
+
+/// One frame of the storyboard sprite sheet, shown above the scrubber while seeking.
+struct StoryboardPreview: View {
+    let storyboard: Storyboard
+    let time: Double
+    let duration: Double
+
+    @State private var sheet: UIImage?
+    @State private var sheetURL: URL?
+
+    var body: some View {
+        let frame = storyboard.frame(at: time, duration: duration)
+        VStack(spacing: 4) {
+            ZStack {
+                Rectangle().fill(Color.black)
+                if let frame, sheetURL == frame.url, let image = crop(frame.rect) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+            }
+            .aspectRatio(CGFloat(storyboard.width) / CGFloat(storyboard.height), contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white, lineWidth: 1.5))
+            Text(formatTime(time))
+                .font(.caption.weight(.bold).monospacedDigit())
+                .foregroundStyle(.white)
+                .shadow(radius: 2)
+        }
+        .task(id: frame?.url) {
+            guard let url = frame?.url else { return }
+            if let cached = ImageLoader.shared.cached(url) {
+                sheet = cached
+            } else {
+                sheet = await ImageLoader.shared.image(for: url)
+            }
+            sheetURL = url
+        }
+    }
+
+    private func crop(_ rect: CGRect) -> UIImage? {
+        guard let cgImage = sheet?.cgImage,
+              rect.maxX <= CGFloat(cgImage.width), rect.maxY <= CGFloat(cgImage.height),
+              let cropped = cgImage.cropping(to: rect) else { return nil }
+        return UIImage(cgImage: cropped)
     }
 }

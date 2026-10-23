@@ -2,6 +2,7 @@ import AVFoundation
 import AVKit
 import Network
 import UIKit
+import UserNotifications
 
 /// Tracks whether we are on Wi-Fi or a metered connection to pick the default quality.
 final class NetworkMonitor {
@@ -59,10 +60,12 @@ enum OrientationController {
     }
 }
 
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         configureAudioSession()
+        NewVideoNotifier.register()
+        UNUserNotificationCenter.current().delegate = self
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
         _ = NetworkMonitor.shared
         return true
@@ -71,6 +74,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         OrientationController.mask
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    /// Tapping a "new video" notification opens the video.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse) async {
+        let content = response.notification.request.content
+        guard let videoId = content.userInfo["videoId"] as? String else { return }
+        let title = content.body
+        let channel = content.title
+        await MainActor.run {
+            PlayerManager.shared.play(VideoItem(id: videoId, title: title, channelName: channel))
+        }
     }
 
     private func configureAudioSession() {

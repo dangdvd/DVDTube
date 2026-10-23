@@ -228,6 +228,33 @@ final class InnerTube {
         )
     }
 
+    func addToPlaylistOptions(videoId: String) async throws -> JNode {
+        try await web("playlist/get_add_to_playlist", body: ["videoIds": [videoId]])
+    }
+
+    func createPlaylist(title: String, videoId: String?) async throws -> JNode {
+        var body: [String: Any] = ["title": title, "privacyStatus": "PRIVATE"]
+        if let videoId { body["videoIds"] = [videoId] }
+        return try await web("playlist/create", body: body)
+    }
+
+    func notificationMenu() async throws -> JNode {
+        try await web("notification/get_notification_menu", body: ["notificationsMenuRequestType": "NOTIFICATIONS_MENU_REQUEST_TYPE_INBOX"])
+    }
+
+    func unseenNotificationCount() async throws -> Int {
+        let json = try await web("notification/get_unseen_count", body: [:])
+        return json["unseenCount"].int ?? json.findFirst("unseenCount").int ?? 0
+    }
+
+    func createComment(_ text: String, params: String) async throws -> JNode {
+        try await web("comment/create_comment", body: ["commentText": text, "createCommentParams": params])
+    }
+
+    func createReply(_ text: String, params: String) async throws -> JNode {
+        try await web("comment/create_comment_reply", body: ["commentText": text, "createReplyParams": params])
+    }
+
     func editPlaylist(_ playlistId: String, add videoId: String? = nil, remove removedId: String? = nil) async throws {
         var actions: [[String: Any]] = []
         if let videoId { actions.append(["action": "ACTION_ADD_VIDEO", "addedVideoId": videoId]) }

@@ -216,6 +216,16 @@ final class YouTubeService {
         return page
     }
 
+    func accountPlaylistOptions(videoId: String) async throws -> [AccountPlaylistOption] {
+        AccountParser.playlistOptions(try await api.addToPlaylistOptions(videoId: videoId))
+    }
+
+    func accountNotifications() async throws -> [AccountNotification] {
+        let items = AccountParser.notifications(try await api.notificationMenu())
+        Log.debug("notifications: \(items.count)")
+        return items
+    }
+
     /// Every channel the account is subscribed to.
     func accountSubscriptions() async throws -> [ChannelItem] {
         var page = try await accountFeed("FEchannels")

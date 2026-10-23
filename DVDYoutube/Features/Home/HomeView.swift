@@ -147,6 +147,7 @@ struct HomeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { AppLogo() }
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if account.isSignedIn { NotificationBell() }
                 Button { router.open(.search) } label: { Image(systemName: "magnifyingglass") }
             }
         }
