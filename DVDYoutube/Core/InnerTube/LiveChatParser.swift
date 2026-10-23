@@ -63,7 +63,9 @@ enum LiveChatParser {
 
     static func parse(_ json: JNode) -> LiveChatChunk {
         var chunk = LiveChatChunk()
-        let content = json.at("continuationContents", "liveChatContinuation")
+        // API responses use continuationContents; the chat frame's ytInitialData uses contents.
+        var content = json.at("continuationContents", "liveChatContinuation")
+        if !content.exists { content = json.at("contents", "liveChatRenderer") }
         for action in content["actions"].array {
             collect(action, offset: nil, into: &chunk)
         }

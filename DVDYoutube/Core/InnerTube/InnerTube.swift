@@ -115,7 +115,13 @@ final class InnerTube {
         if authHeaders != nil, let http = response as? HTTPURLResponse {
             AuthSession.shared.absorb(response: http, url: url)
         }
-        guard (200..<300).contains(status) else { throw InnerTubeError.http(status) }
+        guard (200..<300).contains(status) else {
+            // Google's error JSON says what was wrong with the request (no account data).
+            if let message = (try? JNode(data: data))?.at("error", "message").string {
+                Log.debug("\(endpoint) error: \(message)")
+            }
+            throw InnerTubeError.http(status)
+        }
         return try JNode(data: data)
     }
 
@@ -215,6 +221,80 @@ final class InnerTube {
 
     func liveChat(continuation: String) async throws -> JNode {
         try await web("live_chat/get_live_chat", body: ["continuation": continuation])
+    }
+
+    /// The first page of a chat is YouTube's own chat frame (`/live_chat?continuation=`):
+    /// its `ytInitialData` holds the first messages and the token to keep polling with.
+    func liveChatPage(continuation: String, replay: Bool) async throws -> JNode {
+        var components = URLComponents(string: "https://www.youtube.com/\(replay ? "live_chat_replay" : "live_chat")")!
+        components.queryItems = [
+            URLQueryItem(name: "continuation", value: continuation),
+            URLQueryItem(name: "hl", value: APIConfig.hl),
+            URLQueryItem(name: "gl", value: APIConfig.gl),
+        ]
+        guard let url = components.url else { throw InnerTubeError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.setValue("\(APIConfig.hl),en;q=0.9", forHTTPHeaderField: "Accept-Language")
+        if let userAgent = APIConfig.webProfile.resolvedUserAgent(gl: APIConfig.gl) {
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        if let headers = AuthSession.shared.headers(for: url) {
+            request.httpShouldHandleCookies = false
+            for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        }
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        Log.debug("\(replay ? "live_chat_replay" : "live_chat") page -> HTTP \(status), \(data.count) bytes")
+        guard (200..<300).contains(status) else { throw InnerTubeError.http(status) }
+        guard let json = Self.initialData(in: data) else { throw InnerTubeError.invalidResponse }
+        return json
+    }
+
+    /// Cuts the `ytInitialData = {...}` object out of a YouTube HTML page.
+    static func initialData(in html: Data) -> JNode? {
+        let bytes = [UInt8](html)
+        let marker = Array("ytInitialData".utf8)
+        guard bytes.count > marker.count else { return nil }
+        var searchFrom = 0
+        while let found = Self.index(of: marker, in: bytes, from: searchFrom) {
+            searchFrom = found + marker.count
+            // The object starts at the first "{" after the marker (` = {`, `"] = {`).
+            guard let start = bytes[searchFrom...].prefix(16).firstIndex(of: UInt8(ascii: "{")) else { continue }
+            var depth = 0
+            var inString = false
+            var escaped = false
+            var index = start
+            while index < bytes.count {
+                let byte = bytes[index]
+                if inString {
+                    if escaped { escaped = false }
+                    else if byte == UInt8(ascii: "\\") { escaped = true }
+                    else if byte == UInt8(ascii: "\"") { inString = false }
+                } else if byte == UInt8(ascii: "\"") {
+                    inString = true
+                } else if byte == UInt8(ascii: "{") {
+                    depth += 1
+                } else if byte == UInt8(ascii: "}") {
+                    depth -= 1
+                    if depth == 0 {
+                        return try? JNode(data: Data(bytes[start...index]))
+                    }
+                }
+                index += 1
+            }
+            return nil
+        }
+        return nil
+    }
+
+    private static func index(of needle: [UInt8], in haystack: [UInt8], from start: Int) -> Int? {
+        guard start <= haystack.count - needle.count else { return nil }
+        var index = start
+        while index <= haystack.count - needle.count {
+            if haystack[index] == needle[0], haystack[index..<index + needle.count].elementsEqual(needle) { return index }
+            index += 1
+        }
+        return nil
     }
 
     func liveChatReplay(continuation: String, offsetMs: Int) async throws -> JNode {
