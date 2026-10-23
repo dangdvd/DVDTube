@@ -84,6 +84,9 @@ enum DebugHooks {
         if arguments.contains("-DVDTubeDemoLiveChat") {
             Task { await probeLiveChat() }
         }
+        if arguments.contains("-DVDTubeDemoCastRelay") {
+            Task { await probeCastRelay() }
+        }
     }
 
     /// Finds a stream that is live right now, runs its chat for a while and logs what
@@ -124,6 +127,54 @@ enum DebugHooks {
             Log.debug("live chat probe failed: \(error.localizedDescription)")
         }
         await probeChatReplay()
+    }
+
+    /// Plays the TV's part against the Chromecast relay with Apple's public HLS sample:
+    /// master playlist, a media playlist, the init segment and a byte range of a segment.
+    private static func probeCastRelay() async {
+        let sample = URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8")!
+        func get(_ url: URL, range: String? = nil, method: String = "GET") async -> (Int, Data, [AnyHashable: Any]) {
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+            if let range { request.setValue(range, forHTTPHeaderField: "Range") }
+            guard let result = try? await URLSession.shared.data(for: request),
+                  let http = result.1 as? HTTPURLResponse else { return (0, Data(), [:]) }
+            return (http.statusCode, result.0, http.allHeaderFields)
+        }
+        func uris(_ text: String) -> [URL] {
+            text.components(separatedBy: .newlines).compactMap { line -> URL? in
+                if line.hasPrefix("#") {
+                    guard let start = line.range(of: "URI=\""), let end = line[start.upperBound...].firstIndex(of: "\"") else { return nil }
+                    return URL(string: String(line[start.upperBound..<end]))
+                }
+                return line.isEmpty ? nil : URL(string: line)
+            }
+        }
+        do {
+            let prepared = try await CastProxy.shared.prepare(hls: sample, host: "127.0.0.1")
+            let master = await get(prepared.url)
+            let masterText = String(decoding: master.1, as: UTF8.self)
+            let masterURIs = uris(masterText)
+            let allLocal = masterURIs.allSatisfy { $0.host == "127.0.0.1" }
+            Log.debug("relay probe: master -> \(master.0), \(masterURIs.count) uris, all relayed=\(allLocal), fmp4=\(prepared.isFMP4), cors=\(master.2["Access-Control-Allow-Origin"] ?? "none"), variants=\(masterText.components(separatedBy: "#EXT-X-STREAM-INF").count - 1)")
+            guard let variant = masterURIs.first(where: { $0.path.hasSuffix(".m3u8") }) else { return }
+            let media = await get(variant)
+            let mediaURIs = uris(String(decoding: media.1, as: UTF8.self))
+            Log.debug("relay probe: media playlist -> \(media.0), \(mediaURIs.count) uris, all relayed=\(mediaURIs.allSatisfy { $0.host == "127.0.0.1" })")
+            if let first = mediaURIs.first {
+                let initSegment = await get(first)
+                Log.debug("relay probe: first resource -> \(initSegment.0), \(initSegment.1.count) bytes")
+            }
+            if mediaURIs.count > 1 {
+                let partial = await get(mediaURIs[1], range: "bytes=0-1023")
+                Log.debug("relay probe: segment range -> \(partial.0), \(partial.1.count) bytes, content-range=\(partial.2["Content-Range"] ?? "none")")
+            }
+            let preflight = await get(prepared.url, method: "OPTIONS")
+            Log.debug("relay probe: preflight -> \(preflight.0)")
+            CastProxy.shared.stop()
+        } catch {
+            Log.debug("relay probe failed: \(error.localizedDescription)")
+        }
     }
 
     /// A finished stream's chat replay: the frame page, then one fetch 10 minutes in.

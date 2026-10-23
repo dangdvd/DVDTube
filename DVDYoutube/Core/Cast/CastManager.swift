@@ -60,7 +60,9 @@ final class CastManager {
     private struct Candidate {
         var url: URL
         var contentType: String
-        var hlsHints: Bool
+        /// HLS segment format hints for the receiver ("fmp4" / "ts", "fmp4" / "mpeg2_ts").
+        var segmentFormat: String?
+        var videoSegmentFormat: String?
         var live: Bool
         var kind: String
     }
@@ -205,6 +207,8 @@ final class CastManager {
         loadRequestId = nil
         playerState = "IDLE"
         statusText = nil
+        CastKeepAlive.stop()
+        CastProxy.shared.stop()
         if notify {
             state = .idle
             device = nil
@@ -313,7 +317,12 @@ final class CastManager {
             handleMediaStatus(json)
         case (CastMessage.Namespace.media, "LOAD_FAILED"), (CastMessage.Namespace.media, "LOAD_CANCELLED"),
              (CastMessage.Namespace.media, "INVALID_REQUEST"):
+            Log.debug("cast: \(type) detailedErrorCode=\(json["detailedErrorCode"].int ?? -1) reason=\(json["reason"].string ?? "-")")
             if json["requestId"].int == loadRequestId { tryNextCandidate(reason: type) }
+        case (CastMessage.Namespace.media, "ERROR"):
+            // CAF receivers report playback errors with a detailed code (e.g. 104 source not
+            // supported, 311/312 HLS playlist network error, 301 segment network error).
+            Log.debug("cast: ERROR detailedErrorCode=\(json["detailedErrorCode"].int ?? -1) reason=\(json["reason"].string ?? "-")")
         default:
             break
         }
@@ -344,10 +353,13 @@ final class CastManager {
         state = .connected
         statusText = nil
         startClock()
-        if isNewSession { PlayerManager.shared.castDidConnect() }
+        if isNewSession {
+            CastKeepAlive.start()
+            PlayerManager.shared.castDidConnect()
+        }
         if let pending = pendingLoad {
             pendingLoad = nil
-            load(pending.video, info: nil, startAt: pending.startAt)
+            load(pending.video, info: PlayerManager.shared.playerInfo, startAt: pending.startAt)
         } else {
             // Joined a session that was already playing.
             send(CastMessage.Namespace.media, ["type": "GET_STATUS"], to: transport)
@@ -432,7 +444,22 @@ final class CastManager {
                     try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
                 }
                 guard !Task.isCancelled, self.loadingVideo?.id == video.id else { return }
-                self.candidates = self.makeCandidates(streams)
+                var relayed: Candidate?
+                if let hls = streams.hlsURL, let host = self.localHost() {
+                    do {
+                        let relay = try await CastProxy.shared.prepare(hls: hls, host: host)
+                        relayed = Candidate(
+                            url: relay.url, contentType: "application/x-mpegurl",
+                            segmentFormat: relay.isFMP4 ? "fmp4" : "ts",
+                            videoSegmentFormat: relay.isFMP4 ? "fmp4" : "mpeg2_ts",
+                            live: streams.isLive, kind: "relay-hls"
+                        )
+                    } catch {
+                        Log.debug("cast relay unavailable: \(error.localizedDescription)")
+                    }
+                }
+                guard !Task.isCancelled, self.loadingVideo?.id == video.id else { return }
+                self.candidates = self.makeCandidates(streams, relayed: relayed)
                 self.candidateIndex = 0
                 if self.candidates.isEmpty {
                     self.statusText = "Video này không phát được trên TV."
@@ -448,15 +475,20 @@ final class CastManager {
         }
     }
 
-    private func makeCandidates(_ info: PlayerInfo) -> [Candidate] {
-        var list: [Candidate] = []
+    /// The stream relayed through the phone first; then the TV fetching YouTube directly
+    /// (works when the TV shares the phone's public address and CORS allows it).
+    private func makeCandidates(_ info: PlayerInfo, relayed: Candidate?) -> [Candidate] {
+        var list: [Candidate] = relayed.map { [$0] } ?? []
         if let hls = info.hlsURL {
-            list.append(Candidate(url: hls, contentType: "application/x-mpegurl", hlsHints: true, live: info.isLive, kind: "hls-fmp4"))
-            list.append(Candidate(url: hls, contentType: "application/x-mpegurl", hlsHints: false, live: info.isLive, kind: "hls"))
+            list.append(Candidate(url: hls, contentType: "application/x-mpegurl", segmentFormat: "fmp4",
+                                  videoSegmentFormat: "fmp4", live: info.isLive, kind: "hls-fmp4"))
+            list.append(Candidate(url: hls, contentType: "application/x-mpegurl", segmentFormat: nil,
+                                  videoSegmentFormat: nil, live: info.isLive, kind: "hls"))
         }
         if !info.isLive, let muxed = info.muxedFormats.filter({ $0.mimeType.contains("mp4") })
             .max(by: { ($0.height ?? 0) < ($1.height ?? 0) }) {
-            list.append(Candidate(url: muxed.url, contentType: "video/mp4", hlsHints: false, live: false, kind: "mp4"))
+            list.append(Candidate(url: muxed.url, contentType: "video/mp4", segmentFormat: nil,
+                                  videoSegmentFormat: nil, live: false, kind: "mp4"))
         }
         if let workingKind, let index = list.firstIndex(where: { $0.kind == workingKind }) {
             list.insert(list.remove(at: index), at: 0)
@@ -479,10 +511,8 @@ final class CastManager {
                 "images": video.displayThumbnail.map { [["url": $0.absoluteString]] } ?? [],
             ] as [String: Any],
         ]
-        if candidate.hlsHints {
-            media["hlsSegmentFormat"] = "fmp4"
-            media["hlsVideoSegmentFormat"] = "fmp4"
-        }
+        if let format = candidate.segmentFormat { media["hlsSegmentFormat"] = format }
+        if let format = candidate.videoSegmentFormat { media["hlsVideoSegmentFormat"] = format }
         var payload: [String: Any] = ["type": "LOAD", "media": media, "autoplay": true]
         if !candidate.live { payload["currentTime"] = loadStartAt }
         if let sessionId { payload["sessionId"] = sessionId }
@@ -513,6 +543,14 @@ final class CastManager {
             statusText = "TV không phát được video này. Hãy thử AirPlay."
             pushStatus()
         }
+    }
+
+    /// This phone's address on the network it shares with the TV.
+    private func localHost() -> String? {
+        if case let .hostPort(host, _)? = connection?.currentPath?.localEndpoint, case let .ipv4(address) = host {
+            return address.rawValue.map(String.init).joined(separator: ".")
+        }
+        return CastProxy.localIPv4()
     }
 
     // MARK: Playback control

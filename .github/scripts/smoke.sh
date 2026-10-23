@@ -44,9 +44,10 @@ run watch 45 -DVDTubeDemoVideo "aqz-KE-bpKQ"
 run channel 20 -DVDTubeDemoChannel "@NASA"
 run shorts 35 -DVDTubeDemoTab shorts
 run livechat 75 -DVDTubeDemoLiveChat
+run castrelay 25 -DVDTubeDemoCastRelay
 xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 
 echo "=== summary"
 grep -h "HTTP" "$OUT"/*.log | sed -E 's/, [0-9]+ bytes//' | sort | uniq -c | sort -rn | head -n 30
-grep -h -E "stream |item |playing |failed|short |web |live chat|chat replay|error:" "$OUT"/*.log | head -n 80
+grep -h -E "stream |item |playing |failed|short |web |live chat|chat replay|relay|error:" "$OUT"/*.log | head -n 80
 exit 0
