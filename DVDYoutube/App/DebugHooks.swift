@@ -81,5 +81,36 @@ enum DebugHooks {
         if let video = value("-DVDTubeDemoVideo") {
             PlayerManager.shared.play(VideoItem(id: video, title: ""))
         }
+        if arguments.contains("-DVDTubeDemoLiveChat") {
+            Task { await probeLiveChat() }
+        }
+    }
+
+    /// Runs the chat of the demo video for a while and logs what was parsed (no message text).
+    private static func probeLiveChat() async {
+        for _ in 0..<40 {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let info = PlayerManager.shared.watchInfo else { continue }
+            guard let chat = info.liveChat else {
+                Log.debug("live chat probe: no chat on this video")
+                return
+            }
+            Log.debug("live chat probe: modes=\(chat.modes.map(\.title)) replay=\(chat.isReplay)")
+            let model = LiveChatModel(info: chat)
+            model.start()
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            let kinds = Dictionary(grouping: model.messages) { message -> String in
+                switch message.kind {
+                case .text: return "text"
+                case .paid: return "paid"
+                case .membership: return "membership"
+                case .system: return "system"
+                }
+            }.mapValues(\.count)
+            Log.debug("live chat probe: \(model.messages.count) messages \(kinds), error=\(model.error ?? "none"), ended=\(model.hasEnded)")
+            model.stop()
+            return
+        }
+        Log.debug("live chat probe: watch info did not load")
     }
 }
