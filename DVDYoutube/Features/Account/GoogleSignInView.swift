@@ -74,13 +74,20 @@ struct GoogleSignInView: View {
 
     private var webLogin: some View {
         VStack(spacing: 0) {
-            Text("Mật khẩu được nhập trực tiếp trên trang của Google. Sau khi đăng nhập, ứng dụng chỉ lưu phiên YouTube (cookie) trong Keychain của máy.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground))
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Mật khẩu được nhập trực tiếp trên trang của Google. Sau khi đăng nhập, ứng dụng chỉ lưu phiên YouTube (cookie) trong Keychain của máy.")
+                DisclosureGroup("Không dùng được khóa đăng nhập / Face ID?") {
+                    Text("iOS chỉ cho dùng khóa đăng nhập (passkey) trong Safari và ứng dụng của chính Google, không cho trang đăng nhập bên trong ứng dụng khác. Khi Google đề nghị dùng khóa đăng nhập, chọn **Thử cách khác** rồi:\n• **Nhập mật khẩu** — chạm biểu tượng 🔑 trên bàn phím để điền mật khẩu đã lưu trong iCloud bằng Face ID, hoặc\n• **Nhấn Có trên điện thoại/máy tính bảng** đang đăng nhập Google.")
+                        .padding(.top, 4)
+                }
+                .tint(.secondary)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
             GoogleLoginWebView(addsAccount: addsAccount) { cookies in
                 guard !isFinishing else { return }
                 Task { await finish(with: cookies, fromWebLogin: true) }
