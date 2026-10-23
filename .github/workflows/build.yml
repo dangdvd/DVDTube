@@ -97,6 +97,21 @@ jobs:
       - name: Run app scenarios
         run: .github/scripts/smoke.sh
 
+      # Opt-in (commit message contains "[screenshots]"): publish results to a throwaway
+      # branch so they can be fetched with plain git. Pushes made with GITHUB_TOKEN
+      # do not trigger new workflow runs.
+      - name: Publish screenshots branch
+        if: always() && contains(github.event.head_commit.message, '[screenshots]')
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd smoke
+          git init -q -b ci-screenshots
+          git add -A
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" \
+            commit -qm "Smoke test results for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
+
       - name: Upload screenshots and logs
         if: always()
         uses: actions/upload-artifact@v4

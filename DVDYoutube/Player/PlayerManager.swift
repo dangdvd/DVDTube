@@ -645,7 +645,7 @@ final class PlayerManager {
     func handleWebEvent(_ event: WebPlayerEvent) {
         guard usesWebPlayer else { return }
         if let error = event.error, !error.isEmpty {
-            Log.debug("web player error: \(error)")
+            if playbackError != error { Log.debug("web player error: \(error)") }
             isLoading = false
             playbackError = error
             return
