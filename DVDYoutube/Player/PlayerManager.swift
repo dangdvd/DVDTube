@@ -68,7 +68,10 @@ final class PlayerManager {
     private(set) var isAudioOnly = false
     /// What the user chose in the player during this session (wins over the automatic rule).
     @ObservationIgnored private var audioOnlyChoice: Bool?
-    @ObservationIgnored private var audioBitrate = 0
+    /// How the audio-only stream is played (for "Stats for nerds").
+    @ObservationIgnored private var audioDescription = ""
+    /// Audio playlists found in HLS manifests, by manifest URL and size.
+    @ObservationIgnored private var audioPlaylists: [String: HLSAudio.Rendition] = [:]
     /// Touches on the video are ignored until unlocked (YouTube's "Lock screen").
     var isScreenLocked = false
     /// "Stats for nerds" overlay.
@@ -341,7 +344,7 @@ final class PlayerManager {
         webFallbackReason = nil
         quality = defaultQuality()
         isAudioOnly = wantsAudioOnly
-        audioBitrate = 0
+        audioDescription = ""
         isLoading = true
         pendingSeek = startAt ?? (settings.resumePlayback ? library.resumePosition(for: video.id) : nil)
         if settings.saveHistory, !settings.isIncognito {
@@ -415,6 +418,23 @@ final class PlayerManager {
                 await self.loadStream(for: video)
             }
         }
+    }
+
+    /// The audio-only rendition of an HLS manifest (cached per manifest).
+    private func audioRendition(master: URL) async -> HLSAudio.Rendition? {
+        let preferSmall = settings.savesData
+        let key = master.absoluteString + (preferSmall ? "#small" : "#best")
+        if let cached = audioPlaylists[key] { return cached }
+        guard let result = try? await URLSession.shared.data(from: master),
+              (result.1 as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        let text = String(decoding: result.0, as: UTF8.self)
+        guard let rendition = HLSAudio.pick(from: text, base: master, preferSmall: preferSmall) else {
+            Log.debug("audio only: the HLS manifest has no audio-only playlist")
+            return nil
+        }
+        if audioPlaylists.count > 20 { audioPlaylists.removeAll() }
+        audioPlaylists[key] = rendition
+        return rendition
     }
 
     /// The AAC stream: the largest normally, the smallest with data saver on mobile data.
@@ -498,9 +518,18 @@ final class PlayerManager {
         while stage <= 2 {
             switch stage {
             case -1:
+                // Segmented HLS audio starts at once; the single progressive file is only
+                // a fallback (YouTube sends it at about playback speed, so it starts slowly).
+                if let hls = info.hlsURL, let rendition = await audioRendition(master: hls) {
+                    fallbackStage = -1
+                    audioDescription = "HLS" + (rendition.itag.map { " itag \($0)" } ?? "")
+                    Log.debug("audio only \(info.videoId): \(audioDescription)")
+                    return AVPlayerItem(url: rendition.url)
+                }
                 if let audio = audioFormat(in: info) {
                     fallbackStage = -1
-                    audioBitrate = audio.bitrate
+                    audioDescription = "AAC \(audio.bitrate / 1000) kbps"
+                    Log.debug("audio only \(info.videoId): progressive \(audioDescription)")
                     return AVPlayerItem(url: audio.url)
                 }
             case 0:
@@ -878,7 +907,7 @@ final class PlayerManager {
         if usesWebPlayer { return "Trình phát web" }
         if isLocalPlayback { return "Tệp đã tải xuống" }
         switch fallbackStage {
-        case -1: return "Chỉ âm thanh (AAC \(audioBitrate / 1000) kbps)"
+        case -1: return "Chỉ âm thanh (\(audioDescription))"
         case 0: return isAudioOnly ? "HLS 144p (chỉ âm thanh)" : "HLS"
         case 1: return "MP4 ghép sẵn"
         default: return "Hình + tiếng ghép trên máy"

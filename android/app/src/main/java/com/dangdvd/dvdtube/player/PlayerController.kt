@@ -149,7 +149,10 @@ object PlayerController {
         private set
     /** What the user chose in the player during this session (wins over the automatic rule). */
     private var audioOnlyChoice: Boolean? = null
-    private var audioBitrate = 0
+    /** How the audio-only stream is played (for "Stats for nerds"). */
+    private var audioDescription = ""
+    /** Audio playlists found in HLS manifests, by manifest URL and size. */
+    private val audioPlaylists = HashMap<String, HlsAudio.Rendition>()
     /** Touches on the video are ignored until unlocked (YouTube's "Lock screen"). */
     var isScreenLocked by mutableStateOf(false)
     /** "Stats for nerds" overlay. */
@@ -418,7 +421,7 @@ object PlayerController {
         webFallbackReason = null
         quality = defaultQuality()
         isAudioOnly = wantsAudioOnly
-        audioBitrate = 0
+        audioDescription = ""
         applyAudioOnlyTracks()
         isLoading = true
         pendingSeek = startAt ?: if (AppSettings.resumePlayback) LibraryStore.resumePosition(video.id) else null
@@ -492,6 +495,28 @@ object PlayerController {
                 loadStream(video)
             }
         }
+    }
+
+    /** The audio-only rendition of an HLS manifest (cached per manifest). */
+    private suspend fun audioRendition(master: String): HlsAudio.Rendition? {
+        val preferSmall = AppSettings.savesData
+        val key = master + if (preferSmall) "#small" else "#best"
+        audioPlaylists[key]?.let { return it }
+        val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                InnerTube.client.newCall(okhttp3.Request.Builder().url(master).build()).execute().use { response ->
+                    if (response.isSuccessful) response.body?.string() else null
+                }
+            }.getOrNull()
+        } ?: return null
+        val rendition = HlsAudio.pick(text, master, preferSmall)
+        if (rendition == null) {
+            Log.debug("audio only: the HLS manifest has no audio-only playlist")
+            return null
+        }
+        if (audioPlaylists.size > 20) audioPlaylists.clear()
+        audioPlaylists[key] = rendition
+        return rendition
     }
 
     /** The AAC stream: the largest normally, the smallest with data saver on mobile data. */
@@ -584,13 +609,26 @@ object PlayerController {
      * Stage -1: audio only. Stage 0: HLS (adaptive, best). Stage 1: muxed progressive.
      * Stage 2: video + audio merged.
      */
-    private fun makeSource(info: PlayerInfo, stage: Int, video: VideoItem): MediaSource? {
+    private suspend fun makeSource(info: PlayerInfo, stage: Int, video: VideoItem): MediaSource? {
         for (s in stage..2) {
             when (s) {
-                -1 -> audioFormat(info)?.let {
-                    fallbackStage = -1
-                    audioBitrate = it.bitrate
-                    return progressive(it.url, video)
+                -1 -> {
+                    // Segmented HLS audio starts at once; the single progressive file is only
+                    // a fallback (YouTube sends it at about playback speed, so it starts slowly).
+                    val hls = info.hlsUrl
+                    val rendition = if (hls != null) audioRendition(hls) else null
+                    if (rendition != null) {
+                        fallbackStage = -1
+                        audioDescription = "HLS" + (rendition.itag?.let { " itag $it" } ?: "")
+                        Log.debug("audio only ${info.videoId}: $audioDescription")
+                        return HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem(rendition.url, video))
+                    }
+                    audioFormat(info)?.let {
+                        fallbackStage = -1
+                        audioDescription = "AAC ${it.bitrate / 1000} kbps"
+                        Log.debug("audio only ${info.videoId}: progressive $audioDescription")
+                        return progressive(it.url, video)
+                    }
                 }
                 0 -> info.hlsUrl?.let {
                     fallbackStage = 0
@@ -925,7 +963,7 @@ object PlayerController {
             isCasting -> "Chromecast"
             usesWebPlayer -> "Trình phát web"
             isLocalPlayback -> "Tệp đã tải xuống"
-            fallbackStage == -1 -> "Chỉ âm thanh (AAC ${audioBitrate / 1000} kbps)"
+            fallbackStage == -1 -> "Chỉ âm thanh ($audioDescription)"
             fallbackStage == 0 -> if (isAudioOnly) "HLS 144p (chỉ âm thanh)" else "HLS"
             fallbackStage == 1 -> "MP4 ghép sẵn"
             else -> "Hình + tiếng ghép trên máy"
