@@ -208,6 +208,25 @@ final class YouTubeService {
         AccountParser.profile(try await api.accountMenu())
     }
 
+    /// Signed-in Google accounts and their brand channels.
+    func accountIdentities() async throws -> [AccountIdentity] {
+        var firstError: Error?
+        do {
+            let identities = AccountParser.identities(try await api.accountSwitcher())
+            Log.debug("account switcher: \(identities.count) identities")
+            if !identities.isEmpty { return identities }
+        } catch {
+            firstError = error
+        }
+        do {
+            let identities = AccountParser.identities(try await api.accountsList())
+            Log.debug("accounts list: \(identities.count) identities")
+            return identities
+        } catch {
+            throw firstError ?? error
+        }
+    }
+
     /// Any account page by browse id: FEwhat_to_watch (home), FEsubscriptions, FEchannels,
     /// FEhistory, FEplaylist_aggregation, VLWL (watch later), VLLL (liked videos).
     func accountFeed(_ browseId: String) async throws -> FeedPage {

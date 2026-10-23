@@ -126,6 +126,8 @@ struct WatchInfo {
     /// Signed-in state from YouTube: "LIKE", "DISLIKE" or "INDIFFERENT".
     var likeStatus: String?
     var isSubscribed: Bool?
+    /// Live streams and their replays.
+    var liveChat: LiveChatInfo?
 }
 
 /// An account playlist in the "Save to…" sheet.
@@ -151,6 +153,24 @@ struct AccountProfile: Codable, Hashable {
     var handle: String?
     var email: String?
     var avatar: URL?
+    /// The account's own channel (UC…), when it has one.
+    var channelId: String?
+}
+
+/// One entry of the account switcher: a Google account or one of its brand channels.
+struct AccountIdentity: Identifiable, Hashable {
+    var authUser: Int
+    var pageId: String?
+    var name: String
+    var byline: String?
+    /// The Google account (email) this identity belongs to.
+    var email: String?
+    var avatar: URL?
+    var isSelected: Bool
+    var hasChannel: Bool
+
+    var id: String { "\(authUser)|\(pageId ?? "")" }
+    var isBrandAccount: Bool { pageId != nil }
 }
 
 struct Comment: Identifiable, Hashable {

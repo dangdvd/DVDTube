@@ -50,7 +50,14 @@ struct RootView: View {
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $router.showSignIn) {
-            GoogleSignInView()
+            GoogleSignInView(addsAccount: router.signInAddsAccount)
+        }
+        .sheet(isPresented: $router.showAccountSwitcher) {
+            AccountSwitcherSheet()
+                .presentationDetents([.medium, .large])
+        }
+        .fullScreenCover(isPresented: $router.showUpload) {
+            UploadView()
         }
     }
 

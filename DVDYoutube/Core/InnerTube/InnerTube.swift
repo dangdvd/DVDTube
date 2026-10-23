@@ -211,10 +211,54 @@ final class InnerTube {
         try await web("next", body: ["continuation": token])
     }
 
+    // MARK: - Live chat
+
+    func liveChat(continuation: String) async throws -> JNode {
+        try await web("live_chat/get_live_chat", body: ["continuation": continuation])
+    }
+
+    func liveChatReplay(continuation: String, offsetMs: Int) async throws -> JNode {
+        try await web("live_chat/get_live_chat_replay", body: [
+            "continuation": continuation,
+            "currentPlayerState": ["playerOffsetMs": String(max(offsetMs, 0))],
+        ])
+    }
+
+    func sendLiveChatMessage(_ text: String, params: String) async throws -> JNode {
+        try await web("live_chat/send_message", body: [
+            "params": params,
+            "clientMessageId": UUID().uuidString,
+            "richMessage": ["textSegments": [["text": text]]],
+        ])
+    }
+
     // MARK: - Account (signed in only)
 
     func accountMenu() async throws -> JNode {
         try await web("account/account_menu", body: [:])
+    }
+
+    /// The website's "Switch account" list (all signed-in Google accounts and channels).
+    func accountSwitcher() async throws -> JNode {
+        let url = URL(string: "https://www.youtube.com/getAccountSwitcherEndpoint")!
+        var request = URLRequest(url: url)
+        request.httpShouldHandleCookies = false
+        if let userAgent = APIConfig.webProfile.resolvedUserAgent(gl: APIConfig.gl) {
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        for (key, value) in AuthSession.shared.headers(for: url) ?? [:] { request.setValue(value, forHTTPHeaderField: key) }
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        Log.debug("account switcher -> HTTP \(status), \(data.count) bytes")
+        guard (200..<300).contains(status) else { throw InnerTubeError.http(status) }
+        // The body starts with an anti-JSON-hijacking prefix: )]}'
+        var text = String(decoding: data, as: UTF8.self)
+        if let start = text.firstIndex(of: "{") { text = String(text[start...]) }
+        return try JNode(data: Data(text.utf8))
+    }
+
+    func accountsList() async throws -> JNode {
+        try await web("account/accounts_list", body: [:])
     }
 
     func like(videoId: String, action: String) async throws {

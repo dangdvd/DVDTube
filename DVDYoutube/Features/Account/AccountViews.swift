@@ -51,9 +51,19 @@ struct AccountHeader: View {
         if account.isSignedIn {
             HStack(spacing: 14) {
                 AvatarView(url: account.profile?.avatar, size: 56, name: account.profile?.name ?? "")
+                    .onTapGesture { router.showAccountSwitcher = true }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(account.profile?.name ?? "Tài khoản YouTube")
-                        .font(.title3.weight(.bold))
+                    Button {
+                        router.showAccountSwitcher = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(account.profile?.name ?? "Tài khoản YouTube")
+                                .font(.title3.weight(.bold))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down").font(.caption.weight(.bold))
+                        }
+                    }
+                    .buttonStyle(.plain)
                     Text([account.profile?.handle, account.profile?.email].compactMap { $0 }.joined(separator: " • "))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -64,6 +74,21 @@ struct AccountHeader: View {
                 }
                 Spacer()
                 Menu {
+                    Button {
+                        router.showAccountSwitcher = true
+                    } label: {
+                        Label("Chuyển đổi tài khoản", systemImage: "person.2.circle")
+                    }
+                    Button {
+                        router.signIn(addingAccount: true)
+                    } label: {
+                        Label("Thêm tài khoản", systemImage: "person.badge.plus")
+                    }
+                    Button {
+                        router.showUpload = true
+                    } label: {
+                        Label("Tải video lên", systemImage: "square.and.arrow.up")
+                    }
                     Button {
                         Task { await account.refresh() }
                     } label: {
@@ -100,7 +125,7 @@ struct AccountHeader: View {
                     }
                 }
                 Button {
-                    router.showSignIn = true
+                    router.signIn()
                 } label: {
                     Label("Đăng nhập tài khoản Google", systemImage: "person.crop.circle.badge.plus")
                         .font(.subheadline.weight(.semibold))
@@ -210,5 +235,113 @@ struct NotificationBell: View {
                 }
         }
         .accessibilityLabel("Thông báo")
+    }
+}
+
+/// "Switch account": every signed-in Google account with its brand channels.
+struct AccountSwitcherSheet: View {
+    @Environment(AccountStore.self) private var account
+    @Environment(Router.self) private var router
+    @Environment(\.dismiss) private var dismiss
+    @State private var isLoading = false
+    @State private var switchingId: String?
+
+    private struct Group: Identifiable {
+        var id: String
+        var items: [AccountIdentity]
+    }
+
+    private var groups: [Group] {
+        var order: [String] = []
+        var map: [String: [AccountIdentity]] = [:]
+        for identity in account.identities {
+            let key = identity.email ?? "Tài khoản Google \(identity.authUser + 1)"
+            if map[key] == nil { order.append(key) }
+            map[key, default: []].append(identity)
+        }
+        return order.map { Group(id: $0, items: map[$0] ?? []) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if account.identities.isEmpty {
+                    Section {
+                        if isLoading {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                        } else {
+                            Text("Không tải được danh sách tài khoản. Kéo xuống để thử lại.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                ForEach(groups) { group in
+                    Section(group.id) {
+                        ForEach(group.items) { identity in
+                            row(identity)
+                        }
+                    }
+                }
+                Section {
+                    Button {
+                        dismiss()
+                        router.signIn(addingAccount: true)
+                    } label: {
+                        Label("Thêm tài khoản Google", systemImage: "person.badge.plus")
+                    }
+                } footer: {
+                    Text("Kênh (tài khoản thương hiệu) của mỗi tài khoản Google nằm ngay dưới email đó. Khi chuyển, trang chủ, kênh đăng ký, nhật ký và bình luận đều dùng tài khoản/kênh đã chọn.")
+                }
+            }
+            .refreshable { await load() }
+            .navigationTitle("Tài khoản")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Xong") { dismiss() }
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func row(_ identity: AccountIdentity) -> some View {
+        Button {
+            guard !identity.isSelected, switchingId == nil else { return }
+            switchingId = identity.id
+            Task {
+                await account.switchTo(identity)
+                switchingId = nil
+                dismiss()
+            }
+        } label: {
+            HStack(spacing: 12) {
+                AvatarView(url: identity.avatar, size: 40, name: identity.name)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(identity.name).font(.subheadline.weight(.semibold))
+                    if let byline = identity.byline {
+                        Text(byline).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    if identity.isBrandAccount {
+                        Text("Tài khoản thương hiệu").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if switchingId == identity.id {
+                    ProgressView()
+                } else if identity.isSelected {
+                    Image(systemName: "checkmark").foregroundStyle(Color.brand)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func load() async {
+        isLoading = true
+        await account.loadIdentities()
+        isLoading = false
     }
 }
