@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Notifications
@@ -73,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.ChannelItem
 import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.storage.AccountStore
@@ -116,6 +119,7 @@ fun LibraryScreen() {
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item { AccountHeader() }
+            item { IncognitoBanner() }
             item {
                 SectionHeader("Nhật ký xem") {
                     TextButton(onClick = { Router.open(Route.History()) }) { Text("Xem tất cả") }
@@ -158,6 +162,16 @@ fun LibraryScreen() {
                 LibraryRow(Icons.Outlined.Download, "Nội dung tải xuống", "${DownloadManager.downloads.size} video") { Router.open(Route.Downloads()) }
             }
             item { LibraryRow(Icons.Outlined.People, "Quản lý kênh đăng ký") { Router.open(Route.SubscriptionsManager()) } }
+            item { LibraryRow(Icons.Outlined.BarChart, "Thời gian xem") { Router.open(Route.WatchTime()) } }
+            item {
+                Row(Modifier.fillMaxWidth().clickable { AppSettings.isIncognito = !AppSettings.isIncognito }.padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.VisibilityOff, null)
+                    Spacer(Modifier.width(20.dp))
+                    Text("Chế độ ẩn danh", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.Switch(checked = AppSettings.isIncognito, onCheckedChange = { AppSettings.isIncognito = it })
+                }
+            }
             item {
                 SectionHeader("Danh sách phát trên máy") {
                     IconButton(onClick = { creating = true }) { Icon(Icons.Default.Add, "Tạo danh sách phát") }

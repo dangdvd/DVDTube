@@ -238,7 +238,7 @@ object LibraryStore {
 
     fun addSearch(query: String) {
         val trimmed = query.trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty() || AppSettings.isIncognito) return
         searchHistory = (listOf(trimmed) + searchHistory.filter { !it.equals(trimmed, ignoreCase = true) }).take(50)
         scheduleSave()
     }

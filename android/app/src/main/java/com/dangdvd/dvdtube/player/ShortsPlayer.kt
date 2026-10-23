@@ -143,7 +143,8 @@ object ShortsPlayer {
 
     /** Fetches stream info ahead of time for the next Shorts. */
     fun prefetch(videos: List<VideoItem>) {
-        if (System.currentTimeMillis() < blockedUntil) return
+        // Data saver: nothing is fetched ahead on mobile data.
+        if (System.currentTimeMillis() < blockedUntil || AppSettings.savesData) return
         for (video in videos.take(2)) {
             if (cache.containsKey(video.id)) continue
             AppScope.launch { runCatching { info(video.id) } }

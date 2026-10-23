@@ -35,7 +35,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.HeadsetOff
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Close
@@ -69,14 +73,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -128,7 +137,7 @@ private object VideoViewHolder {
 
 /** Just the picture: native video, the web embed or the "playing on TV" backdrop. */
 @Composable
-fun VideoSurface(modifier: Modifier = Modifier) {
+fun VideoSurface(modifier: Modifier = Modifier, compact: Boolean = false) {
     val video = PlayerController.currentVideo
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         when {
@@ -142,14 +151,41 @@ fun VideoSurface(modifier: Modifier = Modifier) {
                     if (MainWebPlayer.videoId != video.id) MainWebPlayer.load(video.id, PlayerController.webStartTime)
                 }
             }
-            else -> AndroidView(
-                factory = { context -> VideoViewHolder.view(context) },
-                update = {
-                    it.resizeMode = if (PlayerController.videoFill && PlayerController.isFullscreen)
-                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+            else -> {
+                AndroidView(
+                    factory = { context -> VideoViewHolder.view(context) },
+                    update = {
+                        it.resizeMode = if (PlayerController.videoFill && PlayerController.isFullscreen)
+                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (PlayerController.isAudioOnly) AudioOnlyBackdrop(compact)
+            }
+        }
+    }
+}
+
+/** Shown instead of the picture in audio-only mode: the thumbnail as artwork. */
+@Composable
+private fun AudioOnlyBackdrop(compact: Boolean) {
+    val video = PlayerController.currentVideo
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        RemoteImage(video?.displayThumbnail, Modifier.fillMaxSize().blur(24.dp))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
+        if (compact) {
+            Icon(Icons.Default.Headphones, "Chỉ âm thanh", tint = Color.White)
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                RemoteImage(video?.displayThumbnail, Modifier.height(96.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)))
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Headphones, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Chỉ phát âm thanh", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                }
+                TextButton(onClick = { PlayerController.switchAudioOnly(false) }) { Text("Bật hình", color = Color.White) }
+            }
         }
     }
 }
@@ -193,7 +229,10 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
     var lastInteraction by remember { mutableLongStateOf(0L) }
     var seekFeedback by remember { mutableStateOf<Pair<Boolean, Long>?>(null) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var sleepOpen by remember { mutableStateOf(false) }
     val playing = PlayerController.isPlaying
+    val locked = PlayerController.isScreenLocked
+    LaunchedEffect(locked) { if (locked) controlsVisible = false }
     val web = PlayerController.usesWebPlayer
 
     LaunchedEffect(controlsVisible, playing, lastInteraction) {
@@ -220,7 +259,8 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
                     },
                     onDoubleTap = { offset ->
                         val forward = offset.x > size.width / 2
-                        PlayerController.skip(if (forward) 10.0 else -10.0)
+                        val seconds = AppSettings.doubleTapSeconds.toDouble()
+                        PlayerController.skip(if (forward) seconds else -seconds)
                         seekFeedback = forward to System.currentTimeMillis()
                     },
                     onLongPress = { PlayerController.beginSpeedBoost() },
@@ -281,12 +321,13 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
 
         if (web) {
             // The embed has its own controls; only keep ours for leaving and settings.
-            WebPlayerBar(fullscreen, onSettings = { settingsOpen = true })
+            if (!locked) WebPlayerBar(fullscreen, onSettings = { settingsOpen = true })
         } else {
-            AnimatedVisibility(controlsVisible, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(controlsVisible && !locked, enter = fadeIn(), exit = fadeOut()) {
                 PlayerControls(
                     fullscreen = fullscreen,
                     onSettings = { settingsOpen = true },
+                    onSleepTimer = { sleepOpen = true },
                     onInteract = { lastInteraction = System.currentTimeMillis() },
                 )
             }
@@ -303,7 +344,7 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
             ) {
                 Icon(if (forward) Icons.Default.FastForward else Icons.Default.FastRewind, null, tint = Color.White)
                 Spacer(Modifier.width(6.dp))
-                Text("10 giây", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                Text("${AppSettings.doubleTapSeconds} giây", color = Color.White, style = MaterialTheme.typography.labelLarge)
             }
         }
         if (PlayerController.isSpeedBoosted) {
@@ -318,8 +359,78 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
             }
         }
         UpNextOverlay(Modifier.align(Alignment.Center))
+        if (PlayerController.showsStats) StatsOverlay(Modifier.align(Alignment.TopStart).padding(if (fullscreen) 24.dp else 8.dp))
+        if (locked) LockOverlay()
     }
     if (settingsOpen) PlayerSettingsSheet(onDismiss = { settingsOpen = false })
+    if (sleepOpen) SleepTimerSheet(onDismiss = { sleepOpen = false })
+}
+
+/** "Lock screen": every touch is ignored except the unlock button. */
+@Composable
+private fun LockOverlay() {
+    var showUnlock by remember { mutableStateOf(false) }
+    LaunchedEffect(showUnlock) {
+        if (showUnlock) {
+            delay(2500)
+            showUnlock = false
+        }
+    }
+    Box(
+        Modifier.fillMaxSize().pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                down.consume()
+                while (true) {
+                    val event = awaitPointerEvent()
+                    event.changes.forEach { it.consume() }
+                    if (event.changes.none { it.pressed }) break
+                }
+                showUnlock = true
+            }
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (showUnlock) {
+            Column(
+                Modifier.size(130.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                    .clickable { PlayerController.isScreenLocked = false },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(Icons.Default.LockOpen, null, tint = Color.White, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.height(6.dp))
+                Text("Nhấn để mở khóa", color = Color.White, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+/** "Stats for nerds": what is playing and how. */
+@Composable
+private fun StatsOverlay(modifier: Modifier) {
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            tick++
+        }
+    }
+    val lines = remember(tick) { PlayerController.statsLines }
+    Box(modifier.background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(6.dp)).padding(8.dp)) {
+        Column {
+            lines.forEach { (label, value) ->
+                Row {
+                    Text("$label  ", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text(value, color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+        }
+        Icon(
+            Icons.Default.Close, "Đóng", tint = Color.White,
+            modifier = Modifier.align(Alignment.TopEnd).size(18.dp).clickable { PlayerController.showsStats = false },
+        )
+    }
 }
 
 @Composable
@@ -345,7 +456,7 @@ private fun SmallOverlayButton(icon: androidx.compose.ui.graphics.vector.ImageVe
 }
 
 @Composable
-private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onInteract: () -> Unit) {
+private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onSleepTimer: () -> Unit, onInteract: () -> Unit) {
     val video = PlayerController.currentVideo
     val info = PlayerController.playerInfo
     val isLive = video?.isLive == true || info?.isLive == true
@@ -355,11 +466,31 @@ private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onIntera
             IconButton(onClick = { if (fullscreen) PlayerController.isFullscreen = false else PlayerController.isExpanded = false }) {
                 Icon(if (fullscreen) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowDown, "Thu nhỏ", tint = Color.White)
             }
+            PlayerController.sleepTimerLabel?.let { label ->
+                Row(
+                    Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50)).clickable(onClick = onSleepTimer)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Bedtime, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(label, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                }
+            }
             if (fullscreen) {
                 Text(video?.title ?: "", color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).padding(start = 6.dp))
             } else {
                 Spacer(Modifier.weight(1f))
+            }
+            if (!PlayerController.isCasting && !PlayerController.isLocalPlayback) {
+                IconButton(onClick = { PlayerController.switchAudioOnly(!PlayerController.isAudioOnly); onInteract() }) {
+                    Icon(
+                        if (PlayerController.isAudioOnly) Icons.Default.HeadsetOff else Icons.Default.Headphones,
+                        if (PlayerController.isAudioOnly) "Bật lại hình" else "Chỉ phát âm thanh",
+                        tint = if (PlayerController.isAudioOnly) Brand else Color.White,
+                    )
+                }
             }
             CastButton()
             if (PlayerController.captionTracks.isNotEmpty()) {
@@ -566,14 +697,17 @@ private fun StoryboardPreview(storyboard: Storyboard, fraction: Float, duration:
 private fun CaptionOverlay(modifier: Modifier) {
     val caption = PlayerController.currentCaption ?: return
     if (PlayerController.isCasting) return
+    val scale = AppSettings.captionSize.scale
+    val background = AppSettings.captionBackground
     Text(
         caption,
         color = Color.White,
-        fontSize = if (PlayerController.isFullscreen) 18.sp else 14.sp,
+        fontSize = (if (PlayerController.isFullscreen) 18f else 14f).times(scale).sp,
         textAlign = TextAlign.Center,
+        style = if (background < 0.3f) TextStyle(shadow = Shadow(Color.Black, blurRadius = 6f)) else TextStyle.Default,
         modifier = modifier
             .padding(horizontal = 24.dp)
-            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+            .background(Color.Black.copy(alpha = background), RoundedCornerShape(4.dp))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
@@ -669,13 +803,18 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
     ) {
         Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.fillMaxHeight().aspectRatio(16f / 9f)) {
-                VideoSurface(Modifier.fillMaxSize())
+                VideoSurface(Modifier.fillMaxSize(), compact = true)
             }
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                 Text(video.title.ifEmpty { PlayerController.playerInfo?.title ?: "" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                val subtitle = if (PlayerController.isCasting) "Đang phát trên ${CastController.deviceName ?: "TV"}"
+                val channel = if (PlayerController.isCasting) "Đang phát trên ${CastController.deviceName ?: "TV"}"
                 else video.channelName ?: PlayerController.playerInfo?.author ?: ""
+                val subtitle = listOfNotNull(
+                    PlayerController.sleepTimerLabel?.let { "⏾ $it" },
+                    if (PlayerController.isAudioOnly) "🎧" else null,
+                    channel,
+                ).joinToString(" • ")
                 Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

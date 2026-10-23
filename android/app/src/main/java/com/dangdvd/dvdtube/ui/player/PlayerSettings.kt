@@ -18,7 +18,10 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Repeat
@@ -28,6 +31,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -66,7 +71,7 @@ fun PlayerSettingsSheet(onDismiss: () -> Unit) {
                             SettingsPage.SPEED -> "Tốc độ phát"
                             SettingsPage.CAPTIONS -> "Phụ đề"
                             SettingsPage.TRANSLATE -> "Tự động dịch"
-                            SettingsPage.SLEEP -> "Hẹn giờ đi ngủ"
+                            SettingsPage.SLEEP -> "Hẹn giờ tắt"
                             SettingsPage.MAIN -> ""
                         },
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
@@ -75,17 +80,29 @@ fun PlayerSettingsSheet(onDismiss: () -> Unit) {
                 HorizontalDivider()
             }
             when (page) {
-                SettingsPage.MAIN -> MainPage { page = it }
+                SettingsPage.MAIN -> MainPage(open = { page = it }, onDismiss = onDismiss)
                 SettingsPage.QUALITY -> VideoQuality.entries.forEach { quality ->
                     CheckRow(quality.title, PlayerController.quality == quality) {
                         PlayerController.setQuality(quality)
                         onDismiss()
                     }
                 }
-                SettingsPage.SPEED -> AppSettings.speeds.forEach { speed ->
-                    CheckRow(speedTitle(speed), PlayerController.rate == speed) {
-                        PlayerController.setPlaybackRate(speed)
-                        onDismiss()
+                SettingsPage.SPEED -> {
+                    AppSettings.speeds.forEach { speed ->
+                        CheckRow(speedTitle(speed), PlayerController.rate == speed) {
+                            PlayerController.setPlaybackRate(speed)
+                            onDismiss()
+                        }
+                    }
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                        Text("Tùy chỉnh: ${String.format(java.util.Locale.ROOT, "%.2fx", PlayerController.rate)}",
+                            style = MaterialTheme.typography.bodyLarge)
+                        Slider(
+                            value = PlayerController.rate,
+                            onValueChange = { PlayerController.setPlaybackRate(Math.round(it * 20) / 20f) },
+                            valueRange = 0.25f..4f,
+                            steps = 74,
+                        )
                     }
                 }
                 SettingsPage.CAPTIONS -> {
@@ -115,30 +132,19 @@ fun PlayerSettingsSheet(onDismiss: () -> Unit) {
                         onDismiss()
                     }
                 }
-                SettingsPage.SLEEP -> {
-                    CheckRow("Tắt", PlayerController.sleepTimerEnd == null && !PlayerController.sleepAtEndOfVideo) {
-                        PlayerController.setSleepTimer(null)
-                        onDismiss()
-                    }
-                    listOf(10, 15, 20, 30, 45, 60).forEach { minutes ->
-                        CheckRow("$minutes phút", false) {
-                            PlayerController.setSleepTimer(minutes)
-                            onDismiss()
-                        }
-                    }
-                    CheckRow("Khi hết video này", PlayerController.sleepAtEndOfVideo) {
-                        PlayerController.setSleepTimer(0)
-                        onDismiss()
-                    }
-                }
+                SettingsPage.SLEEP -> SleepTimerContent(onDone = onDismiss)
             }
         }
     }
 }
 
 @Composable
-private fun MainPage(open: (SettingsPage) -> Unit) {
+private fun MainPage(open: (SettingsPage) -> Unit, onDismiss: () -> Unit) {
     val isLive = PlayerController.currentVideo?.isLive == true
+    if (!PlayerController.isCasting && !PlayerController.usesWebPlayer && !PlayerController.isLocalPlayback) {
+        ToggleRow(Icons.Default.Headphones, "Chỉ phát âm thanh", PlayerController.isAudioOnly,
+            "Không tải hình — tiết kiệm dữ liệu 4G") { PlayerController.switchAudioOnly(it) }
+    }
     if (!PlayerController.usesWebPlayer) {
         val qualityValue = PlayerController.quality.title
         SettingRow(Icons.Default.HighQuality, "Chất lượng", qualityValue) { open(SettingsPage.QUALITY) }
@@ -151,15 +157,12 @@ private fun MainPage(open: (SettingsPage) -> Unit) {
         ToggleRow(Icons.Default.Repeat, "Phát lặp lại", PlayerController.isLooping) { PlayerController.setLooping(it) }
     }
     ToggleRow(Icons.Default.PlayCircle, "Tự động phát", AppSettings.autoplay) { PlayerController.toggleAutoplay() }
-    val sleepValue = when {
-        PlayerController.sleepAtEndOfVideo -> "Khi hết video"
-        PlayerController.sleepTimerEnd != null -> {
-            val left = ((PlayerController.sleepTimerEnd!! - System.currentTimeMillis()) / 60_000).coerceAtLeast(0) + 1
-            "Còn khoảng $left phút"
-        }
-        else -> "Tắt"
+    SettingRow(Icons.Default.Bedtime, "Hẹn giờ tắt", PlayerController.sleepTimerLabel ?: "Tắt") { open(SettingsPage.SLEEP) }
+    SettingRow(Icons.Default.Lock, "Khóa màn hình", null) {
+        PlayerController.isScreenLocked = true
+        onDismiss()
     }
-    SettingRow(Icons.Default.Bedtime, "Hẹn giờ đi ngủ", sleepValue) { open(SettingsPage.SLEEP) }
+    ToggleRow(Icons.Default.QueryStats, "Thống kê chi tiết", PlayerController.showsStats) { PlayerController.showsStats = it }
     if (!PlayerController.isCasting) {
         if (PlayerController.usesWebPlayer) {
             SettingRow(Icons.Default.PlayCircle, "Thử lại trình phát gốc", null) { PlayerController.switchToNativePlayer() }
@@ -223,5 +226,78 @@ fun CheckRow(title: String, selected: Boolean, onClick: () -> Unit) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
         if (selected) Icon(Icons.Default.Check, null, tint = Brand)
+    }
+}
+
+fun sleepDurationTitle(minutes: Int): String {
+    if (minutes < 60) return "$minutes phút"
+    val rest = minutes % 60
+    return if (rest == 0) "${minutes / 60} giờ" else "${minutes / 60} giờ $rest phút"
+}
+
+/** Sleep timer: preset durations, end of video, a custom duration and extending a running timer. */
+@Composable
+fun SleepTimerContent(onDone: () -> Unit) {
+    var custom by remember { mutableStateOf(25f) }
+    PlayerController.sleepTimerLabel?.let { label ->
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Bedtime, null, tint = Brand)
+                Spacer(Modifier.width(10.dp))
+                Text(if (PlayerController.sleepAtEndOfVideo) "Dừng khi hết video này" else "Dừng phát sau $label",
+                    style = MaterialTheme.typography.titleSmall)
+            }
+            Row(Modifier.padding(top = 8.dp)) {
+                if (!PlayerController.sleepAtEndOfVideo) {
+                    listOf(5, 15, 30).forEach { minutes ->
+                        OutlinedButton(onClick = { PlayerController.extendSleepTimer(minutes) }, modifier = Modifier.padding(end = 8.dp)) {
+                            Text("+$minutes phút")
+                        }
+                    }
+                }
+            }
+        }
+        CheckRow("Tắt hẹn giờ", false) {
+            PlayerController.setSleepTimer(null)
+            onDone()
+        }
+        HorizontalDivider()
+    }
+    Text("Dừng phát sau", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+    AppSettings.sleepTimerOptions.forEach { minutes ->
+        CheckRow(sleepDurationTitle(minutes), false) {
+            PlayerController.setSleepTimer(minutes)
+            onDone()
+        }
+    }
+    CheckRow("Khi hết video này", PlayerController.sleepAtEndOfVideo) {
+        PlayerController.setSleepTimer(0)
+        onDone()
+    }
+    HorizontalDivider()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Text("Tùy chỉnh: ${sleepDurationTitle(custom.toInt())}", style = MaterialTheme.typography.bodyLarge)
+        Slider(value = custom, onValueChange = { custom = it }, valueRange = 1f..240f)
+        OutlinedButton(onClick = {
+            PlayerController.setSleepTimer(custom.toInt().coerceAtLeast(1))
+            onDone()
+        }) { Text("Bắt đầu hẹn giờ") }
+        Text(
+            "Âm thanh nhỏ dần trong 10 giây cuối rồi video tạm dừng — kể cả khi đang phát trong nền hoặc tắt màn hình.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+}
+
+@Composable
+fun SleepTimerSheet(onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 12.dp)) {
+            Text("Hẹn giờ tắt", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+            SleepTimerContent(onDone = onDismiss)
+        }
     }
 }

@@ -31,11 +31,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.dangdvd.dvdtube.core.AppSettings
+
+/** Data saver on mobile data: video thumbnails in the small 320×180 size instead of HD. */
+fun dataSavingThumbnail(url: String?): String? {
+    if (url == null || !AppSettings.savesData) return url
+    val uri = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return url
+    if (uri.host?.endsWith("ytimg.com") != true) return url
+    val parts = uri.pathSegments
+    if (parts.size < 3 || (parts[0] != "vi" && parts[0] != "vi_webp")) return url
+    val file = parts.last()
+    if (!file.startsWith("hq") && !file.startsWith("maxres") && !file.startsWith("sd")) return url
+    return "https://i.ytimg.com/vi/${parts[1]}/mqdefault.jpg"
+}
 
 @Composable
 fun RemoteImage(url: String?, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
     AsyncImage(
-        model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(true).build(),
+        model = ImageRequest.Builder(LocalContext.current).data(dataSavingThumbnail(url)).crossfade(true).build(),
         contentDescription = null,
         contentScale = contentScale,
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),

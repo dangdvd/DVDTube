@@ -21,7 +21,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.HeadsetOff
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Share
@@ -29,6 +32,8 @@ import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import com.dangdvd.dvdtube.core.LiveChatInfo
 import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.WatchInfo
+import com.dangdvd.dvdtube.core.formatTime
+import com.dangdvd.dvdtube.core.storage.HiddenContentStore
+import com.dangdvd.dvdtube.ui.player.SleepTimerSheet
 import com.dangdvd.dvdtube.core.storage.AccountStore
 import com.dangdvd.dvdtube.core.storage.DownloadManager
 import com.dangdvd.dvdtube.core.storage.DownloadState
@@ -71,6 +79,7 @@ sealed class WatchSheet {
     data object Transcript : WatchSheet()
     data object Queue : WatchSheet()
     data class Chat(val info: LiveChatInfo) : WatchSheet()
+    data object SleepTimer : WatchSheet()
 }
 
 /** The video as it should be saved to the library (details from the watch page). */
@@ -146,7 +155,7 @@ fun WatchDetails(modifier: Modifier = Modifier) {
                 }
             }
             if (related != null) {
-                feedItems(related.items, compact = true, isLoadingMore = related.isLoadingMore,
+                feedItems(HiddenContentStore.filter(related.items), compact = true, isLoadingMore = related.isLoadingMore,
                     onLoadMore = if (related.canLoadMore) ({ scope.launch { related.loadMore() } }) else null)
             }
         }
@@ -159,6 +168,7 @@ fun WatchDetails(modifier: Modifier = Modifier) {
         WatchSheet.Transcript -> TranscriptSheet { sheet = null }
         WatchSheet.Queue -> QueueSheet { sheet = null }
         is WatchSheet.Chat -> LiveChatSheet(current.info) { sheet = null }
+        WatchSheet.SleepTimer -> SleepTimerSheet { sheet = null }
         null -> {}
     }
 }
@@ -208,7 +218,39 @@ private fun Header(video: VideoItem, info: WatchInfo?, open: (WatchSheet) -> Uni
             info?.liveChat?.let { chat ->
                 item { ActionChip(Icons.AutoMirrored.Filled.Chat, "Trò chuyện") { open(WatchSheet.Chat(chat)) } }
             }
-            item { ActionChip(Icons.Default.Share, "Chia sẻ") { shareText(context, video.shareUrl, title) } }
+            item {
+                var shareMenu by remember { mutableStateOf(false) }
+                Box {
+                    ActionChip(Icons.Default.Share, "Chia sẻ") {
+                        if (PlayerController.currentTime > 5 && !video.isLive) shareMenu = true
+                        else shareText(context, video.shareUrl, title)
+                    }
+                    DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
+                        DropdownMenuItem(text = { Text("Chia sẻ video") }, onClick = {
+                            shareMenu = false
+                            shareText(context, video.shareUrl, title)
+                        })
+                        val seconds = PlayerController.currentTime.toInt()
+                        DropdownMenuItem(text = { Text("Chia sẻ tại ${formatTime(seconds.toDouble())}") }, onClick = {
+                            shareMenu = false
+                            shareText(context, "https://youtu.be/${video.id}?t=$seconds", title)
+                        })
+                    }
+                }
+            }
+            if (!PlayerController.isCasting && !PlayerController.isLocalPlayback) {
+                item {
+                    ActionChip(
+                        if (PlayerController.isAudioOnly) Icons.Default.HeadsetOff else Icons.Default.Headphones,
+                        if (PlayerController.isAudioOnly) "Bật hình" else "Chỉ âm thanh",
+                    ) { PlayerController.switchAudioOnly(!PlayerController.isAudioOnly) }
+                }
+            }
+            item {
+                ActionChip(Icons.Default.Bedtime, PlayerController.sleepTimerLabel?.let { "Hẹn giờ $it" } ?: "Hẹn giờ tắt") {
+                    open(WatchSheet.SleepTimer)
+                }
+            }
             item { ActionChip(Icons.AutoMirrored.Filled.PlaylistAdd, "Lưu") { Router.playlistSheetVideo = item } }
             if (!video.isLive) {
                 item {

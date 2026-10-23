@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -268,6 +269,23 @@ fun AccountSwitcherSheet(onDismiss: () -> Unit) {
                 }
             }
             HorizontalDivider(Modifier.padding(top = 8.dp))
+            Row(
+                Modifier.fillMaxWidth().clickable { com.dangdvd.dvdtube.core.AppSettings.isIncognito = !com.dangdvd.dvdtube.core.AppSettings.isIncognito }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.VisibilityOff, null)
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Bật chế độ ẩn danh")
+                    Text("Không lưu video đã xem và tìm kiếm. Tự tắt khi mở lại ứng dụng.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                androidx.compose.material3.Switch(
+                    checked = com.dangdvd.dvdtube.core.AppSettings.isIncognito,
+                    onCheckedChange = { com.dangdvd.dvdtube.core.AppSettings.isIncognito = it },
+                )
+            }
             Row(
                 Modifier.fillMaxWidth().clickable { onDismiss(); Router.signIn(addingAccount = true) }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,

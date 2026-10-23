@@ -132,7 +132,9 @@ class ShortsFeed {
             continuation = page.continuation
             val watched = LibraryStore.history.take(300).filter { it.video.isShort }.map { it.video.id }.toSet()
             val existing = items.map { it.id }.toSet()
-            var fresh = page.videos.filter { it.isShort && it.id !in existing && it.id !in watched }
+            var fresh = page.videos.filter {
+                it.isShort && it.id !in existing && it.id !in watched && !com.dangdvd.dvdtube.core.storage.HiddenContentStore.isHidden(it)
+            }
             if (fresh.isEmpty()) fresh = page.videos.filter { it.id !in existing }
             fresh = fresh.map { it.copy(isShort = true) }
             if (reset) {

@@ -63,6 +63,7 @@ import com.dangdvd.dvdtube.ui.screens.ChannelScreen
 import com.dangdvd.dvdtube.ui.screens.DiagnosticsScreen
 import com.dangdvd.dvdtube.ui.screens.DownloadsScreen
 import com.dangdvd.dvdtube.ui.screens.HistoryScreen
+import com.dangdvd.dvdtube.ui.screens.HiddenContentScreen
 import com.dangdvd.dvdtube.ui.screens.HomeScreen
 import com.dangdvd.dvdtube.ui.screens.LibraryScreen
 import com.dangdvd.dvdtube.ui.screens.LikedScreen
@@ -75,6 +76,8 @@ import com.dangdvd.dvdtube.ui.screens.ShortsScreen
 import com.dangdvd.dvdtube.ui.screens.SubscriptionsManagerScreen
 import com.dangdvd.dvdtube.ui.screens.SubscriptionsScreen
 import com.dangdvd.dvdtube.ui.screens.WatchLaterScreen
+import com.dangdvd.dvdtube.ui.screens.WatchTimeScreen
+import com.dangdvd.dvdtube.ui.screens.WellbeingReminderDialog
 import com.dangdvd.dvdtube.ui.upload.UploadDialog
 import com.dangdvd.dvdtube.ui.watch.WatchDetails
 
@@ -159,6 +162,7 @@ fun MainScreen() {
     if (Router.showAccountSwitcher) AccountSwitcherSheet { Router.showAccountSwitcher = false }
     if (Router.showSignIn) SignInDialog(addingAccount = Router.signInAddsAccount) { Router.showSignIn = false }
     if (Router.showUpload) UploadDialog { Router.showUpload = false }
+    WellbeingReminderDialog()
 }
 
 @Composable
@@ -206,6 +210,8 @@ private fun RouteScreen(route: Route) {
         is Route.Notifications -> NotificationsScreen()
         is Route.Settings -> SettingsScreen()
         is Route.Diagnostics -> DiagnosticsScreen()
+        is Route.WatchTime -> WatchTimeScreen()
+        is Route.HiddenContent -> HiddenContentScreen()
     }
 }
 
