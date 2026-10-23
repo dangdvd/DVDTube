@@ -249,7 +249,7 @@ final class LibraryStore {
 
     func addSearch(_ query: String) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, !AppSettings.shared.isIncognito else { return }
         searchHistory.removeAll { $0.caseInsensitiveCompare(trimmed) == .orderedSame }
         searchHistory.insert(trimmed, at: 0)
         if searchHistory.count > 50 { searchHistory.removeLast() }

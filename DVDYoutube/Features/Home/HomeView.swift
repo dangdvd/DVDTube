@@ -131,6 +131,8 @@ struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     Section {
+                        IncognitoBanner()
+                            .padding(.top, 8)
                         content
                             .padding(.top, 8)
                     } header: {
@@ -235,7 +237,7 @@ struct HomeView: View {
         } else if let error = forYou.error, forYou.items.isEmpty {
             ErrorStateView(message: error) { Task { await forYou.load(force: true) } }
         } else {
-            FeedList(items: forYou.items, isLoadingMore: forYou.isLoadingMore) {
+            FeedList(items: forYou.items, isLoadingMore: forYou.isLoadingMore, hidesDismissed: true) {
                 Task { await forYou.loadMore() }
             }
         }
@@ -301,7 +303,7 @@ private struct CategoryFeed: View {
         } else if let error = model.error, model.items.isEmpty {
             ErrorStateView(message: error) { Task { await model.load(force: true) } }
         } else {
-            FeedList(items: model.items, isLoadingMore: model.isLoadingMore) {
+            FeedList(items: model.items, isLoadingMore: model.isLoadingMore, hidesDismissed: true) {
                 Task { await model.loadMore() }
             }
         }

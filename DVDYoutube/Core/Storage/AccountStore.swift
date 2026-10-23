@@ -283,7 +283,8 @@ final class AccountStore {
 
     /// Called once playback has really started; adds the video to the YouTube history.
     func reportWatched(_ videoId: String, duration: Double) {
-        guard isSignedIn, syncWatchHistory, reportedWatched.insert(videoId).inserted else { return }
+        guard isSignedIn, syncWatchHistory, !AppSettings.shared.isIncognito,
+              reportedWatched.insert(videoId).inserted else { return }
         Task.detached(priority: .utility) {
             await InnerTube.shared.markWatched(videoId: videoId, duration: duration)
         }

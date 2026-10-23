@@ -115,7 +115,9 @@ struct ShortsView: View {
             continuation = page.continuation
             let watched = Set(library.history.prefix(300).filter { $0.video.isShort }.map(\.id))
             let existing = Set(items.map(\.id))
-            var fresh = page.videos.filter { $0.isShort && !existing.contains($0.id) && !watched.contains($0.id) }
+            var fresh = page.videos.filter {
+                $0.isShort && !existing.contains($0.id) && !watched.contains($0.id) && !HiddenContentStore.shared.isHidden($0)
+            }
             if fresh.isEmpty { fresh = page.videos.filter { !existing.contains($0.id) } }
             fresh = fresh.map { video in
                 var short = video

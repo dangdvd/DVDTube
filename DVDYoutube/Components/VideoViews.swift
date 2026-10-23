@@ -149,6 +149,13 @@ struct VideoMenu: View {
 
     var body: some View {
         Menu {
+            if player.currentVideo != nil, player.currentVideo?.id != video.id {
+                Button {
+                    player.playAfterCurrent(video)
+                } label: {
+                    Label("Phát tiếp theo", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }
+            }
             Button {
                 player.addToQueue(video)
             } label: {
@@ -183,6 +190,21 @@ struct VideoMenu: View {
                 }
             }
             if let extra { extra }
+            Divider()
+            Button {
+                HiddenContentStore.shared.hide(video)
+                player.showToast("Đã ẩn video. Bạn sẽ không thấy video này trong đề xuất nữa.")
+            } label: {
+                Label("Không quan tâm", systemImage: "nosign")
+            }
+            if video.channelId != nil {
+                Button {
+                    HiddenContentStore.shared.hideChannel(of: video)
+                    player.showToast("Sẽ không đề xuất kênh \(video.channelName ?? "này") nữa")
+                } label: {
+                    Label("Không đề xuất kênh này", systemImage: "person.crop.circle.badge.minus")
+                }
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .rotationEffect(.degrees(90))
@@ -375,9 +397,12 @@ struct FeedList: View {
     let items: [FeedItem]
     var isLoadingMore = false
     var compact = false
+    /// Recommendations leave out what was marked "Not interested".
+    var hidesDismissed = false
     var onReachEnd: (() -> Void)?
 
     var body: some View {
+        let items = hidesDismissed ? HiddenContentStore.shared.filter(self.items) : self.items
         let videos = items.compactMap(\.video)
         LazyVStack(spacing: compact ? 12 : 20) {
             ForEach(items) { item in

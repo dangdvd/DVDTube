@@ -60,6 +60,10 @@ final class DownloadManager {
 
     func download(_ video: VideoItem) {
         guard tasks[video.id] == nil, !isDownloaded(video.id) else { return }
+        if AppSettings.shared.downloadOnWifiOnly, NetworkMonitor.shared.isExpensive {
+            PlayerManager.shared.showToast("Chỉ tải xuống khi có Wi-Fi (đổi trong Cài đặt › Tải xuống)")
+            return
+        }
         states[video.id] = .preparing
         tasks[video.id] = Task { [weak self] in
             await self?.run(video)

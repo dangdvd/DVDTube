@@ -13,6 +13,11 @@ struct LibraryView: View {
             Section {
                 AccountHeader()
                     .listRowSeparator(.hidden)
+                if AppSettings.shared.isIncognito {
+                    IncognitoBanner()
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                }
             }
 
             if account.isSignedIn {
@@ -61,6 +66,11 @@ struct LibraryView: View {
             Section {
                 NavigationLink(value: Route.history) {
                     row("clock.arrow.circlepath", "Nhật ký xem", "\(library.history.count)")
+                }
+                NavigationLink {
+                    WatchTimeView()
+                } label: {
+                    row("chart.bar", "Thời gian xem", "")
                 }
                 NavigationLink(value: Route.watchLater) {
                     row("clock", "Xem sau", "\(library.watchLater.count) video")
