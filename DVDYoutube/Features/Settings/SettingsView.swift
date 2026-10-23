@@ -42,6 +42,7 @@ struct SettingsView: View {
                 Toggle("Tự động bật hình trong hình (PiP)", isOn: $settings.autoPictureInPicture)
                     .onChange(of: settings.autoPictureInPicture) { _, _ in player.updateAutoPiP() }
                 Toggle("Tiếp tục từ vị trí đã xem", isOn: $settings.resumePlayback)
+                Toggle("Dự phòng bằng trình phát web khi YouTube chặn", isOn: $settings.webPlayerFallback)
             } header: {
                 Text("Phát video")
             } footer: {

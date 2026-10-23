@@ -12,7 +12,8 @@ UDID=$(xcrun simctl list devices available -j | python3 -c '
 import json, sys
 devices = json.load(sys.stdin)["devices"]
 phones = [d for runtime, items in devices.items() if "iOS" in runtime for d in items if d["name"].startswith("iPhone")]
-phones.sort(key=lambda d: d["name"])
+# Prefer a current full-screen iPhone over the SE.
+phones.sort(key=lambda d: ("SE" not in d["name"], "Pro" in d["name"] and "Max" not in d["name"], d["name"]))
 print(phones[-1]["udid"] if phones else "")
 ')
 if [ -z "$UDID" ]; then
@@ -35,6 +36,9 @@ run() {
   sleep "$wait"
   xcrun simctl io "$UDID" screenshot "$OUT/$name.png"
   sed 's/^/    /' "$OUT/$name.log" | tail -n 40
+  # Small JPEG preview inline in the log, for reviewers without artifact access.
+  sips -Z 480 -s format jpeg -s formatOptions 45 "$OUT/$name.png" --out "$OUT/$name.jpg" >/dev/null 2>&1 \
+    && echo "SHOT $name $(base64 -i "$OUT/$name.jpg" | tr -d '\n')"
 }
 
 run home 30
@@ -46,5 +50,5 @@ xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 
 echo "=== summary"
 grep -h "HTTP" "$OUT"/*.log | sed -E 's/, [0-9]+ bytes//' | sort | uniq -c | sort -rn | head -n 30
-grep -h -E "stream |item |playing |failed|short " "$OUT"/*.log | head -n 60
+grep -h -E "stream |item |playing |failed|short |web " "$OUT"/*.log | head -n 80
 exit 0

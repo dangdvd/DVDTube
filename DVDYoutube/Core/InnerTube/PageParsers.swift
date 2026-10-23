@@ -244,6 +244,7 @@ enum PlayerParser {
                 ?? error["reason"].text
                 ?? error["subreason"].text
                 ?? "Video không khả dụng (\(status.isEmpty ? "không rõ" : status))."
+            if status == "LOGIN_REQUIRED" { throw InnerTubeError.loginRequired(reason) }
             throw InnerTubeError.unplayable(reason)
         }
 

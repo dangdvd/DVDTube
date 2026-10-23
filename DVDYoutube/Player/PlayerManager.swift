@@ -3,6 +3,7 @@ import AVKit
 import MediaPlayer
 import Observation
 import UIKit
+import WebKit
 
 /// Owns the one `AVPlayer` used for regular videos and everything around it:
 /// queue, history, captions, SponsorBlock, Now Playing, background audio and PiP.
@@ -26,6 +27,10 @@ final class PlayerManager {
     private(set) var bufferedTime: Double = 0
     private(set) var adWaitRemaining = 0
     private(set) var isLocalPlayback = false
+    /// True while the official web embed is used because the native stream was refused.
+    private(set) var usesWebPlayer = false
+    private(set) var webFallbackReason: String?
+    @ObservationIgnored private weak var webView: WKWebView?
 
     var isExpanded = false {
         didSet { OrientationController.setAllowed(isExpanded ? .allButUpsideDown : .portrait) }
@@ -149,6 +154,10 @@ final class PlayerManager {
     }
 
     func resume() {
+        if usesWebPlayer {
+            webCommand("playVideo")
+            return
+        }
         if player.currentItem == nil, let video = currentVideo {
             start(video, startAt: currentTime)
             return
@@ -159,6 +168,7 @@ final class PlayerManager {
     }
 
     func pause() {
+        if usesWebPlayer { webCommand("pauseVideo") }
         player.pause()
         saveProgress()
     }
@@ -166,6 +176,10 @@ final class PlayerManager {
     func seek(to seconds: Double) {
         let target = max(0, duration > 0 ? min(seconds, duration - 0.25) : seconds)
         currentTime = target
+        if usesWebPlayer {
+            webCommand("seekTo", arguments: "[\(target), true]")
+            return
+        }
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         updateNowPlayingTime()
     }
@@ -183,6 +197,7 @@ final class PlayerManager {
         currentVideo = nil
         playerInfo = nil
         watchInfo = nil
+        usesWebPlayer = false
         queue = []
         isExpanded = false
         isPlaying = false
@@ -253,6 +268,8 @@ final class PlayerManager {
         currentCaption = nil
         fallbackStage = 0
         isLocalPlayback = false
+        usesWebPlayer = false
+        webFallbackReason = nil
         quality = defaultQuality()
         isLoading = true
         pendingSeek = startAt ?? (settings.resumePlayback ? library.resumePosition(for: video.id) : nil)
@@ -321,6 +338,10 @@ final class PlayerManager {
         } catch {
             guard !Task.isCancelled, currentVideo?.id == video.id else { return }
             Log.debug("stream \(video.id) failed: \(error.localizedDescription)")
+            if shouldUseWebFallback(for: error) {
+                switchToWebPlayer(reason: error.localizedDescription)
+                return
+            }
             isLoading = false
             playbackError = error.localizedDescription
         }
@@ -509,6 +530,8 @@ final class PlayerManager {
                         self.playbackError = message
                     }
                 }
+            } else if settings.webPlayerFallback, !isLocalPlayback {
+                switchToWebPlayer(reason: message)
             } else {
                 isLoading = false
                 playbackError = message
@@ -579,6 +602,70 @@ final class PlayerManager {
         guard let video = currentVideo, currentTime > 0 || completed else { return }
         lastHistorySave = Date()
         library.updatePosition(videoId: video.id, position: completed ? duration : currentTime, duration: duration)
+    }
+
+    // MARK: - Web player fallback
+
+    private func shouldUseWebFallback(for error: Error) -> Bool {
+        guard settings.webPlayerFallback, !isLocalPlayback else { return false }
+        switch error as? InnerTubeError {
+        case .loginRequired, .noStreams, .http: return true
+        case .unplayable, .invalidResponse: return false
+        case nil: return !(error is URLError)
+        }
+    }
+
+    func switchToWebPlayer(reason: String? = nil) {
+        guard currentVideo != nil else { return }
+        Log.debug("switching to web player: \(reason ?? "manual")")
+        loadTask?.cancel()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        pendingSeek = currentTime > 1 ? currentTime : pendingSeek
+        usesWebPlayer = true
+        webFallbackReason = reason
+        playbackError = nil
+        adWaitRemaining = 0
+        isLoading = true
+    }
+
+    func switchToNativePlayer() {
+        guard let video = currentVideo else { return }
+        usesWebPlayer = false
+        start(video, startAt: currentTime > 1 ? currentTime : nil)
+    }
+
+    /// Start offset for the embed (resume position or where native playback stopped).
+    var webStartTime: Double { pendingSeek ?? 0 }
+
+    func registerWebView(_ webView: WKWebView) {
+        self.webView = webView
+    }
+
+    func handleWebEvent(_ event: WebPlayerEvent) {
+        guard usesWebPlayer else { return }
+        if let error = event.error, !error.isEmpty {
+            Log.debug("web player error: \(error)")
+            isLoading = false
+            playbackError = error
+            return
+        }
+        if event.time >= 0, !event.isAd {
+            if Log.verbose, Int(event.time) / 5 != Int(currentTime) / 5 {
+                Log.debug("web playing \(currentVideo?.id ?? "?") at \(Int(event.time))s")
+            }
+            currentTime = event.time
+            if event.time > 0 { isLoading = false }
+        }
+        if event.isAd { Log.debug("web player: skipping an ad") }
+        if event.duration > 0, !event.isAd { duration = event.duration }
+        isPlaying = !event.paused
+        if Date().timeIntervalSince(lastHistorySave) > 10 { saveProgress() }
+        updateNowPlayingTime()
+    }
+
+    private func webCommand(_ name: String, arguments: String = "[]") {
+        webView?.evaluateJavaScript("dvdCommand('\(name)', \(arguments))", completionHandler: nil)
     }
 
     // MARK: - Toasts

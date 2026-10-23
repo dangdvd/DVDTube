@@ -3,6 +3,8 @@ import Foundation
 enum InnerTubeError: LocalizedError {
     case http(Int)
     case unplayable(String)
+    /// YouTube's "Sign in to confirm you're not a bot" (or age gate) on the player endpoint.
+    case loginRequired(String)
     case noStreams
     case invalidResponse
 
@@ -13,6 +15,7 @@ enum InnerTubeError: LocalizedError {
                 ? "YouTube tạm thời giới hạn yêu cầu (429). Vui lòng thử lại sau."
                 : "Lỗi kết nối tới YouTube (HTTP \(code))."
         case .unplayable(let reason): return reason
+        case .loginRequired(let reason): return reason
         case .noStreams: return "Không tìm thấy luồng phát cho video này."
         case .invalidResponse: return "Phản hồi từ YouTube không hợp lệ."
         }
@@ -157,6 +160,7 @@ final class InnerTube {
                     Log.debug("player(\(videoId)) via \(profile.name) failed: \(error.localizedDescription)")
                     lastError = error
                     // A bad visitor id shows up as an unplayable response; retry once with a fresh one.
+                    // Never retry a bot check: hammering the endpoint only makes it stick.
                     if case .unplayable = error, attempt == 0 { continue }
                     break
                 } catch {

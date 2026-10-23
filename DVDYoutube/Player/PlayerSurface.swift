@@ -24,8 +24,18 @@ struct PlayerSurface: View {
 
     var body: some View {
         ZStack {
-            PlayerLayerView(player: player.player) { layer in
-                player.attach(layer: layer)
+            if player.usesWebPlayer, let videoId = player.currentVideo?.id {
+                WebPlayerView(
+                    videoId: videoId,
+                    startAt: player.webStartTime,
+                    onEvent: { player.handleWebEvent($0) },
+                    onWebView: { player.registerWebView($0) }
+                )
+                .allowsHitTesting(mode != .mini)
+            } else {
+                PlayerLayerView(player: player.player) { layer in
+                    player.attach(layer: layer)
+                }
             }
 
             if showPoster {
@@ -37,6 +47,12 @@ struct PlayerSurface: View {
                 if player.isLoading || player.isBuffering {
                     ProgressView().tint(.white)
                 }
+            } else if player.usesWebPlayer {
+                webPlayerChrome
+                if player.isLoading && player.playbackError == nil {
+                    ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false)
+                }
+                if let error = player.playbackError { errorOverlay(error) }
             } else {
                 captionLayer
                 gestureLayer
@@ -68,6 +84,53 @@ struct PlayerSurface: View {
         .onChange(of: player.currentVideo?.id) { _, _ in
             controlsVisible = true
             scheduleHide()
+        }
+    }
+
+    /// Minimal overlay for the web fallback (the embed draws its own controls).
+    private var webPlayerChrome: some View {
+        VStack {
+            HStack {
+                Button {
+                    if mode == .fullscreen {
+                        OrientationController.rotate(toLandscape: false)
+                    } else {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) { player.isExpanded = false }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(Color.black.opacity(0.5)))
+                }
+                Spacer()
+                Menu {
+                    if let reason = player.webFallbackReason {
+                        Text(reason)
+                    }
+                    Button {
+                        player.switchToNativePlayer()
+                    } label: {
+                        Label("Thử lại trình phát gốc", systemImage: "arrow.clockwise")
+                    }
+                    Button {
+                        OrientationController.rotate(toLandscape: mode != .fullscreen)
+                    } label: {
+                        Label(mode == .fullscreen ? "Thoát toàn màn hình" : "Toàn màn hình",
+                              systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+                } label: {
+                    Label("Trình phát web", systemImage: "globe")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.black.opacity(0.5)))
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, mode == .fullscreen ? max(insets.leading, 12) : 6)
+            .padding(.top, 6)
+            Spacer()
         }
     }
 
@@ -453,6 +516,23 @@ struct PlayerSettingsSheet: View {
                     if player.captionTracks.isEmpty {
                         Text("Video này không có phụ đề").foregroundStyle(.secondary)
                     }
+                }
+                Section {
+                    if player.usesWebPlayer {
+                        Button("Thử lại trình phát gốc (không quảng cáo)") {
+                            player.switchToNativePlayer()
+                            dismiss()
+                        }
+                    } else {
+                        Button("Chuyển sang trình phát web") {
+                            player.switchToWebPlayer(reason: "Chọn thủ công")
+                            dismiss()
+                        }
+                    }
+                } header: {
+                    Text("Trình phát")
+                } footer: {
+                    Text("Trình phát web là phương án dự phòng khi YouTube từ chối luồng phát gốc; quảng cáo trong đó được tự động ẩn và bỏ qua.")
                 }
                 if !player.sponsorSegments.isEmpty {
                     Section("SponsorBlock") {
