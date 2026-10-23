@@ -155,10 +155,9 @@ struct VideoMenu: View {
                 Label("Thêm vào hàng đợi", systemImage: "text.badge.plus")
             }
             Button {
-                library.toggleWatchLater(video)
-                player.showToast(library.isInWatchLater(video.id) ? "Đã lưu vào Xem sau" : "Đã xóa khỏi Xem sau")
+                LibraryActions.toggleWatchLater(video)
             } label: {
-                Label(library.isInWatchLater(video.id) ? "Xóa khỏi Xem sau" : "Lưu vào Xem sau", systemImage: "clock")
+                Label(LibraryActions.isInWatchLater(video.id) ? "Xóa khỏi Xem sau" : "Lưu vào Xem sau", systemImage: "clock")
             }
             Button {
                 router.playlistSheetVideo = video
@@ -279,11 +278,12 @@ struct SubscribeButton: View {
     var compact = false
 
     @Environment(LibraryStore.self) private var library
+    @Environment(AccountStore.self) private var account
 
     var body: some View {
-        let subscribed = library.isSubscribed(channel.id)
+        let subscribed = account.isSignedIn ? account.isSubscribed(channel.id) : library.isSubscribed(channel.id)
         Button {
-            withAnimation(.snappy) { library.toggleSubscription(channel) }
+            toggleSubscription(channel, subscribed: subscribed, account: account, library: library)
         } label: {
             HStack(spacing: 4) {
                 if subscribed { Image(systemName: "bell") }
@@ -296,6 +296,16 @@ struct SubscribeButton: View {
             .background(Capsule().fill(subscribed ? Color(.secondarySystemFill) : Color.primary))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Subscribes on the YouTube account when signed in, otherwise in the on-device list.
+@MainActor
+func toggleSubscription(_ channel: ChannelItem, subscribed: Bool, account: AccountStore, library: LibraryStore) {
+    if account.isSignedIn {
+        Task { await account.setSubscribed(channel, !subscribed) }
+    } else {
+        withAnimation(.snappy) { library.toggleSubscription(channel) }
     }
 }
 

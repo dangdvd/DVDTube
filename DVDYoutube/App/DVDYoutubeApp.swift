@@ -11,6 +11,7 @@ struct DVDYoutubeApp: App {
     @State private var shorts = ShortsPlayer.shared
     @State private var downloads = DownloadManager.shared
     @State private var router = Router.shared
+    @State private var account = AccountStore.shared
 
     var body: some Scene {
         WindowGroup {
@@ -21,6 +22,7 @@ struct DVDYoutubeApp: App {
                 .environment(shorts)
                 .environment(downloads)
                 .environment(router)
+                .environment(account)
                 .preferredColorScheme(settings.theme == .system ? nil : (settings.theme == .dark ? .dark : .light))
                 .tint(.brand)
                 .task { await APIConfig.refreshRemoteConfig() }

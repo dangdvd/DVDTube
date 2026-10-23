@@ -296,6 +296,9 @@ final class PlayerManager {
                 guard let self, !Task.isCancelled, self.currentVideo?.id == videoId else { return }
                 self.watchInfo = info
                 self.enrichCurrentVideo(with: info)
+                if let channel = info.channel, let subscribed = info.isSubscribed {
+                    AccountStore.shared.noteSubscription(channelId: channel.id, subscribed: subscribed)
+                }
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 self.watchInfoError = error.localizedDescription
@@ -571,6 +574,9 @@ final class PlayerManager {
             Log.debug("playing \(currentVideo?.id ?? "?") at \(Int(seconds))s, buffered \(Int(bufferedTime))s")
         }
         currentTime = seconds
+        if seconds > 10, let id = currentVideo?.id {
+            AccountStore.shared.reportWatched(id, duration: duration)
+        }
         if let item = player.currentItem {
             if let range = item.loadedTimeRanges.first?.timeRangeValue {
                 bufferedTime = range.end.seconds

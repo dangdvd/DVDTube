@@ -16,6 +16,7 @@ enum Route: Hashable {
     case liked
     case downloads
     case subscriptionsManager
+    case accountFeed(title: String, browseId: String)
     case settings
 }
 
@@ -41,6 +42,9 @@ final class Router {
 
     /// Video for which the "save to playlist" sheet is shown.
     var playlistSheetVideo: VideoItem?
+
+    /// Presents the Google sign-in sheet.
+    var showSignIn = false
 
     /// Shorts tapped somewhere else (search, home shelf, channel) to open in the Shorts tab.
     private(set) var pendingShorts: (items: [VideoItem], startId: String)?
@@ -101,6 +105,7 @@ extension View {
             case .liked: SavedVideosView(kind: .liked)
             case .downloads: DownloadsView()
             case .subscriptionsManager: SubscriptionsManagerView()
+            case .accountFeed(let title, let browseId): AccountFeedView(title: title, browseId: browseId)
             case .settings: SettingsView()
             }
         }

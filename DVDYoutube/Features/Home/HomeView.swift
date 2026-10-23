@@ -119,9 +119,12 @@ final class HomeFeedModel {
 
 struct HomeView: View {
     @Environment(Router.self) private var router
+    @Environment(AccountStore.self) private var account
     @State private var category: HomeCategory = .all
     @State private var forYou = HomeFeedModel()
     @State private var categoryModels: [HomeCategory: FeedModel] = [:]
+    /// The account's own YouTube home ("FEwhat_to_watch") when signed in.
+    @State private var accountHome = FeedModel { try await YouTubeService.shared.accountFeed("FEwhat_to_watch") }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -148,7 +151,18 @@ struct HomeView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .task { await forYou.load() }
+        .task(id: account.isSignedIn) {
+            if account.isSignedIn {
+                await accountHome.load()
+            } else {
+                await forYou.load()
+            }
+        }
+        .onChange(of: account.isSignedIn) { _, _ in
+            // Personalised results differ per account: start fresh.
+            accountHome = FeedModel { try await YouTubeService.shared.accountFeed("FEwhat_to_watch") }
+            categoryModels = [:]
+        }
     }
 
     private var chips: some View {
@@ -180,7 +194,9 @@ struct HomeView: View {
 
     @ViewBuilder
     private var content: some View {
-        if category == .all {
+        if category == .all, account.isSignedIn {
+            CategoryFeed(model: accountHome)
+        } else if category == .all {
             if forYou.isLoading && forYou.items.isEmpty {
                 LoadingStateView()
             } else if let error = forYou.error, forYou.items.isEmpty {
@@ -209,7 +225,9 @@ struct HomeView: View {
     }
 
     private func reload() async {
-        if category == .all {
+        if category == .all, account.isSignedIn {
+            await accountHome.load(force: true)
+        } else if category == .all {
             await forYou.load(force: true)
         } else {
             await model(for: category)?.load(force: true)

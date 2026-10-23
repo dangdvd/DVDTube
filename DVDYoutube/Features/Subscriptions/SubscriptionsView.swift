@@ -9,8 +9,27 @@ final class SubscriptionFeedModel {
     private(set) var isLoading = false
     private(set) var lastUpdated: Date?
     @ObservationIgnored private var loadedChannelIds: Set<String> = []
+    @ObservationIgnored private var loadedAccountFeed = false
 
     func load(force: Bool = false) async {
+        if AuthSession.shared.isAuthenticated {
+            // Signed in: YouTube's own subscription feed for the account.
+            guard !isLoading, force || !loadedAccountFeed else { return }
+            isLoading = true
+            defer { isLoading = false }
+            if let page = try? await YouTubeService.shared.accountFeed("FEsubscriptions") {
+                let now = Date()
+                videos = page.videos.map { video in
+                    var video = video
+                    video.publishedDate = video.publishedDate ?? RelativeDateParser.date(from: video.publishedText, now: now)
+                    return video
+                }
+                loadedAccountFeed = true
+                lastUpdated = now
+            }
+            return
+        }
+        loadedAccountFeed = false
         let channels = LibraryStore.shared.subscriptions
         let ids = Set(channels.map(\.id))
         guard !isLoading, force || ids != loadedChannelIds || lastUpdated == nil else { return }
@@ -55,6 +74,7 @@ struct SubscriptionsView: View {
     }
 
     @Environment(LibraryStore.self) private var library
+    @Environment(AccountStore.self) private var account
     @Environment(Router.self) private var router
     @State private var model = SubscriptionFeedModel()
     @State private var filter: Filter = .all
@@ -66,7 +86,7 @@ struct SubscriptionsView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     Color.clear.frame(height: 0).id("top")
-                    if library.subscriptions.isEmpty {
+                    if channels.isEmpty && model.videos.isEmpty && !model.isLoading {
                         emptyState
                     } else {
                         channelStrip
@@ -85,11 +105,15 @@ struct SubscriptionsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { AppLogo() }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { router.open(.subscriptionsManager) } label: { Image(systemName: "person.2") }
+                Button {
+                    router.open(account.isSignedIn
+                        ? .accountFeed(title: "Kênh đăng ký", browseId: "FEchannels")
+                        : .subscriptionsManager)
+                } label: { Image(systemName: "person.2") }
                 Button { router.open(.search) } label: { Image(systemName: "magnifyingglass") }
             }
         }
-        .task(id: library.subscriptions.count) { await model.load() }
+        .task(id: account.isSignedIn ? -1 : library.subscriptions.count) { await model.load() }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.commaSeparatedText, .plainText, .text]) { result in
             importCSV(result)
         }
@@ -100,10 +124,15 @@ struct SubscriptionsView: View {
         }
     }
 
+    /// The account's channels when signed in, otherwise the on-device list.
+    private var channels: [ChannelItem] {
+        account.isSignedIn ? account.subscribedChannels : library.subscriptions
+    }
+
     private var channelStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 14) {
-                ForEach(library.subscriptions) { channel in
+                ForEach(channels) { channel in
                     Button {
                         router.open(.channel(channel))
                     } label: {
@@ -118,7 +147,9 @@ struct SubscriptionsView: View {
                     .buttonStyle(.plain)
                 }
                 Button {
-                    router.open(.subscriptionsManager)
+                    router.open(account.isSignedIn
+                        ? .accountFeed(title: "Kênh đăng ký", browseId: "FEchannels")
+                        : .subscriptionsManager)
                 } label: {
                     Text("Tất cả")
                         .font(.subheadline.weight(.semibold))
@@ -196,6 +227,14 @@ struct SubscriptionsView: View {
                 systemImage: "play.square.stack",
                 description: Text("Nhấn \"Đăng ký\" trên một kênh để xem video mới nhất của kênh tại đây. Đăng ký được lưu ngay trên máy, không cần tài khoản Google.")
             )
+            if !account.isSignedIn {
+                Button {
+                    router.showSignIn = true
+                } label: {
+                    Label("Đăng nhập tài khoản Google", systemImage: "person.crop.circle.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
             Button {
                 showImporter = true
             } label: {

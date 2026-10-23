@@ -202,6 +202,37 @@ final class YouTubeService {
         }
     }
 
+    // MARK: Account (signed in)
+
+    func accountProfile() async throws -> AccountProfile? {
+        AccountParser.profile(try await api.accountMenu())
+    }
+
+    /// Any account page by browse id: FEwhat_to_watch (home), FEsubscriptions, FEchannels,
+    /// FEhistory, FEplaylist_aggregation, VLWL (watch later), VLLL (liked videos).
+    func accountFeed(_ browseId: String) async throws -> FeedPage {
+        ItemParser.page(try await api.browse(browseId: browseId))
+    }
+
+    /// Every channel the account is subscribed to.
+    func accountSubscriptions() async throws -> [ChannelItem] {
+        var page = try await accountFeed("FEchannels")
+        var channels = page.items.compactMap { item -> ChannelItem? in
+            if case .channel(let channel) = item { return channel }
+            return nil
+        }
+        var pages = 0
+        while let token = page.continuation, pages < 10 {
+            page = try await browseMore(token)
+            channels += page.items.compactMap { item -> ChannelItem? in
+                if case .channel(let channel) = item { return channel }
+                return nil
+            }
+            pages += 1
+        }
+        return channels
+    }
+
     // MARK: Links
 
     /// Extracts a video id from any YouTube URL (watch, youtu.be, shorts, live, embed).

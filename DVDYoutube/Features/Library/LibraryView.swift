@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct LibraryView: View {
+    @Environment(AccountStore.self) private var account
     @Environment(LibraryStore.self) private var library
     @Environment(DownloadManager.self) private var downloads
     @Environment(Router.self) private var router
@@ -10,19 +11,34 @@ struct LibraryView: View {
     var body: some View {
         List {
             Section {
-                HStack(spacing: 14) {
-                    Image("Logo")
-                        .resizable()
-                        .frame(width: 56, height: 56)
-                        .clipShape(Circle())
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Thư viện của bạn").font(.title3.weight(.bold))
-                        Text("Không quảng cáo • Lưu trên thiết bị")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                AccountHeader()
+                    .listRowSeparator(.hidden)
+            }
+
+            if account.isSignedIn {
+                Section("Tài khoản YouTube") {
+                    NavigationLink(value: Route.accountFeed(title: "Nhật ký xem", browseId: "FEhistory")) {
+                        Label("Nhật ký xem", systemImage: "clock.arrow.circlepath")
+                    }
+                    NavigationLink(value: Route.accountFeed(title: "Xem sau", browseId: "VLWL")) {
+                        Label("Xem sau", systemImage: "clock")
+                    }
+                    NavigationLink(value: Route.accountFeed(title: "Video đã thích", browseId: "VLLL")) {
+                        Label("Video đã thích", systemImage: "hand.thumbsup")
+                    }
+                    NavigationLink(value: Route.accountFeed(title: "Danh sách phát", browseId: "FEplaylist_aggregation")) {
+                        Label("Danh sách phát", systemImage: "list.and.film")
+                    }
+                    NavigationLink(value: Route.accountFeed(title: "Kênh đăng ký", browseId: "FEchannels")) {
+                        HStack {
+                            Label("Kênh đăng ký", systemImage: "person.2")
+                            Spacer()
+                            if !account.subscribedChannels.isEmpty {
+                                Text("\(account.subscribedChannels.count) kênh").font(.footnote).foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
-                .listRowSeparator(.hidden)
             }
 
             if !library.history.isEmpty {

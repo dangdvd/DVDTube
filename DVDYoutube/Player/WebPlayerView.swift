@@ -72,7 +72,10 @@ struct WebPlayerView: UIViewRepresentable {
             ]
             if startAt > 1 { query.append("start=\(Int(startAt))") }
             if loop { query.append(contentsOf: ["loop=1", "playlist=\(videoId)"]) }
-            let src = "https://www.youtube-nocookie.com/embed/\(videoId)?" + query.joined(separator: "&")
+            // Signed in: the youtube.com embed uses the account cookies, which also avoids
+            // most "confirm you're not a bot" checks. Otherwise the no-cookie domain.
+            let host = AuthSession.shared.isAuthenticated ? "www.youtube.com" : "www.youtube-nocookie.com"
+            let src = "https://\(host)/embed/\(videoId)?" + query.joined(separator: "&")
             let html = """
             <!doctype html><html><head>
             <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">

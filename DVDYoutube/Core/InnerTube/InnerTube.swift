@@ -67,7 +67,8 @@ final class InnerTube {
         body: [String: Any],
         query: [String: String] = [:],
         host: String? = nil,
-        visitorData: String? = nil
+        visitorData: String? = nil,
+        authenticated: Bool = false
     ) async throws -> JNode {
         var components = URLComponents()
         components.scheme = "https"
@@ -101,19 +102,29 @@ final class InnerTube {
         for (key, value) in profile.extraHeaders ?? [:] {
             request.setValue(value, forHTTPHeaderField: key)
         }
+        let authHeaders = authenticated ? AuthSession.shared.headers(for: url) : nil
+        if let authHeaders {
+            // Send exactly the account cookies (not the anonymous cookie jar).
+            request.httpShouldHandleCookies = false
+            for (key, value) in authHeaders { request.setValue(value, forHTTPHeaderField: key) }
+        }
 
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        Log.debug("\(profile.name) \(endpoint) -> HTTP \(status), \(data.count) bytes")
+        Log.debug("\(profile.name) \(endpoint) -> HTTP \(status), \(data.count) bytes\(authHeaders != nil ? " (signed in)" : "")")
+        if authHeaders != nil, let http = response as? HTTPURLResponse {
+            AuthSession.shared.absorb(response: http, url: url)
+        }
         guard (200..<300).contains(status) else { throw InnerTubeError.http(status) }
         return try JNode(data: data)
     }
 
-    /// WEB client request used for search, browse and the watch page.
+    /// WEB client request used for search, browse and the watch page. Runs as the
+    /// signed-in account when there is one (personalised results, account pages).
     func web(_ endpoint: String, body: [String: Any]) async throws -> JNode {
         let profile = APIConfig.webProfile
         let visitor = await visitorStore.value(for: profile.name)
-        let json = try await post(endpoint, profile: profile, body: body, visitorData: visitor)
+        let json = try await post(endpoint, profile: profile, body: body, visitorData: visitor, authenticated: true)
         if visitor == nil, let fresh = json.at("responseContext", "visitorData").string {
             await visitorStore.set(fresh, for: profile.name)
         }
@@ -198,6 +209,61 @@ final class InnerTube {
 
     func nextContinuation(_ token: String) async throws -> JNode {
         try await web("next", body: ["continuation": token])
+    }
+
+    // MARK: - Account (signed in only)
+
+    func accountMenu() async throws -> JNode {
+        try await web("account/account_menu", body: [:])
+    }
+
+    func like(videoId: String, action: String) async throws {
+        _ = try await web("like/\(action)", body: ["target": ["videoId": videoId]])
+    }
+
+    func subscription(channelId: String, subscribe: Bool) async throws {
+        _ = try await web(
+            subscribe ? "subscription/subscribe" : "subscription/unsubscribe",
+            body: ["channelIds": [channelId], "params": subscribe ? "EgIIAhgA" : "CgIIAhgA"]
+        )
+    }
+
+    func editPlaylist(_ playlistId: String, add videoId: String? = nil, remove removedId: String? = nil) async throws {
+        var actions: [[String: Any]] = []
+        if let videoId { actions.append(["action": "ACTION_ADD_VIDEO", "addedVideoId": videoId]) }
+        if let removedId { actions.append(["action": "ACTION_REMOVE_VIDEO_BY_VIDEO_ID", "removedVideoId": removedId]) }
+        _ = try await web("browse/edit_playlist", body: ["playlistId": playlistId, "actions": actions])
+    }
+
+    /// Adds a video to the account's YouTube watch history: fetch the signed-in web player
+    /// response just for its tracking URLs and ping them, the way the website does.
+    func markWatched(videoId: String, duration: Double) async {
+        guard AuthSession.shared.isAuthenticated,
+              let json = try? await web("player", body: ["videoId": videoId, "contentCheckOk": true, "racyCheckOk": true])
+        else { return }
+        let cpn = Self.randomToken(16)
+        let length = String(max((json.at("videoDetails", "lengthSeconds").double ?? duration) - 1, 1))
+        for (index, key) in ["videostatsPlaybackUrl", "videostatsWatchtimeUrl"].enumerated() {
+            guard let base = json.at("playbackTracking", key, "baseUrl").string,
+                  var components = URLComponents(string: base) else { continue }
+            var items = (components.queryItems ?? []).filter { !["ver", "cpn", "cmt", "el", "st", "et"].contains($0.name) }
+            items += [
+                URLQueryItem(name: "ver", value: "2"),
+                URLQueryItem(name: "cpn", value: cpn),
+                URLQueryItem(name: "cmt", value: length),
+                URLQueryItem(name: "el", value: "detailpage"),
+            ]
+            if index == 1 {
+                items += [URLQueryItem(name: "st", value: "0"), URLQueryItem(name: "et", value: length)]
+            }
+            components.queryItems = items
+            guard let url = components.url else { continue }
+            var request = URLRequest(url: url)
+            request.httpShouldHandleCookies = false
+            for (header, value) in AuthSession.shared.headers(for: url) ?? [:] { request.setValue(value, forHTTPHeaderField: header) }
+            let status = ((try? await session.data(for: request))?.1 as? HTTPURLResponse)?.statusCode ?? 0
+            Log.debug("mark watched \(videoId) \(key) -> HTTP \(status)")
+        }
     }
 
     func resolveURL(_ url: String) async throws -> JNode {

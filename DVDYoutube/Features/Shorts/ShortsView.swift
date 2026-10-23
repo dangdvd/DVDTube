@@ -230,9 +230,9 @@ private struct ShortPage: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(spacing: 22) {
-                    actionButton(library.isLiked(video.id) ? "hand.thumbsup.fill" : "hand.thumbsup",
+                    actionButton(LibraryActions.isLiked(video.id, reported: info?.likeStatus) ? "hand.thumbsup.fill" : "hand.thumbsup",
                                  info?.likeCountText ?? "Thích") {
-                        library.toggleLike(video)
+                        LibraryActions.toggleLike(video, reported: info?.likeStatus)
                     }
                     actionButton("text.bubble.fill", info?.commentCountText ?? "Bình luận") {
                         if info?.commentsToken != nil { showComments = true }
