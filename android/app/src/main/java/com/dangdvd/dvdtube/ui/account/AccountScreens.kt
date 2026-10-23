@@ -92,35 +92,126 @@ private const val CONTINUE = "https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_ha
 private const val LOGIN_URL = "https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=$CONTINUE&hl=vi"
 private const val ADD_ACCOUNT_URL = "https://accounts.google.com/AddSession?service=youtube&uilel=3&continue=$CONTINUE&hl=vi"
 
-/** The passkey prompt is on screen and no password field is. */
+/** The passkey prompt is on screen, with no visible password field or password option. */
 private const val DETECT_PASSKEY_SCRIPT = """
 (function () {
+  function shown(el) {
+    if (!el || el.getAttribute('aria-hidden') === 'true') return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 8 && r.height > 8 && getComputedStyle(el).visibility !== 'hidden';
+  }
   var text = ((document.body && document.body.innerText) || '').normalize('NFC');
-  var passkey = /khoá đăng nhập|khóa đăng nhập|passkey/i.test(text);
-  return passkey && !document.querySelector('input[type=password]');
+  if (!/khoá đăng nhập|khóa đăng nhập|passkey/i.test(text)) return false;
+  var fields = document.querySelectorAll('input[type=password]');
+  for (var i = 0; i < fields.length; i++) if (shown(fields[i])) return false;
+  return !/(^|\n)\s*(nhập mật khẩu|enter your password)/i.test(text);
 })()
 """
 
-/** "Try another way", then "Enter your password". */
+/**
+ * One step towards the password: "done" once a password field shows, otherwise taps
+ * "Enter your password" or "Try another way" ("password" / "another way"), "waiting" while
+ * the last tap is still loading, "none" when neither is on the page. Google only reacts to
+ * taps on the button itself, so the events go to the element holding the label and bubble
+ * up through its handlers.
+ */
 private const val PASSWORD_SCRIPT = """
 (function () {
-  function click(pattern) {
-    var items = document.querySelectorAll('button,[role=button],[role=link],li,a,div[jsaction]');
-    for (var i = 0; i < items.length; i++) {
-      var text = (items[i].innerText || '').normalize('NFC').trim();
-      if (text.length > 0 && text.length < 60 && pattern.test(text)) { items[i].click(); return true; }
+  function shown(el) {
+    if (!el || el.getAttribute('aria-hidden') === 'true') return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 8 && r.height > 8 && getComputedStyle(el).visibility !== 'hidden';
+  }
+  function find(pattern) {
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+      var text = node.data.normalize('NFC').replace(/\s+/g, ' ').trim();
+      if (text.length > 0 && text.length < 80 && pattern.test(text) && shown(node.parentElement)) return node.parentElement;
     }
-    return false;
+    return null;
   }
-  var password = /nhập mật khẩu|enter your password/i;
-  if (click(password)) return 'password';
-  if (click(/thử cách khác|try another way/i)) {
-    setTimeout(function () { click(password); }, 1500);
-    return 'another way';
+  function tap(el) {
+    var target = el.closest('button,a,[role=button],[role=link],[jsaction]') || el;
+    target.scrollIntoView({ block: 'center' });
+    var r = el.getBoundingClientRect();
+    var base = { bubbles: true, cancelable: true, composed: true, view: window, button: 0,
+                 clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+    function fire(type, Kind, extra) {
+      try { el.dispatchEvent(new Kind(type, Object.assign({}, base, extra))); } catch (e) {}
+    }
+    var pointer = window.PointerEvent || MouseEvent;
+    fire('pointerdown', pointer, { pointerId: 1, pointerType: 'mouse', isPrimary: true, buttons: 1 });
+    fire('mousedown', MouseEvent, { buttons: 1 });
+    if (target.focus) target.focus();
+    fire('pointerup', pointer, { pointerId: 1, pointerType: 'mouse', isPrimary: true });
+    fire('mouseup', MouseEvent, {});
+    fire('click', MouseEvent, {});
   }
-  return 'none';
+  var fields = document.querySelectorAll('input[type=password]');
+  for (var i = 0; i < fields.length; i++) if (shown(fields[i])) return 'done';
+  var step = 'password';
+  var item = find(/^(nhập mật khẩu|enter your password)/i);
+  if (!item) { step = 'another way'; item = find(/^(thử cách khác|try another way)$/i); }
+  if (!item) return 'none';
+  var last = window.__dvdtubeTap;
+  if (last && last.step === step && Date.now() - last.at < 2500) return 'waiting';
+  window.__dvdtubeTap = { step: step, at: Date.now() };
+  tap(item);
+  return step;
 })()
 """
+
+/** Works through "Try another way" › "Enter your password" on Google's page once the user asks. */
+private class PasswordSwitch {
+    var active by mutableStateOf(false)
+        private set
+    private var deadline = 0L
+    private var missedSteps = 0
+    private var openedSelection = false
+
+    fun start(view: WebView) {
+        active = true
+        deadline = System.currentTimeMillis() + 25_000
+        missedSteps = 0
+        openedSelection = false
+        advance(view)
+    }
+
+    fun advance(view: WebView) {
+        if (!active) return
+        if (System.currentTimeMillis() > deadline) {
+            Log.debug("sign-in: switch to password -> gave up")
+            active = false
+            return
+        }
+        view.evaluateJavascript(PASSWORD_SCRIPT) { result -> handle(view, result?.trim('"') ?: "?") }
+    }
+
+    private fun handle(view: WebView, step: String) {
+        if (!active) return
+        if (step != "waiting") Log.debug("sign-in: switch to password -> $step")
+        when (step) {
+            "done" -> active = false
+            "password", "waiting" -> Unit
+            // The taps did not move the page on: open Google's list of sign-in methods.
+            else -> if (++missedSteps >= 3) openSelectionPage(view)
+        }
+    }
+
+    /** `…/challenge/pk…?TL=…` → `…/challenge/selection?TL=…`, the "Try another way" list. */
+    private fun openSelectionPage(view: WebView) {
+        if (openedSelection) return
+        val uri = view.url?.let(android.net.Uri::parse) ?: return
+        val path = uri.path ?: return
+        val index = path.indexOf("/challenge/")
+        if (index < 0 || path.endsWith("/challenge/selection")) return
+        openedSelection = true
+        missedSteps = 0
+        deadline = System.currentTimeMillis() + 20_000
+        Log.debug("sign-in: switch to password -> opening the sign-in options")
+        view.loadUrl(uri.buildUpon().path(path.substring(0, index) + "/challenge/selection").build().toString())
+    }
+}
 
 /**
  * Google rejects sign-in from user agents that look like an embedded web view ("; wv"),
@@ -142,11 +233,13 @@ fun SignInDialog(addingAccount: Boolean, onDismiss: () -> Unit) {
     var progress by remember { mutableStateOf(0) }
     var loginWebView by remember { mutableStateOf<WebView?>(null) }
     var passkeyPage by remember { mutableStateOf(false) }
+    val passwordSwitch = remember { PasswordSwitch() }
     // Google's passkey step cannot work inside an app: watch for it and offer the password.
     LaunchedEffect(loginWebView, manual) {
         val view = loginWebView ?: return@LaunchedEffect
         while (true) {
             kotlinx.coroutines.delay(1000)
+            if (!manual) passwordSwitch.advance(view)
             if (manual || view.url?.contains("google") != true) {
                 passkeyPage = false
                 continue
@@ -214,26 +307,33 @@ fun SignInDialog(addingAccount: Boolean, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     )
-                    Box(Modifier.fillMaxSize()) {
-                        GoogleLoginWebView(
-                            addingAccount,
-                            onProgress = { progress = it },
-                            onWebView = { loginWebView = it },
-                        ) { cookies -> finish(cookies, fromWebLogin = true) }
-                        if (passkeyPage) {
-                            Column(
-                                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp)).padding(14.dp),
+                    GoogleLoginWebView(
+                        addingAccount,
+                        onProgress = { progress = it },
+                        onWebView = { loginWebView = it },
+                        modifier = Modifier.weight(1f),
+                    ) { cookies -> finish(cookies, fromWebLogin = true) }
+                    // Below the page rather than over it, so Google's own buttons stay visible.
+                    if (passkeyPage) {
+                        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(14.dp)) {
+                            Text("Khóa đăng nhập không dùng được ở đây", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Khóa đăng nhập chỉ dùng được trong trình duyệt và ứng dụng của Google. Hãy đăng nhập bằng mật khẩu (trình quản lý mật khẩu có thể tự điền) hoặc chọn \"Thử cách khác\" › \"Nhấn Có trên điện thoại\".",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 6.dp),
+                            )
+                            Button(
+                                onClick = { loginWebView?.let(passwordSwitch::start) },
+                                enabled = !passwordSwitch.active,
+                                modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("Khóa đăng nhập không dùng được ở đây", style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    "Khóa đăng nhập chỉ dùng được trong trình duyệt và ứng dụng của Google. Hãy đăng nhập bằng mật khẩu (trình quản lý mật khẩu có thể tự điền) hoặc chọn \"Thử cách khác\" › \"Nhấn Có trên điện thoại\".",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(vertical = 6.dp),
-                                )
-                                Button(onClick = {
-                                    loginWebView?.evaluateJavascript(PASSWORD_SCRIPT) { Log.debug("sign-in: switch to password -> $it") }
-                                }, modifier = Modifier.fillMaxWidth()) { Text("Đăng nhập bằng mật khẩu") }
+                                if (passwordSwitch.active) {
+                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Đang chuyển sang mật khẩu…")
+                                } else {
+                                    Text("Đăng nhập bằng mật khẩu")
+                                }
                             }
                         }
                     }
@@ -249,6 +349,7 @@ private fun GoogleLoginWebView(
     addingAccount: Boolean,
     onProgress: (Int) -> Unit,
     onWebView: (WebView) -> Unit,
+    modifier: Modifier = Modifier,
     onSignedIn: (Map<String, String>) -> Unit,
 ) {
     AndroidView(
@@ -282,7 +383,7 @@ private fun GoogleLoginWebView(
                 onWebView(this)
             }
         },
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
     )
 }
 
