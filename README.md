@@ -5,7 +5,7 @@
 hình trong hình (PiP), tải video xem offline.
 
 > DVDTube là dự án cá nhân, không chính thức, không liên kết với Google/YouTube.
-> Ứng dụng không dùng tài khoản Google: đăng ký kênh, nhật ký xem, danh sách phát… đều lưu trên máy.
+> Không bắt buộc tài khoản Google: khi chưa đăng nhập, đăng ký kênh, nhật ký xem, danh sách phát… lưu trên máy.
 
 ## Tính năng
 
@@ -19,10 +19,13 @@ hình trong hình (PiP), tải video xem offline.
 | Trang chủ | Gợi ý dựa trên nhật ký xem + video mới của kênh đăng ký + Shorts; chip Âm nhạc, Trò chơi, Trực tiếp, Podcast, Tin tức, Thể thao, Học tập, Phim. |
 | Shorts | Vuốt dọc toàn màn hình, tự lặp, tải trước video kế tiếp, thích / bình luận / chia sẻ. |
 | Kênh đăng ký | Đăng ký không cần tài khoản; nhập/xuất từ Google Takeout (`subscriptions.csv`). |
-| Trang xem video | Mini player kéo xuống/lên, xoay ngang toàn màn hình, chạm đúp tua ±10 giây, chương (chapters), chất lượng, tốc độ, phụ đề (kể cả tự dịch sang tiếng Việt), AirPlay, hàng đợi, tự phát video tiếp theo. |
-| Bình luận | Xem bình luận, phản hồi, sắp xếp Hàng đầu / Mới nhất. |
+| Trang xem video | Mini player kéo xuống/lên, vuốt lên toàn màn hình, chạm đúp tua ±10 giây, xem trước khung hình khi kéo thanh tua, chương (chapters), chất lượng, tốc độ, phụ đề (kể cả tự dịch sang tiếng Việt), AirPlay, hàng đợi. |
+| Điều khiển giống app gốc | Giữ màn hình để tua nhanh 2x, chụm hai ngón để phóng đầy màn hình, lặp lại video, hẹn giờ tắt (15 phút → hết video), tự phát video tiếp theo có đếm ngược 5 giây và nút bật/tắt. |
+| Dưới video | Thích / Không thích, Chia sẻ (kể cả *chia sẻ tại thời điểm đang xem*), Lưu vào danh sách phát, Tải xuống, Bản chép lời (transcript) bấm để tua tới đoạn đó. |
+| Bình luận | Xem bình luận, phản hồi, sắp xếp Hàng đầu / Mới nhất; viết bình luận và trả lời khi đã đăng nhập. |
 | Thư viện | Nhật ký xem (tiếp tục từ chỗ đã dừng), Xem sau, Video đã thích, danh sách phát riêng. |
-| Tìm kiếm | Gợi ý khi gõ, lịch sử, bộ lọc (Video, Shorts, Kênh, Danh sách phát, Trực tiếp, Mới tải lên), dán link YouTube để mở thẳng. |
+| Tìm kiếm | Gợi ý khi gõ, **tìm bằng giọng nói** (nút micro), lịch sử, bộ lọc (Video, Shorts, Kênh, Danh sách phát, Trực tiếp, Mới tải lên), dán link YouTube để mở thẳng. |
+| Thông báo | Chuông thông báo của tài khoản YouTube (có số chưa đọc); tùy chọn báo trên màn hình khóa khi kênh đăng ký có video mới (*Cài đặt › Thông báo*). |
 
 ## Đăng nhập tài khoản Google (tùy chọn)
 
@@ -31,8 +34,10 @@ Vào tab **Bạn** (hoặc *Cài đặt*) → **Đăng nhập tài khoản Googl
 - Trang chủ hiển thị đề xuất của chính tài khoản YouTube; tab Kênh đăng ký lấy danh sách kênh và
   video mới từ tài khoản.
 - Tab Bạn có Nhật ký xem, Xem sau, Video đã thích, Danh sách phát của tài khoản.
-- Bấm Đăng ký / Thích / Xem sau được ghi lên tài khoản; video bạn xem được thêm vào nhật ký YouTube
-  (có thể tắt trong Cài đặt).
+- Bấm Đăng ký / Thích / Không thích / Xem sau được ghi lên tài khoản; video bạn xem được thêm vào
+  nhật ký YouTube (có thể tắt trong Cài đặt).
+- Lưu video vào danh sách phát của tài khoản (hoặc tạo danh sách phát mới), viết bình luận, xem
+  chuông thông báo.
 - Video **vẫn phát qua trình phát không quảng cáo** của ứng dụng.
 
 Cách hoạt động: bạn đăng nhập trên chính trang của Google (mật khẩu không đi qua ứng dụng). Ứng dụng
@@ -113,7 +118,10 @@ nhận, không phải sửa `project.pbxproj`.
 
 ## Giới hạn
 
-- Chưa hỗ trợ viết bình luận, và tài khoản thương hiệu (brand account) / nhiều tài khoản cùng lúc.
+- Chưa hỗ trợ: chat trực tiếp (live chat), tải video lên, Chromecast, tài khoản thương hiệu (brand
+  account) / nhiều tài khoản cùng lúc.
+- Báo video mới chạy bằng *Làm mới ứng dụng trong nền* của iOS: iOS tự quyết định khi nào chạy
+  (thường vài giờ một lần, ít hơn nếu ít mở ứng dụng hoặc đang ở Chế độ nguồn điện thấp).
 - Video giới hạn độ tuổi, video "dành cho trẻ em" hoặc nội dung trả phí có thể không phát được.
 - YouTube thay đổi API thường xuyên; khi có lỗi phát hàng loạt, hãy cập nhật `remote-config.json`
   hoặc mã nguồn.
