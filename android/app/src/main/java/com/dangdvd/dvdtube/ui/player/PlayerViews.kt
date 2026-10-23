@@ -301,13 +301,13 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
                     if (ignored) return@awaitEachGesture
                     if (pinching) {
                         when {
-                            !fullscreen && zoom > 1.15f -> PlayerController.isFullscreen = true
+                            !fullscreen && zoom > 1.15f -> PlayerController.enterFullscreen()
                             fullscreen && zoom > 1.15f -> PlayerController.setVideoFill(true)
                             fullscreen && zoom < 0.87f -> PlayerController.setVideoFill(false)
                         }
                     } else if (dragging) {
                         when {
-                            dy < -threshold && !fullscreen -> PlayerController.isFullscreen = true
+                            dy < -threshold && !fullscreen -> PlayerController.enterFullscreen()
                             dy > threshold && fullscreen -> PlayerController.isFullscreen = false
                             dy > threshold -> PlayerController.isExpanded = false
                         }
@@ -441,7 +441,7 @@ private fun WebPlayerBar(fullscreen: Boolean, onSettings: () -> Unit) {
         }
         Spacer(Modifier.weight(1f))
         SmallOverlayButton(if (fullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen) {
-            PlayerController.isFullscreen = !fullscreen
+            if (fullscreen) PlayerController.isFullscreen = false else PlayerController.enterFullscreen()
         }
         SmallOverlayButton(Icons.Default.Settings, onSettings)
     }
@@ -552,7 +552,7 @@ private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onSleepT
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { PlayerController.isFullscreen = !fullscreen }) {
+                IconButton(onClick = { if (fullscreen) PlayerController.isFullscreen = false else PlayerController.enterFullscreen() }) {
                     Icon(if (fullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Toàn màn hình", tint = Color.White)
                 }
             }

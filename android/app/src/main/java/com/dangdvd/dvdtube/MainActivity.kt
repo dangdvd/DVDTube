@@ -120,10 +120,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun observePlayerLayout() {
         lifecycleScope.launch {
-            snapshotFlow { Triple(PlayerController.isExpanded, PlayerController.isFullscreen, PlayerController.currentVideo != null) }
-                .collect { (expanded, fullscreen, hasVideo) ->
+            snapshotFlow {
+                listOf(PlayerController.isExpanded, PlayerController.isFullscreen, PlayerController.currentVideo != null,
+                    PlayerController.isPortraitFullscreen)
+            }
+                .collect { (expanded, fullscreen, hasVideo, upright) ->
+                    // Vertical videos fill the screen upright; only wide ones turn it sideways.
                     requestedOrientation = when {
-                        fullscreen -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        fullscreen && !upright -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                         else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
                     }
                     if (!fullscreen) fullscreenFromRotation = false

@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -171,7 +172,8 @@ private fun ExpandedPlayer() {
     val blocker = Modifier.pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
     if (PlayerController.isFullscreen) {
         Box(Modifier.fillMaxSize().background(Color.Black).then(blocker)) {
-            PlayerBox(Modifier.fillMaxSize(), fullscreen = true)
+            // Clear of the camera cutout, which sits over the top of the video when upright.
+            PlayerBox(Modifier.fillMaxSize().displayCutoutPadding(), fullscreen = true)
         }
     } else {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).then(blocker)) {
