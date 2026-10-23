@@ -182,22 +182,26 @@ final class CastProxy: @unchecked Sendable {
 
     private func serve(_ route: Route, range: String?, includeBody: Bool, on connection: NWConnection) async {
         var request = URLRequest(url: route.url)
-        if route.kind == .resource, let range { request.setValue(range, forHTTPHeaderField: "Range") }
+        guard route.kind == .playlist else {
+            // Segments are streamed to the TV as they arrive instead of being held in memory.
+            if let range { request.setValue(range, forHTTPHeaderField: "Range") }
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            let task = session.dataTask(with: request)
+            task.delegate = RelayStream(owner: self, connection: connection, includeBody: includeBody)
+            task.resume()
+            return
+        }
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
             var body = data
-            var headers: [String: String] = [
-                "Content-Type": http.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream",
-                "Accept-Ranges": "bytes",
-            ]
-            if let contentRange = http.value(forHTTPHeaderField: "Content-Range") { headers["Content-Range"] = contentRange }
-            if route.kind == .playlist, (200..<300).contains(http.statusCode) {
+            var headers = ["Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "no-cache"]
+            if (200..<300).contains(http.statusCode) {
                 body = Data(rewrite(String(decoding: data, as: UTF8.self), base: http.url ?? route.url).utf8)
-                headers["Content-Type"] = "application/vnd.apple.mpegurl"
-                headers["Cache-Control"] = "no-cache"
+            } else {
+                headers["Content-Type"] = http.value(forHTTPHeaderField: "Content-Type") ?? "text/plain"
             }
-            note(route, status: http.statusCode, bytes: body.count)
+            note(isPlaylist: true, status: http.statusCode, bytes: body.count)
             send(status: http.statusCode, headers: headers, body: includeBody ? body : Data(), contentLength: body.count, on: connection)
         } catch {
             Log.debug("cast relay: upstream failed: \(error.localizedDescription)")
@@ -206,29 +210,35 @@ final class CastProxy: @unchecked Sendable {
     }
 
     /// Logs the first requests and every failure (enough to see what the TV does).
-    private func note(_ route: Route, status: Int, bytes: Int) {
+    fileprivate func note(isPlaylist: Bool, status: Int, bytes: Int) {
         lock.lock()
         served += 1
         let count = served
         lock.unlock()
         if count <= 6 || !(200..<300).contains(status) {
-            Log.debug("cast relay: TV got \(route.kind == .playlist ? "playlist" : "segment") -> \(status), \(bytes) bytes")
+            Log.debug("cast relay: TV got \(isPlaylist ? "playlist" : "segment") -> \(status), \(bytes) bytes")
         }
     }
 
     private func send(status: Int, headers: [String: String], body: Data, contentLength: Int? = nil, on connection: NWConnection) {
-        var lines = ["HTTP/1.1 \(status) \(Self.reason(status))"]
-        var all = headers
-        all["Access-Control-Allow-Origin"] = "*"
-        all["Access-Control-Expose-Headers"] = "Content-Length, Content-Range"
-        all["Content-Length"] = String(contentLength ?? body.count)
-        all["Connection"] = "close"
-        for (key, value) in all { lines.append("\(key): \(value)") }
-        var data = Data((lines.joined(separator: "\r\n") + "\r\n\r\n").utf8)
+        var data = head(status: status, headers: headers, contentLength: contentLength ?? body.count)
         data.append(body)
         connection.send(content: data, completion: .contentProcessed { _ in
             connection.cancel()
         })
+    }
+
+    /// Status line and headers (CORS for the receiver's web player). Without a length the
+    /// body simply ends when the connection closes.
+    fileprivate func head(status: Int, headers: [String: String], contentLength: Int?) -> Data {
+        var lines = ["HTTP/1.1 \(status) \(Self.reason(status))"]
+        var all = headers
+        all["Access-Control-Allow-Origin"] = "*"
+        all["Access-Control-Expose-Headers"] = "Content-Length, Content-Range"
+        if let contentLength { all["Content-Length"] = String(contentLength) }
+        all["Connection"] = "close"
+        for (key, value) in all { lines.append("\(key): \(value)") }
+        return Data((lines.joined(separator: "\r\n") + "\r\n\r\n").utf8)
     }
 
     private static func reason(_ status: Int) -> String {
@@ -373,6 +383,55 @@ final class CastProxy: @unchecked Sendable {
             if fallback == nil, name.hasPrefix("en"), !ip.hasPrefix("169.254.") { fallback = ip }
         }
         return fallback
+    }
+}
+
+/// Streams one upstream response to the TV: headers first, then each chunk as it arrives.
+private final class RelayStream: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let owner: CastProxy
+    private let connection: NWConnection
+    private let includeBody: Bool
+    private var sentHead = false
+
+    init(owner: CastProxy, connection: NWConnection, includeBody: Bool) {
+        self.owner = owner
+        self.connection = connection
+        self.includeBody = includeBody
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 502
+        var headers = [
+            "Content-Type": http?.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream",
+            "Accept-Ranges": "bytes",
+        ]
+        if let contentRange = http?.value(forHTTPHeaderField: "Content-Range") { headers["Content-Range"] = contentRange }
+        let length = response.expectedContentLength
+        owner.note(isPlaylist: false, status: status, bytes: Int(max(length, 0)))
+        sentHead = true
+        connection.send(content: owner.head(status: status, headers: headers, contentLength: length >= 0 ? Int(length) : nil),
+                        completion: .contentProcessed { _ in })
+        completionHandler(includeBody ? .allow : .cancel)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        connection.send(content: data, completion: .contentProcessed { error in
+            // The TV went away (e.g. it seeked): stop downloading.
+            if error != nil { dataTask.cancel() }
+        })
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if !sentHead {
+            Log.debug("cast relay: upstream failed: \(error?.localizedDescription ?? "no response")")
+            connection.send(content: owner.head(status: 502, headers: [:], contentLength: 0), completion: .contentProcessed { _ in })
+        }
+        let connection = connection
+        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
     }
 }
 
