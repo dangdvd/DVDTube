@@ -23,6 +23,8 @@ hình trong hình (PiP), tải video xem offline.
 | Điều khiển giống app gốc | Giữ màn hình để tua nhanh 2x, chụm hai ngón để phóng đầy màn hình, lặp lại video, hẹn giờ tắt (15 phút → hết video), tự phát video tiếp theo có đếm ngược 5 giây và nút bật/tắt. |
 | Dưới video | Thích / Không thích, Chia sẻ (kể cả *chia sẻ tại thời điểm đang xem*), Lưu vào danh sách phát, Tải xuống, Bản chép lời (transcript) bấm để tua tới đoạn đó. |
 | Bình luận | Xem bình luận, phản hồi, sắp xếp Hàng đầu / Mới nhất; viết bình luận và trả lời khi đã đăng nhập. |
+| Trò chuyện trực tiếp | Live chat của buổi phát trực tiếp (Hàng đầu / Tất cả, Super Chat, hội viên), gửi tin nhắn khi đã đăng nhập; video đã phát trực tiếp có *phát lại nội dung trò chuyện* chạy theo thời gian video. |
+| Chromecast | Nút 📺 trên trình phát: tìm Chromecast / Google TV trong mạng Wi-Fi và phát luồng không quảng cáo trên TV; điện thoại thành điều khiển (phát/tạm dừng/tua/âm lượng, tự phát video tiếp theo). |
 | Thư viện | Nhật ký xem (tiếp tục từ chỗ đã dừng), Xem sau, Video đã thích, danh sách phát riêng. |
 | Tìm kiếm | Gợi ý khi gõ, **tìm bằng giọng nói** (nút micro), lịch sử, bộ lọc (Video, Shorts, Kênh, Danh sách phát, Trực tiếp, Mới tải lên), dán link YouTube để mở thẳng. |
 | Thông báo | Chuông thông báo của tài khoản YouTube (có số chưa đọc); tùy chọn báo trên màn hình khóa khi kênh đăng ký có video mới (*Cài đặt › Thông báo*). |
@@ -36,8 +38,12 @@ Vào tab **Bạn** (hoặc *Cài đặt*) → **Đăng nhập tài khoản Googl
 - Tab Bạn có Nhật ký xem, Xem sau, Video đã thích, Danh sách phát của tài khoản.
 - Bấm Đăng ký / Thích / Không thích / Xem sau được ghi lên tài khoản; video bạn xem được thêm vào
   nhật ký YouTube (có thể tắt trong Cài đặt).
-- Lưu video vào danh sách phát của tài khoản (hoặc tạo danh sách phát mới), viết bình luận, xem
-  chuông thông báo.
+- Lưu video vào danh sách phát của tài khoản (hoặc tạo danh sách phát mới), viết bình luận, trò
+  chuyện trong live chat, xem chuông thông báo.
+- **Nhiều tài khoản và tài khoản thương hiệu**: bấm vào tên/ảnh đại diện ở tab Bạn → *Chuyển đổi tài
+  khoản* để chọn tài khoản Google hoặc kênh (brand account); *Thêm tài khoản* để đăng nhập thêm.
+- **Tải video lên**: nút ⊞ ở Trang chủ (hoặc menu ⋯ ở tab Bạn) → chọn video từ Ảnh/Tệp, nhập tiêu
+  đề, mô tả, chế độ hiển thị. Có thêm lựa chọn *Tải lên bằng YouTube Studio (web)*.
 - Video **vẫn phát qua trình phát không quảng cáo** của ứng dụng.
 
 Cách hoạt động: bạn đăng nhập trên chính trang của Google (mật khẩu không đi qua ứng dụng). Ứng dụng
@@ -118,8 +124,10 @@ nhận, không phải sửa `project.pbxproj`.
 
 ## Giới hạn
 
-- Chưa hỗ trợ: chat trực tiếp (live chat), tải video lên, Chromecast, tài khoản thương hiệu (brand
-  account) / nhiều tài khoản cùng lúc.
+- Chromecast phát luồng HLS (tự lùi về MP4 360p nếu TV không phát được HLS). Luồng YouTube gắn với địa
+  chỉ IP: iPhone và TV cần ra Internet qua cùng một mạng. Khi ứng dụng bị iOS tạm dừng ở nền, TV vẫn
+  phát tiếp và ứng dụng tự kết nối lại khi mở lên.
+- Tải video lên chạy khi ứng dụng đang mở; video dài/tệp lớn nên giữ màn hình sáng cho tới khi xong.
 - Báo video mới chạy bằng *Làm mới ứng dụng trong nền* của iOS: iOS tự quyết định khi nào chạy
   (thường vài giờ một lần, ít hơn nếu ít mở ứng dụng hoặc đang ở Chế độ nguồn điện thấp).
 - Video giới hạn độ tuổi, video "dành cho trẻ em" hoặc nội dung trả phí có thể không phát được.
