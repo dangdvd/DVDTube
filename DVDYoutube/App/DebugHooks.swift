@@ -1,17 +1,56 @@
 import Foundation
 import os
+import UIKit
 
-/// Diagnostics, enabled with the `-DVDTubeVerbose` launch argument (used by the CI smoke test).
+/// Diagnostics. Every line goes to an in-memory log the user can copy from Settings
+/// (endpoints, HTTP status codes and errors only — never cookies or account data).
+/// With the `-DVDTubeVerbose` launch argument (CI smoke test) lines also go to stderr.
 enum Log {
     static let verbose = ProcessInfo.processInfo.arguments.contains("-DVDTubeVerbose")
     private static let logger = Logger(subsystem: "com.dangdvd.dvdtube", category: "app")
 
     static func debug(_ message: @autoclosure () -> String) {
-        guard verbose else { return }
         let text = message()
+        DiagnosticsLog.shared.append(text)
+        guard verbose else { return }
         logger.debug("\(text, privacy: .public)")
         // stderr is unbuffered, so lines survive the app being terminated by `simctl`.
         FileHandle.standardError.write(Data("[DVDTube] \(text)\n".utf8))
+    }
+}
+
+/// Ring buffer of the most recent log lines.
+final class DiagnosticsLog: @unchecked Sendable {
+    static let shared = DiagnosticsLog()
+
+    private let lock = NSLock()
+    private var lines: [String] = []
+    private let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    func append(_ line: String) {
+        lock.lock()
+        lines.append("\(formatter.string(from: Date())) \(line)")
+        if lines.count > 500 { lines.removeFirst(lines.count - 500) }
+        lock.unlock()
+    }
+
+    @MainActor
+    var text: String {
+        lock.lock()
+        defer { lock.unlock() }
+        let device = "\(UIDevice.current.model) iOS \(UIDevice.current.systemVersion)"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        return (["DVDTube \(version) • \(device)"] + lines).joined(separator: "\n")
+    }
+
+    func clear() {
+        lock.lock()
+        lines.removeAll()
+        lock.unlock()
     }
 }
 

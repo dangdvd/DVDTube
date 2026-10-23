@@ -211,7 +211,9 @@ final class YouTubeService {
     /// Any account page by browse id: FEwhat_to_watch (home), FEsubscriptions, FEchannels,
     /// FEhistory, FEplaylist_aggregation, VLWL (watch later), VLLL (liked videos).
     func accountFeed(_ browseId: String) async throws -> FeedPage {
-        ItemParser.page(try await api.browse(browseId: browseId))
+        let page = ItemParser.page(try await api.browse(browseId: browseId))
+        Log.debug("account \(browseId): \(page.items.count) items, more=\(page.continuation != nil)\(page.message.map { ", notice: \($0)" } ?? "")")
+        return page
     }
 
     /// Every channel the account is subscribed to.

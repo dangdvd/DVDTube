@@ -85,6 +85,8 @@ struct FeedPage {
     var items: [FeedItem]
     var continuation: String?
     var kind: ContinuationKind = .browse
+    /// YouTube's own explanation when a page has no items (e.g. "Your watch history is off").
+    var message: String?
 
     static let empty = FeedPage(items: [], continuation: nil)
 

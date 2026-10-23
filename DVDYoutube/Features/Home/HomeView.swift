@@ -158,10 +158,13 @@ struct HomeView: View {
                 await forYou.load()
             }
         }
-        .onChange(of: account.isSignedIn) { _, _ in
-            // Personalised results differ per account: start fresh.
-            accountHome = FeedModel { try await YouTubeService.shared.accountFeed("FEwhat_to_watch") }
+        .onChange(of: account.isSignedIn) { _, signedIn in
+            // Personalised results differ per account. Reload the same model in place
+            // (replacing it raced with the `.task` above and left the feed unloaded).
             categoryModels = [:]
+            if signedIn, accountHome.hasLoaded {
+                Task { await accountHome.load(force: true) }
+            }
         }
     }
 
@@ -195,23 +198,57 @@ struct HomeView: View {
     @ViewBuilder
     private var content: some View {
         if category == .all, account.isSignedIn {
-            CategoryFeed(model: accountHome)
-        } else if category == .all {
-            if forYou.isLoading && forYou.items.isEmpty {
-                LoadingStateView()
-            } else if let error = forYou.error, forYou.items.isEmpty {
-                ErrorStateView(message: error) { Task { await forYou.load(force: true) } }
+            if accountHome.hasLoaded, accountHome.items.isEmpty, accountHome.error == nil {
+                // YouTube returned no recommendations (typically: watch history is off).
+                // Explain why and fall back to the on-device suggestions.
+                accountNotice(accountHome.message)
+                forYouFeed
+                    .task { await forYou.load() }
             } else {
-                FeedList(items: forYou.items, isLoadingMore: forYou.isLoadingMore) {
-                    Task { await forYou.loadMore() }
-                }
+                CategoryFeed(model: accountHome)
             }
+        } else if category == .all {
+            forYouFeed
         } else if let model = categoryModels[category] {
             CategoryFeed(model: model)
         } else {
             LoadingStateView()
                 .onAppear { _ = model(for: category) }
         }
+    }
+
+    @ViewBuilder
+    private var forYouFeed: some View {
+        if forYou.isLoading && forYou.items.isEmpty {
+            LoadingStateView()
+        } else if let error = forYou.error, forYou.items.isEmpty {
+            ErrorStateView(message: error) { Task { await forYou.load(force: true) } }
+        } else {
+            FeedList(items: forYou.items, isLoadingMore: forYou.isLoadingMore) {
+                Task { await forYou.loadMore() }
+            }
+        }
+    }
+
+    private func accountNotice(_ message: String?) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle.fill").foregroundStyle(Color.brand)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("YouTube chưa có đề xuất cho tài khoản của bạn")
+                    .font(.subheadline.weight(.semibold))
+                Text(message ?? "Thường là do Nhật ký xem của tài khoản đang tắt. Bật lại tại myactivity.google.com hoặc trong ứng dụng YouTube, rồi kéo xuống để làm mới.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Tạm thời hiển thị đề xuất dựa trên những gì bạn xem trong ứng dụng này.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 
     @discardableResult
@@ -239,7 +276,16 @@ private struct CategoryFeed: View {
     let model: FeedModel
 
     var body: some View {
-        if model.isLoading && model.items.isEmpty {
+        Group {
+            feed
+        }
+        // Self-loading: a feed shown on screen is never left in the "not loaded" state.
+        .task { await model.load() }
+    }
+
+    @ViewBuilder
+    private var feed: some View {
+        if (model.isLoading || !model.hasLoaded) && model.items.isEmpty && model.error == nil {
             LoadingStateView()
         } else if let error = model.error, model.items.isEmpty {
             ErrorStateView(message: error) { Task { await model.load(force: true) } }
