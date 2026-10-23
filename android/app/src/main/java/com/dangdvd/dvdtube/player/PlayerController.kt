@@ -252,7 +252,7 @@ object PlayerController {
             return
         }
         if (usesWebPlayer) {
-            webCommand("var v=document.querySelector('video'); if (v) v.play();")
+            webCommand("playVideo")
             return
         }
         val video = currentVideo ?: return
@@ -271,7 +271,7 @@ object PlayerController {
             saveProgress()
             return
         }
-        if (usesWebPlayer) webCommand("var v=document.querySelector('video'); if (v) v.pause();")
+        if (usesWebPlayer) webCommand("pauseVideo")
         exo.pause()
         saveProgress()
     }
@@ -281,7 +281,7 @@ object PlayerController {
         currentTime = target
         when {
             isCasting -> CastController.seek(target)
-            usesWebPlayer -> webCommand("var v=document.querySelector('video'); if (v) v.currentTime=$target;")
+            usesWebPlayer -> webCommand("seekTo", "[$target, true]")
             else -> exo.seekTo((target * 1000).toLong())
         }
     }
@@ -311,6 +311,7 @@ object PlayerController {
         start(video, if (currentTime > 0) currentTime else null)
     }
 
+    @JvmName("chooseQuality")
     fun setQuality(value: VideoQuality) {
         quality = value
         applyQuality()
@@ -686,6 +687,7 @@ object PlayerController {
         playNext()
     }
 
+    @JvmName("chooseLooping")
     fun setLooping(on: Boolean) {
         isLooping = on
         exo.repeatMode = if (on) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
@@ -730,6 +732,7 @@ object PlayerController {
         exo.setPlaybackSpeed(rate)
     }
 
+    @JvmName("chooseVideoFill")
     fun setVideoFill(fill: Boolean) {
         if (fill == videoFill) return
         videoFill = fill
@@ -852,8 +855,9 @@ object PlayerController {
         }
     }
 
-    private fun webCommand(script: String) {
-        webView?.evaluateJavascript(script, null)
+    /** An IFrame Player API command for the embed (playVideo, pauseVideo, seekTo…). */
+    private fun webCommand(name: String, arguments: String = "[]") {
+        webView?.evaluateJavascript("dvdCommand('$name', $arguments)", null)
     }
 
     // MARK: Chromecast
@@ -862,7 +866,7 @@ object PlayerController {
     fun castDidConnect() {
         loadJob?.cancel()
         if (usesWebPlayer) {
-            webCommand("var v=document.querySelector('video'); if (v) v.pause();")
+            webCommand("pauseVideo")
             usesWebPlayer = false
         }
         exo.stop()
