@@ -86,19 +86,24 @@ enum DebugHooks {
         }
     }
 
-    /// Runs the chat of the demo video for a while and logs what was parsed (no message text).
+    /// Finds a stream that is live right now, runs its chat for a while and logs what
+    /// was parsed (counts only, no message text).
     private static func probeLiveChat() async {
-        for _ in 0..<40 {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard let info = PlayerManager.shared.watchInfo else { continue }
-            guard let chat = info.liveChat else {
-                Log.debug("live chat probe: no chat on this video")
+        do {
+            let results = try await YouTubeService.shared.search("lofi", filter: .live)
+            guard let live = results.videos.first(where: \.isLive) ?? results.videos.first else {
+                Log.debug("live chat probe: no live stream found")
                 return
             }
-            Log.debug("live chat probe: modes=\(chat.modes.map(\.title)) replay=\(chat.isReplay)")
+            let info = try await YouTubeService.shared.watchInfo(live.id)
+            guard let chat = info.liveChat else {
+                Log.debug("live chat probe: \(live.id) has no chat")
+                return
+            }
+            Log.debug("live chat probe: \(live.id) modes=\(chat.modes.map(\.title)) replay=\(chat.isReplay)")
             let model = LiveChatModel(info: chat)
             model.start()
-            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
             let kinds = Dictionary(grouping: model.messages) { message -> String in
                 switch message.kind {
                 case .text: return "text"
@@ -107,10 +112,11 @@ enum DebugHooks {
                 case .system: return "system"
                 }
             }.mapValues(\.count)
-            Log.debug("live chat probe: \(model.messages.count) messages \(kinds), error=\(model.error ?? "none"), ended=\(model.hasEnded)")
+            let badges = model.messages.filter { $0.isOwner || $0.isModerator || $0.isMember || $0.isVerified }.count
+            Log.debug("live chat probe: \(model.messages.count) messages \(kinds), badges=\(badges), withPhoto=\(model.messages.filter { $0.authorPhoto != nil }.count), error=\(model.error ?? "none"), ended=\(model.hasEnded)")
             model.stop()
-            return
+        } catch {
+            Log.debug("live chat probe failed: \(error.localizedDescription)")
         }
-        Log.debug("live chat probe: watch info did not load")
     }
 }
