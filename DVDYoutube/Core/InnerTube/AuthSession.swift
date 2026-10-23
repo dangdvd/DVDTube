@@ -13,11 +13,39 @@ final class AuthSession: @unchecked Sendable {
 
     static let origin = "https://www.youtube.com"
 
+    /// Which of the signed-in Google accounts (`authUser`, 0-based like `/u/1/`) and,
+    /// for a brand account, which channel (`pageId`) requests run as.
+    struct Identity: Codable, Equatable {
+        var authUser = 0
+        var pageId: String?
+    }
+
     private let lock = NSLock()
     private var cookies: [String: String] = [:]
+    private var identity = Identity()
+    private static let identityKey = "auth.identity"
 
     private init() {
         cookies = Keychain.load() ?? [:]
+        if let data = UserDefaults.standard.data(forKey: Self.identityKey),
+           let saved = try? JSONDecoder().decode(Identity.self, from: data) {
+            identity = saved
+        }
+    }
+
+    var currentIdentity: Identity {
+        lock.lock()
+        defer { lock.unlock() }
+        return identity
+    }
+
+    func setIdentity(_ newIdentity: Identity) {
+        lock.lock()
+        identity = newIdentity
+        lock.unlock()
+        if let data = try? JSONEncoder().encode(newIdentity) {
+            UserDefaults.standard.set(data, forKey: Self.identityKey)
+        }
     }
 
     var isAuthenticated: Bool {
@@ -41,8 +69,10 @@ final class AuthSession: @unchecked Sendable {
     func clear() {
         lock.lock()
         cookies = [:]
+        identity = Identity()
         lock.unlock()
         Keychain.delete()
+        UserDefaults.standard.removeObject(forKey: Self.identityKey)
     }
 
     var cookieList: [String: String] {
@@ -70,19 +100,22 @@ final class AuthSession: @unchecked Sendable {
     }
 
     /// Headers that make an InnerTube request run as the signed-in account (nil if signed out).
-    func headers(for url: URL) -> [String: String]? {
+    /// `origin` must match the site the request claims to come from (e.g. YouTube Studio).
+    func headers(for url: URL, origin: String = AuthSession.origin) -> [String: String]? {
         guard let host = url.host?.lowercased(), host == "youtube.com" || host.hasSuffix(".youtube.com") else { return nil }
         lock.lock()
         let cookies = self.cookies
+        let identity = self.identity
         lock.unlock()
         guard Self.hasAuthCookies(cookies) else { return nil }
 
         var headers: [String: String] = [
             "Cookie": cookies.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "; "),
-            "X-Origin": Self.origin,
-            "X-Goog-AuthUser": "0",
+            "X-Origin": origin,
+            "X-Goog-AuthUser": String(identity.authUser),
             "X-Youtube-Bootstrap-Logged-In": "true",
         ]
+        if let pageId = identity.pageId { headers["X-Goog-PageId"] = pageId }
         let timestamp = String(Int(Date().timeIntervalSince1970))
         let schemes: [(String, String?)] = [
             ("SAPISIDHASH", cookies["SAPISID"] ?? cookies["__Secure-3PAPISID"]),
@@ -91,7 +124,7 @@ final class AuthSession: @unchecked Sendable {
         ]
         let authorization = schemes.compactMap { scheme, sid -> String? in
             guard let sid else { return nil }
-            let digest = Insecure.SHA1.hash(data: Data("\(timestamp) \(sid) \(Self.origin)".utf8))
+            let digest = Insecure.SHA1.hash(data: Data("\(timestamp) \(sid) \(origin)".utf8))
             let hex = digest.map { String(format: "%02x", $0) }.joined()
             return "\(scheme) \(timestamp)_\(hex)"
         }.joined(separator: " ")

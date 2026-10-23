@@ -35,6 +35,12 @@
 	<array>
 		<string>com.dangdvd.dvdtube.refresh</string>
 	</array>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_googlecast._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Tìm Chromecast và Google TV trong mạng Wi-Fi để truyền video lên TV.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Dùng micro để tìm kiếm bằng giọng nói.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

@@ -65,7 +65,8 @@ enum WatchParser {
             commentCountText: commentCount,
             chapters: chapters,
             likeStatus: primary["videoActions"].findFirst("likeStatusEntity")["likeStatus"].string,
-            isSubscribed: secondary.findFirst("subscribeButtonRenderer")["subscribed"].bool
+            isSubscribed: secondary.findFirst("subscribeButtonRenderer")["subscribed"].bool,
+            liveChat: LiveChatParser.info(watch)
         )
     }
 }
@@ -75,12 +76,56 @@ enum AccountParser {
     static func profile(_ json: JNode) -> AccountProfile? {
         let header = json.findFirst("activeAccountHeaderRenderer")
         guard let name = header["accountName"].text else { return nil }
+        // "Your channel" in the menu links to the account's channel.
+        let channelId = json.findAll("browseEndpoint").lazy
+            .compactMap { $0["browseId"].string }
+            .first { $0.hasPrefix("UC") }
         return AccountProfile(
             name: name,
             handle: header["channelHandle"].text,
             email: header["email"].text,
-            avatar: header["accountPhoto"].bestImageURL
+            avatar: header["accountPhoto"].bestImageURL,
+            channelId: channelId
         )
+    }
+
+    /// Account switcher: every signed-in Google account and its brand channels.
+    /// `authuser`/`pageid` come from each item's sign-in URL or page id token.
+    static func identities(_ json: JNode) -> [AccountIdentity] {
+        var result: [AccountIdentity] = []
+        var seen = Set<String>()
+        for (index, section) in json.findAll("accountSectionListRenderer").enumerated() {
+            let header = section.findFirst("googleAccountHeaderRenderer")
+            let email = header["email"].text
+            let items = section.findAll("accountItem") + section.findAll("accountItemRenderer")
+            for item in items {
+                guard let name = item["accountName"].text else { continue }
+                var authUser: Int?
+                var pageId: String?
+                for token in item.findAll("supportedTokens").flatMap(\.array) {
+                    if let id = token.at("pageIdToken", "pageId").string, !id.isEmpty { pageId = id }
+                    if let url = token.at("accountSigninToken", "signinUrl").string,
+                       let components = URLComponents(string: url) {
+                        for query in components.queryItems ?? [] {
+                            if query.name == "authuser", let value = query.value.flatMap(Int.init) { authUser = value }
+                            if query.name == "pageid", let value = query.value, !value.isEmpty, pageId == nil { pageId = value }
+                        }
+                    }
+                }
+                let identity = AccountIdentity(
+                    authUser: authUser ?? index,
+                    pageId: pageId,
+                    name: name,
+                    byline: item["channelHandle"].text ?? item["accountByline"].text,
+                    email: email ?? (pageId == nil ? item["accountByline"].text : nil),
+                    avatar: item["accountPhoto"].bestImageURL,
+                    isSelected: item["isSelected"].bool ?? false,
+                    hasChannel: item["hasChannel"].bool ?? true
+                )
+                if seen.insert(identity.id).inserted { result.append(identity) }
+            }
+        }
+        return result
     }
 }
 

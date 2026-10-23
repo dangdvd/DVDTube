@@ -13,6 +13,7 @@ struct WatchDetailsView: View {
     @State private var showComments = false
     @State private var showQueue = false
     @State private var showTranscript = false
+    @State private var showLiveChat = false
     @State private var relatedMore: [FeedItem] = []
     @State private var relatedToken: String?
     @State private var loadingMore = false
@@ -31,6 +32,9 @@ struct WatchDetailsView: View {
                         }
                         if player.queue.count > 1 {
                             queueCard
+                        }
+                        if let chat = player.watchInfo?.liveChat {
+                            liveChatCard(chat)
                         }
                         commentsCard
                         related
@@ -56,6 +60,15 @@ struct WatchDetailsView: View {
             if let token = player.watchInfo?.commentsToken {
                 CommentsSheet(initialToken: token, countText: player.watchInfo?.commentCountText)
                     .presentationDetents([.medium, .large])
+                    .presentationContentInteraction(.scrolls)
+            }
+        }
+        .sheet(isPresented: $showLiveChat) {
+            if let chat = player.watchInfo?.liveChat {
+                LiveChatSheet(info: chat)
+                    .id(player.watchInfo?.videoId)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                     .presentationContentInteraction(.scrolls)
             }
         }
@@ -276,6 +289,33 @@ struct WatchDetailsView: View {
                 Image(systemName: "chevron.right").foregroundStyle(.secondary)
             }
             .padding(12)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+    }
+
+    private func liveChatCard(_ chat: LiveChatInfo) -> some View {
+        Button {
+            showLiveChat = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .foregroundStyle(chat.isReplay ? Color.secondary : Color.brand)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(chat.isReplay ? "Phát lại nội dung trò chuyện" : "Trò chuyện trực tiếp")
+                        .font(.subheadline.weight(.semibold))
+                    Text(chat.isReplay ? "Xem tin nhắn theo thời điểm của video" : "Nhấn để xem và tham gia trò chuyện")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
         }
         .buttonStyle(.plain)

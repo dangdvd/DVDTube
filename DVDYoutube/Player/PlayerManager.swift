@@ -165,6 +165,10 @@ final class PlayerManager {
     }
 
     func resume() {
+        if isCasting {
+            CastManager.shared.play()
+            return
+        }
         if usesWebPlayer {
             webCommand("playVideo")
             return
@@ -179,6 +183,11 @@ final class PlayerManager {
     }
 
     func pause() {
+        if isCasting {
+            CastManager.shared.pause()
+            saveProgress()
+            return
+        }
         if usesWebPlayer { webCommand("pauseVideo") }
         player.pause()
         saveProgress()
@@ -187,6 +196,11 @@ final class PlayerManager {
     func seek(to seconds: Double) {
         let target = max(0, duration > 0 ? min(seconds, duration - 0.25) : seconds)
         currentTime = target
+        if isCasting {
+            CastManager.shared.seek(to: target)
+            updateNowPlayingTime()
+            return
+        }
         if usesWebPlayer {
             webCommand("seekTo", arguments: "[\(target), true]")
             return
@@ -201,6 +215,7 @@ final class PlayerManager {
 
     func close() {
         saveProgress()
+        if isCasting { CastManager.shared.stopMedia() }
         cancelUpNext()
         loadTask?.cancel()
         watchTask?.cancel()
@@ -292,6 +307,14 @@ final class PlayerManager {
         if settings.saveHistory { library.recordWatch(video, position: pendingSeek ?? 0, duration: duration) }
         updateNowPlayingInfo()
         loadWatchInfo(video.id)
+
+        if isCasting {
+            // Plays on the TV; the phone only shows the controls.
+            isLoading = false
+            CastManager.shared.load(video, info: nil, startAt: pendingSeek ?? 0)
+            pendingSeek = nil
+            return
+        }
 
         loadTask = Task { [weak self] in
             await self?.loadStream(for: video)
@@ -571,7 +594,7 @@ final class PlayerManager {
         saveProgress(completed: true)
         if isLooping {
             seek(to: 0)
-            player.playImmediately(atRate: rate)
+            if isCasting { CastManager.shared.play() } else { player.playImmediately(atRate: rate) }
             return
         }
         if sleepAtEndOfVideo {
@@ -648,7 +671,7 @@ final class PlayerManager {
 
     /// Touch and hold the video to watch at 2x until released.
     func beginSpeedBoost() {
-        guard isPlaying, !usesWebPlayer, !isSpeedBoosted else { return }
+        guard isPlaying, !usesWebPlayer, !isCasting, !isSpeedBoosted else { return }
         isSpeedBoosted = true
         player.rate = 2
     }
@@ -787,6 +810,57 @@ final class PlayerManager {
         webView?.evaluateJavaScript("dvdCommand('\(name)', \(arguments))", completionHandler: nil)
     }
 
+    // MARK: - Chromecast
+
+    var isCasting: Bool { CastManager.shared.isConnected }
+
+    /// Sends the current video to a TV, continuing from the current position.
+    func cast(to device: CastManager.Device) {
+        CastManager.shared.connect(to: device, video: currentVideo, startAt: currentTime)
+    }
+
+    /// The TV took over: stop local playback (the phone becomes a remote).
+    func castDidConnect() {
+        loadTask?.cancel()
+        if usesWebPlayer {
+            webCommand("pauseVideo")
+            usesWebPlayer = false
+        }
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        endSpeedBoost()
+        isLoading = false
+        isBuffering = false
+        playbackError = nil
+        adWaitRemaining = 0
+        if let device = CastManager.shared.device { showToast("Đang phát trên \(device.name)") }
+    }
+
+    func applyCastStatus(time: Double, duration: Double?, playing: Bool, buffering: Bool) {
+        guard currentVideo != nil else { return }
+        currentTime = time
+        if let duration, duration > 0 { self.duration = duration }
+        isPlaying = playing
+        isBuffering = buffering
+        if time > 10, let id = currentVideo?.id {
+            AccountStore.shared.reportWatched(id, duration: self.duration)
+        }
+        if Date().timeIntervalSince(lastHistorySave) > 10 { saveProgress() }
+        updateNowPlayingTime()
+    }
+
+    func castDidFinish() {
+        handleEnded()
+    }
+
+    /// Casting stopped: the phone continues from the same position when play is pressed.
+    func castDidEnd() {
+        isPlaying = false
+        isBuffering = false
+        saveProgress()
+        updateNowPlayingTime()
+    }
+
     // MARK: - Toasts
 
     func showToast(_ message: String) {
@@ -843,7 +917,7 @@ final class PlayerManager {
     /// Detaching the video layer lets audio keep playing while the app is in the background.
     func appDidEnterBackground() {
         saveProgress()
-        guard currentVideo != nil else { return }
+        guard currentVideo != nil, !isCasting else { return }
         if !settings.backgroundPlayback, !isPiPActive {
             pause()
             return
@@ -857,6 +931,7 @@ final class PlayerManager {
 
     func appWillEnterForeground() {
         playerLayer?.player = player
+        CastManager.shared.appWillEnterForeground()
         // Like the official app: opening the app while the floating PiP window is shown
         // ends PiP and continues the video in the full player.
         if let controller = pipController, controller.isPictureInPictureActive {

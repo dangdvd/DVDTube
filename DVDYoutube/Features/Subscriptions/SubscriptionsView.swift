@@ -114,6 +114,10 @@ struct SubscriptionsView: View {
             }
         }
         .task(id: account.isSignedIn ? -1 : library.subscriptions.count) { await model.load() }
+        .onChange(of: account.sessionKey) { oldKey, newKey in
+            guard oldKey != "signed-out", newKey != "signed-out" else { return }
+            Task { await model.load(force: true) }
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.commaSeparatedText, .plainText, .text]) { result in
             importCSV(result)
         }
@@ -229,7 +233,7 @@ struct SubscriptionsView: View {
             )
             if !account.isSignedIn {
                 Button {
-                    router.showSignIn = true
+                    router.signIn()
                 } label: {
                     Label("Đăng nhập tài khoản Google", systemImage: "person.crop.circle.badge.plus")
                 }

@@ -41,7 +41,9 @@ struct PlayerSurface: View {
                 }
             }
 
-            if showPoster {
+            if player.isCasting {
+                CastingBackdrop(compact: mode == .mini)
+            } else if showPoster {
                 RemoteImage(url: player.currentVideo?.displayThumbnail, contentMode: .fit)
                     .background(Color.black)
             }
@@ -323,9 +325,10 @@ struct PlayerSurface: View {
                 Image(systemName: player.autoplayEnabled ? "autostartstop" : "autostartstop.slash")
                     .controlIcon()
             }
+            CastButton()
             RoutePickerView()
                 .frame(width: 36, height: 36)
-            if !player.captionTracks.isEmpty {
+            if !player.captionTracks.isEmpty, !player.isCasting {
                 Button {
                     if player.selectedCaption == nil {
                         let preferred = AppSettings.shared.captionLanguage

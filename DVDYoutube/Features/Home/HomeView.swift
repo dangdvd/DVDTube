@@ -147,7 +147,11 @@ struct HomeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { AppLogo() }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if account.isSignedIn { NotificationBell() }
+                if account.isSignedIn {
+                    Button { router.showUpload = true } label: { Image(systemName: "plus.app") }
+                        .accessibilityLabel("Tải video lên")
+                    NotificationBell()
+                }
                 Button { router.open(.search) } label: { Image(systemName: "magnifyingglass") }
             }
         }
@@ -158,6 +162,12 @@ struct HomeView: View {
             } else {
                 await forYou.load()
             }
+        }
+        .onChange(of: account.sessionKey) { oldKey, newKey in
+            // Switched to another Google account or brand channel.
+            guard oldKey != "signed-out", newKey != "signed-out" else { return }
+            categoryModels = [:]
+            Task { await accountHome.load(force: true) }
         }
         .onChange(of: account.isSignedIn) { _, signedIn in
             // Personalised results differ per account. Reload the same model in place

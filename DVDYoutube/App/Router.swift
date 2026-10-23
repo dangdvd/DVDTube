@@ -46,6 +46,15 @@ final class Router {
 
     /// Presents the Google sign-in sheet.
     var showSignIn = false
+    /// The sign-in sheet adds another Google account instead of replacing the session.
+    var signInAddsAccount = false
+    var showAccountSwitcher = false
+    var showUpload = false
+
+    func signIn(addingAccount: Bool = false) {
+        signInAddsAccount = addingAccount
+        showSignIn = true
+    }
 
     /// Shorts tapped somewhere else (search, home shelf, channel) to open in the Shorts tab.
     private(set) var pendingShorts: (items: [VideoItem], startId: String)?

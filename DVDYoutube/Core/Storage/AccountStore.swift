@@ -15,6 +15,11 @@ final class AccountStore {
     private(set) var isRefreshing = false
     private(set) var lastError: String?
     private(set) var unseenNotifications = 0
+    /// Google accounts and brand channels available in this session.
+    private(set) var identities: [AccountIdentity] = []
+    /// Changes whenever requests start running as a different account or channel;
+    /// feeds observe it to reload.
+    private(set) var sessionKey: String
 
     var syncWatchHistory: Bool {
         didSet { UserDefaults.standard.set(syncWatchHistory, forKey: Self.syncHistoryKey) }
@@ -35,6 +40,7 @@ final class AccountStore {
         UserDefaults.standard.register(defaults: [Self.syncHistoryKey: true])
         syncWatchHistory = UserDefaults.standard.bool(forKey: Self.syncHistoryKey)
         isSignedIn = AuthSession.shared.isAuthenticated
+        sessionKey = Self.makeSessionKey(signedIn: AuthSession.shared.isAuthenticated)
         if isSignedIn, let data = UserDefaults.standard.data(forKey: Self.profileKey) {
             profile = try? JSONDecoder().decode(AccountProfile.self, from: data)
         }
@@ -46,38 +52,114 @@ final class AccountStore {
     // MARK: Sign in / out
 
     /// Validates the cookies with YouTube and stores them. Returns an error message on failure.
-    func completeSignIn(cookies: [String: String], fromWebLogin: Bool) async -> String? {
+    /// `addingAccount`: the cookies now also hold another Google account; switch to it.
+    func completeSignIn(cookies: [String: String], fromWebLogin: Bool, addingAccount: Bool = false) async -> String? {
         guard AuthSession.hasAuthCookies(cookies) else {
             return "Không tìm thấy cookie đăng nhập YouTube (cần LOGIN_INFO và SAPISID)."
         }
+        let previousCookies = AuthSession.shared.cookieList
+        let previousIdentity = AuthSession.shared.currentIdentity
         AuthSession.shared.replace(with: cookies)
+        if !addingAccount { AuthSession.shared.setIdentity(.init()) }
         do {
             guard let profile = try await YouTubeService.shared.accountProfile() else {
-                AuthSession.shared.clear()
-                return "YouTube không chấp nhận phiên đăng nhập này. Hãy thử đăng nhập lại."
+                throw SignInRejected()
             }
             self.profile = profile
             saveProfile()
             isSignedIn = true
             lastError = nil
             if !fromWebLogin { await Self.installInWebKit(cookies) }
+            if addingAccount {
+                await loadIdentities()
+                // The account added last gets the highest index.
+                if let added = identities.filter({ !$0.isBrandAccount }).max(by: { $0.authUser < $1.authUser }),
+                   added.authUser != AuthSession.shared.currentIdentity.authUser {
+                    await switchTo(added)
+                    return nil
+                }
+            }
+            resetAccountState()
             Task { await refreshSubscriptions() }
+            Task { await loadIdentities() }
             return nil
         } catch {
-            AuthSession.shared.clear()
+            if addingAccount, AuthSession.hasAuthCookies(previousCookies) {
+                // Keep the account that was already signed in.
+                AuthSession.shared.replace(with: previousCookies)
+                AuthSession.shared.setIdentity(previousIdentity)
+            } else {
+                AuthSession.shared.clear()
+            }
+            if error is SignInRejected {
+                return "YouTube không chấp nhận phiên đăng nhập này. Hãy thử đăng nhập lại."
+            }
             return error.localizedDescription
         }
+    }
+
+    // MARK: Accounts & brand channels
+
+    func loadIdentities() async {
+        guard isSignedIn else { return }
+        do {
+            var list = try await YouTubeService.shared.accountIdentities()
+            // Mark the identity requests actually run as (YouTube's own flag follows authuser 0).
+            let current = AuthSession.shared.currentIdentity
+            if list.contains(where: { $0.authUser == current.authUser && $0.pageId == current.pageId }) {
+                for index in list.indices {
+                    list[index].isSelected = list[index].authUser == current.authUser && list[index].pageId == current.pageId
+                }
+            }
+            identities = list
+        } catch {
+            Log.debug("account identities failed: \(error.localizedDescription)")
+        }
+    }
+
+    var currentIdentity: AccountIdentity? {
+        let current = AuthSession.shared.currentIdentity
+        return identities.first { $0.authUser == current.authUser && $0.pageId == current.pageId }
+    }
+
+    /// Runs every following request as another Google account or brand channel.
+    func switchTo(_ identity: AccountIdentity) async {
+        AuthSession.shared.setIdentity(.init(authUser: identity.authUser, pageId: identity.pageId))
+        resetAccountState()
+        for index in identities.indices {
+            identities[index].isSelected = identities[index].id == identity.id
+        }
+        profile = AccountProfile(name: identity.name, handle: identity.byline, email: identity.email, avatar: identity.avatar)
+        sessionKey = Self.makeSessionKey(signedIn: true)
+        PlayerManager.shared.showToast("Đã chuyển sang \(identity.name)")
+        await refresh()
+        PlayerManager.shared.refreshWatchInfo()
+    }
+
+    private func resetAccountState() {
+        subscribedChannels = []
+        subscriptionState = [:]
+        ratingState = [:]
+        watchLaterState = [:]
+        reportedWatched = []
+        unseenNotifications = 0
+        sessionKey = Self.makeSessionKey(signedIn: AuthSession.shared.isAuthenticated)
+    }
+
+    private struct SignInRejected: Error {}
+
+    private static func makeSessionKey(signedIn: Bool) -> String {
+        guard signedIn else { return "signed-out" }
+        let identity = AuthSession.shared.currentIdentity
+        return "u\(identity.authUser)-\(identity.pageId ?? "main")"
     }
 
     func signOut() async {
         AuthSession.shared.clear()
         isSignedIn = false
         profile = nil
-        subscribedChannels = []
-        subscriptionState = [:]
-        ratingState = [:]
-        watchLaterState = [:]
-        reportedWatched = []
+        identities = []
+        resetAccountState()
         UserDefaults.standard.removeObject(forKey: Self.profileKey)
         await Self.clearWebKitSession()
     }
@@ -99,6 +181,7 @@ final class AccountStore {
         }
         await refreshSubscriptions()
         await refreshNotificationCount()
+        if identities.isEmpty { await loadIdentities() }
     }
 
     func refreshNotificationCount() async {

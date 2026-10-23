@@ -30,13 +30,23 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    Button {
+                        router.showAccountSwitcher = true
+                    } label: {
+                        Label("Chuyển đổi tài khoản / kênh", systemImage: "person.2.circle")
+                    }
+                    Button {
+                        router.signIn(addingAccount: true)
+                    } label: {
+                        Label("Thêm tài khoản Google", systemImage: "person.badge.plus")
+                    }
                     Toggle("Ghi video đã xem vào nhật ký YouTube", isOn: $account.syncWatchHistory)
-                    Button("Đăng xuất", role: .destructive) {
+                    Button("Đăng xuất (mọi tài khoản)", role: .destructive) {
                         Task { await account.signOut() }
                     }
                 } else {
                     Button {
-                        router.showSignIn = true
+                        router.signIn()
                     } label: {
                         Label("Đăng nhập tài khoản Google", systemImage: "person.crop.circle.badge.plus")
                     }

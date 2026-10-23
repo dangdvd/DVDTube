@@ -7,6 +7,9 @@ import WebKit
 struct GoogleSignInView: View {
     enum Mode { case web, manual }
 
+    /// Signs in one more Google account next to the current one (account switcher).
+    var addsAccount = false
+
     @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
     @State private var mode: Mode = .web
@@ -32,7 +35,7 @@ struct GoogleSignInView: View {
                     .background(RoundedRectangle(cornerRadius: 16).fill(.regularMaterial))
                 }
             }
-            .navigationTitle("Đăng nhập Google")
+            .navigationTitle(addsAccount ? "Thêm tài khoản" : "Đăng nhập Google")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -78,7 +81,7 @@ struct GoogleSignInView: View {
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(.secondarySystemBackground))
-            GoogleLoginWebView { cookies in
+            GoogleLoginWebView(addsAccount: addsAccount) { cookies in
                 guard !isFinishing else { return }
                 Task { await finish(with: cookies, fromWebLogin: true) }
             }
@@ -116,7 +119,7 @@ struct GoogleSignInView: View {
 
     private func finish(with cookies: [String: String], fromWebLogin: Bool) async {
         isFinishing = true
-        let error = await account.completeSignIn(cookies: cookies, fromWebLogin: fromWebLogin)
+        let error = await account.completeSignIn(cookies: cookies, fromWebLogin: fromWebLogin, addingAccount: addsAccount)
         isFinishing = false
         if let error {
             errorMessage = error
@@ -129,10 +132,16 @@ struct GoogleSignInView: View {
 /// `WKWebView` showing Google's sign-in page, reporting youtube.com cookies once the
 /// session is established.
 private struct GoogleLoginWebView: UIViewRepresentable {
+    var addsAccount = false
     var onSignedIn: ([String: String]) -> Void
 
     private static let loginURL = URL(string:
         "https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true"
+        + "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Dm%26hl%3Dvi%26next%3D%252F"
+        + "&hl=vi")!
+
+    private static let addAccountURL = URL(string:
+        "https://accounts.google.com/AddSession?service=youtube&uilel=3"
         + "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Dm%26hl%3Dvi%26next%3D%252F"
         + "&hl=vi")!
 
@@ -155,7 +164,7 @@ private struct GoogleLoginWebView: UIViewRepresentable {
         webView.customUserAgent = Self.safariUserAgent
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
-        webView.load(URLRequest(url: Self.loginURL))
+        webView.load(URLRequest(url: addsAccount ? Self.addAccountURL : Self.loginURL))
         return webView
     }
 
