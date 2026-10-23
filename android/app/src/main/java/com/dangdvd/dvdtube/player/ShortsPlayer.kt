@@ -66,15 +66,15 @@ object ShortsPlayer {
             repeatMode = Player.REPEAT_MODE_ONE
             addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
-                    isPlaying = playing
-                    if (playing) isLoading = false
+                    ShortsPlayer.isPlaying = playing
+                    if (playing) ShortsPlayer.isLoading = false
                 }
 
                 override fun onPlayerError(playbackError: PlaybackException) {
                     Log.debug("short ${currentId ?: "?"} error: ${playbackError.errorCodeName}")
                     val id = currentId ?: return
                     if (AppSettings.webPlayerFallback) webFallbackIds = webFallbackIds + id else error = playbackError.message
-                    isLoading = false
+                    ShortsPlayer.isLoading = false
                 }
             })
         }

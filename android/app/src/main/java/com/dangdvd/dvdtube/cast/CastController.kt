@@ -52,7 +52,8 @@ object CastController {
     private var candidates = listOf<Candidate>()
     private var startAtMs = 0L
     private var workingKind: String? = null
-    private var finishedSessionId: Long? = null
+    /** The current TV item already reported its end (so autoplay runs once). */
+    private var finishHandled = false
 
     private data class Candidate(
         val url: String,
@@ -227,6 +228,7 @@ object CastController {
             if (loadingVideo?.id != video.id) return@setResultCallback
             if (result.status.isSuccess) {
                 workingKind = candidate.kind
+                finishHandled = false
                 loadingVideo = null
                 statusText = null
             } else {
@@ -253,8 +255,8 @@ object CastController {
         override fun onStatusUpdated() {
             val status = client?.mediaStatus ?: return
             if (status.playerState == MediaStatus.PLAYER_STATE_IDLE && status.idleReason == MediaStatus.IDLE_REASON_FINISHED) {
-                if (finishedSessionId != status.mediaSessionId && loadingVideo == null) {
-                    finishedSessionId = status.mediaSessionId
+                if (!finishHandled && loadingVideo == null) {
+                    finishHandled = true
                     PlayerController.castDidFinish()
                 }
             }
