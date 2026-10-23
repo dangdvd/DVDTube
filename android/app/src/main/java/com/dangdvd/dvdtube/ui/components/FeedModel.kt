@@ -10,19 +10,32 @@ import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.services.YouTubeService
 import kotlinx.coroutines.CancellationException
 
+/** Anything shown as a paginated feed (see [pagedFeed]). */
+interface PagedFeed {
+    val items: List<FeedItem>
+    val isLoading: Boolean
+    val isLoadingMore: Boolean
+    val error: String?
+    val message: String?
+    val hasLoaded: Boolean
+    val canLoadMore: Boolean
+    suspend fun load(force: Boolean = false)
+    suspend fun loadMore()
+}
+
 /** A paginated feed (search, browse, related…) loaded with [loader]. */
-class FeedModel(private val loader: suspend () -> FeedPage) {
-    var items by mutableStateOf(listOf<FeedItem>())
+class FeedModel(private val loader: suspend () -> FeedPage) : PagedFeed {
+    override var items by mutableStateOf(listOf<FeedItem>())
         private set
-    var isLoading by mutableStateOf(false)
+    override var isLoading by mutableStateOf(false)
         private set
-    var isLoadingMore by mutableStateOf(false)
+    override var isLoadingMore by mutableStateOf(false)
         private set
-    var error by mutableStateOf<String?>(null)
+    override var error by mutableStateOf<String?>(null)
         private set
-    var message by mutableStateOf<String?>(null)
+    override var message by mutableStateOf<String?>(null)
         private set
-    var hasLoaded by mutableStateOf(false)
+    override var hasLoaded by mutableStateOf(false)
         private set
     private var continuation: String? = null
     private var kind = ContinuationKind.BROWSE
@@ -37,9 +50,9 @@ class FeedModel(private val loader: suspend () -> FeedPage) {
             }
         }
 
-    val canLoadMore: Boolean get() = continuation != null
+    override val canLoadMore: Boolean get() = continuation != null
 
-    suspend fun load(force: Boolean = false) {
+    override suspend fun load(force: Boolean) {
         if (!force && (hasLoaded || isLoading)) return
         val current = ++generation
         isLoading = true
@@ -61,7 +74,7 @@ class FeedModel(private val loader: suspend () -> FeedPage) {
         }
     }
 
-    suspend fun loadMore() {
+    override suspend fun loadMore() {
         val token = continuation ?: return
         if (isLoadingMore || isLoading) return
         isLoadingMore = true
