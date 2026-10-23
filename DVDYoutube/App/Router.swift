@@ -7,6 +7,7 @@ enum AppTab: Hashable {
 
 enum Route: Hashable {
     case search
+    case searchResults(String)
     case channel(ChannelItem)
     case playlist(PlaylistItem)
     case localPlaylist(UUID)
@@ -91,6 +92,7 @@ extension View {
         navigationDestination(for: Route.self) { route in
             switch route {
             case .search: SearchView()
+            case .searchResults(let query): SearchView(initialQuery: query)
             case .channel(let channel): ChannelView(channel: channel)
             case .playlist(let playlist): PlaylistView(playlist: playlist)
             case .localPlaylist(let id): LocalPlaylistView(playlistId: id)

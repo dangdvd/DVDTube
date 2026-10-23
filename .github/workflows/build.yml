@@ -72,3 +72,35 @@ jobs:
           gh release create "$GITHUB_REF_NAME" DVDTube-unsigned.ipa \
             --title "DVDTube $GITHUB_REF_NAME" \
             --notes "Tệp IPA chưa ký. Cài bằng AltStore, SideStore, Sideloadly hoặc TrollStore — xem README."
+
+  smoke:
+    name: Simulator smoke test
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project DVDYoutube.xcodeproj \
+            -scheme DVDYoutube \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet \
+            build
+
+      - name: Run app scenarios
+        run: .github/scripts/smoke.sh
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-results
+          path: smoke/
+          retention-days: 14

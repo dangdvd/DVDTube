@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct SearchView: View {
+    var initialQuery: String?
+
     @Environment(LibraryStore.self) private var library
     @Environment(PlayerManager.self) private var player
 
@@ -25,7 +27,12 @@ struct SearchView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            if submitted == nil { focused = true }
+            if submitted == nil, let initialQuery {
+                query = initialQuery
+                submit(initialQuery)
+            } else if submitted == nil {
+                focused = true
+            }
         }
         .onChange(of: query) { _, newValue in
             updateSuggestions(for: newValue)

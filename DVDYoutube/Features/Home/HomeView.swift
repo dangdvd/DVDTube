@@ -90,6 +90,7 @@ final class HomeFeedModel {
         if result.isEmpty, trending == nil {
             error = "Không thể kết nối tới YouTube. Kiểm tra mạng và thử lại."
         }
+        Log.debug("home: related=\(related.map(\.count)) fresh=\(fresh.count) trending=\(trending?.items.count ?? -1) shorts=\(shortItems.count) total=\(result.count)")
         items = result
         trendingContinuation = trending?.continuation
         trendingKind = trending?.kind ?? .search
