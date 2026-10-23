@@ -66,6 +66,7 @@ import com.dangdvd.dvdtube.ui.components.Avatar
 import com.dangdvd.dvdtube.ui.components.EmptyState
 import com.dangdvd.dvdtube.ui.components.LoadingState
 import com.dangdvd.dvdtube.ui.components.RemoteImage
+import com.dangdvd.dvdtube.ui.components.SingleFlight
 import com.dangdvd.dvdtube.ui.components.VideoCard
 import com.dangdvd.dvdtube.ui.rememberRouteModel
 import kotlinx.coroutines.async
@@ -83,12 +84,21 @@ class SubscriptionFeedModel {
     private var loadedKey: String? = null
     var lastReselect = Router.reselectCounter[AppTab.SUBSCRIPTIONS] ?: 0
 
+    private val flight = SingleFlight()
+
     suspend fun load(force: Boolean = false) {
+        val key = currentKey()
+        if (!force && key == loadedKey) return
+        flight.run(restart = force) { fetch(key) }
+    }
+
+    private fun currentKey(): String =
+        if (AccountStore.isSignedIn) "account:" + AccountStore.sessionKey else "local:" + LibraryStore.subscriptions.joinToString(",") { it.id }
+
+    private suspend fun fetch(key: String) {
         val signedIn = AccountStore.isSignedIn
         val channels = LibraryStore.subscriptions
         // Signed in: YouTube's own subscription feed for the account.
-        val key = if (signedIn) "account:" + AccountStore.sessionKey else "local:" + channels.joinToString(",") { it.id }
-        if (isLoading || (!force && key == loadedKey)) return
         if (!signedIn && channels.isEmpty()) {
             videos = emptyList()
             loadedKey = key

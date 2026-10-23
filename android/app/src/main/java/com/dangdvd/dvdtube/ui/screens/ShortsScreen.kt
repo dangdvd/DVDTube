@@ -78,6 +78,7 @@ import com.dangdvd.dvdtube.ui.Route
 import com.dangdvd.dvdtube.ui.Router
 import com.dangdvd.dvdtube.ui.components.Avatar
 import com.dangdvd.dvdtube.ui.components.RemoteImage
+import com.dangdvd.dvdtube.ui.components.SingleFlight
 import com.dangdvd.dvdtube.ui.components.shareText
 import com.dangdvd.dvdtube.ui.player.WebPlayerHost
 import com.dangdvd.dvdtube.ui.rememberRouteModel
@@ -112,8 +113,11 @@ class ShortsFeed {
         generation++
     }
 
-    suspend fun load(reset: Boolean) {
-        if (isLoading) return
+    private val flight = SingleFlight()
+
+    suspend fun load(reset: Boolean) = flight.run { fetch(reset) }
+
+    private suspend fun fetch(reset: Boolean) {
         isLoading = true
         error = null
         try {
