@@ -82,7 +82,7 @@ struct ShortsView: View {
         guard let id = currentId ?? items.first?.id, let index = items.firstIndex(where: { $0.id == id }) else { return }
         if currentId == nil { currentId = id }
         shorts.play(items[index])
-        for next in items.dropFirst(index + 1).prefix(2) { shorts.prefetch(next) }
+        for next in items.dropFirst(index + 1).prefix(1) { shorts.prefetch(next) }
         loadDetails(for: items[index])
         if index >= items.count - 4 { Task { await loadFeed(reset: false) } }
     }
@@ -151,16 +151,20 @@ private struct ShortPage: View {
         ZStack {
             RemoteImage(url: video.shortsThumbnail, contentMode: .fill)
 
-            if isActive {
+            if isActive, shorts.usesWebPlayer(video.id) {
+                WebPlayerView(videoId: video.id, loop: true)
+            } else if isActive {
                 PlayerLayerView(player: shorts.player, gravity: .resizeAspectFill)
                     .opacity(shorts.currentId == video.id && !shorts.isLoading ? 1 : 0)
             }
 
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { shorts.toggle() }
+            if !(isActive && shorts.usesWebPlayer(video.id)) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { shorts.toggle() }
+            }
 
-            if isActive, !shorts.isPlaying, !shorts.isLoading, shorts.error == nil {
+            if isActive, !shorts.isPlaying, !shorts.isLoading, shorts.error == nil, !shorts.usesWebPlayer(video.id) {
                 Image(systemName: "play.fill")
                     .font(.system(size: 54))
                     .foregroundStyle(.white.opacity(0.85))

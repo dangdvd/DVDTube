@@ -51,6 +51,11 @@ final class HomeFeedModel {
         let fresh = await subscriptionVideos
         let trending = await trendingPage
         let shorts = await shortsPage
+        if Task.isCancelled {
+            // The view went away mid-load (e.g. a screen was pushed); `.task` reloads on return.
+            isLoading = false
+            return
+        }
 
         var seen = Set<String>()
         var result: [FeedItem] = []

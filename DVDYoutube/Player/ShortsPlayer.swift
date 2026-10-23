@@ -14,6 +14,10 @@ final class ShortsPlayer {
     private(set) var isLoading = false
     private(set) var error: String?
     private(set) var progress: Double = 0
+    /// Shorts shown through the web embed because YouTube refused the native stream.
+    private(set) var webFallbackIds: Set<String> = []
+    /// After a bot check, skip the player API for a while instead of hammering it.
+    @ObservationIgnored private var blockedUntil = Date.distantPast
 
     @ObservationIgnored private var cache: [String: PlayerInfo] = [:]
     @ObservationIgnored private var loadTask: Task<Void, Never>?
@@ -56,6 +60,11 @@ final class ShortsPlayer {
         player.pause()
         player.replaceCurrentItem(with: nil)
         loadTask?.cancel()
+        if AppSettings.shared.webPlayerFallback, Date() < blockedUntil || webFallbackIds.contains(video.id) {
+            webFallbackIds.insert(video.id)
+            isLoading = false
+            return
+        }
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -84,18 +93,26 @@ final class ShortsPlayer {
             } catch {
                 guard self.currentId == video.id else { return }
                 self.isLoading = false
-                self.error = error.localizedDescription
+                if AppSettings.shared.webPlayerFallback, case InnerTubeError.loginRequired = error {
+                    Log.debug("short \(video.id): bot check, using web player")
+                    self.blockedUntil = Date().addingTimeInterval(300)
+                    self.webFallbackIds.insert(video.id)
+                } else {
+                    self.error = error.localizedDescription
+                }
             }
         }
     }
 
     /// Resolves the stream of an upcoming Short so swiping to it starts instantly.
     func prefetch(_ video: VideoItem) {
-        guard cache[video.id] == nil else { return }
+        guard cache[video.id] == nil, Date() >= blockedUntil else { return }
         Task { _ = try? await self.info(for: video.id) }
     }
 
     func cachedInfo(_ id: String) -> PlayerInfo? { cache[id] }
+
+    func usesWebPlayer(_ id: String) -> Bool { webFallbackIds.contains(id) }
 
     func toggle() {
         if isPlaying {

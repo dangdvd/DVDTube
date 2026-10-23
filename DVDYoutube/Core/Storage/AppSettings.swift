@@ -67,6 +67,7 @@ final class AppSettings {
     var resumePlayback: Bool { didSet { defaults.set(resumePlayback, forKey: "settings.resume") } }
     var theme: AppTheme { didSet { defaults.set(theme.rawValue, forKey: "settings.theme") } }
     var remoteConfigURL: String { didSet { defaults.set(remoteConfigURL, forKey: SettingsKey.remoteConfigURL) } }
+    var webPlayerFallback: Bool { didSet { defaults.set(webPlayerFallback, forKey: "settings.webFallback") } }
 
     private init() {
         let d = UserDefaults.standard
@@ -87,6 +88,7 @@ final class AppSettings {
             "settings.saveHistory": true,
             "settings.resume": true,
             "settings.theme": AppTheme.system.rawValue,
+            "settings.webFallback": true,
         ])
         language = d.string(forKey: SettingsKey.language) ?? "vi"
         region = d.string(forKey: SettingsKey.region) ?? "VN"
@@ -105,6 +107,7 @@ final class AppSettings {
         resumePlayback = d.bool(forKey: "settings.resume")
         theme = AppTheme(rawValue: d.string(forKey: "settings.theme") ?? "") ?? .system
         remoteConfigURL = d.string(forKey: SettingsKey.remoteConfigURL) ?? ""
+        webPlayerFallback = d.bool(forKey: "settings.webFallback")
     }
 
     static let regions: [(code: String, name: String)] = [
