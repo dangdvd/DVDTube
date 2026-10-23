@@ -24,7 +24,8 @@ struct PlayerContainerView: View {
     @ViewBuilder
     private func layout(size: CGSize, insets: EdgeInsets) -> some View {
         let expanded = player.isExpanded
-        let fullscreen = expanded && size.width > size.height
+        // Sideways for wide videos; vertical videos can also fill the screen upright.
+        let fullscreen = expanded && (size.width > size.height || player.isPortraitFullscreen)
         let miniVideoWidth = Self.miniHeight * 16 / 9
         let videoWidth = expanded ? size.width : miniVideoWidth
         let videoHeight = fullscreen ? size.height : (expanded ? size.width * 9 / 16 : Self.miniHeight)
@@ -80,9 +81,9 @@ struct PlayerContainerView: View {
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) {
                     dragOffset = 0
                     if fullscreen {
-                        if swipedDown { OrientationController.rotate(toLandscape: false) }
+                        if swipedDown { player.exitFullscreen() }
                     } else if swipedUp {
-                        OrientationController.rotate(toLandscape: true)
+                        player.enterFullscreen()
                     } else if swipedDown {
                         player.isExpanded = false
                     }

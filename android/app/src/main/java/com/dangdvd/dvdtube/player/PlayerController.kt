@@ -16,6 +16,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -99,7 +100,18 @@ object PlayerController {
         private set
 
     var isExpanded by mutableStateOf(false)
-    var isFullscreen by mutableStateOf(false)
+    private var fullscreenState by mutableStateOf(false)
+    var isFullscreen: Boolean
+        get() = fullscreenState
+        set(value) {
+            fullscreenState = value
+            if (!value) isPortraitFullscreen = false
+        }
+    /** Fullscreen kept upright, for videos taller than they are wide. */
+    var isPortraitFullscreen by mutableStateOf(false)
+        private set
+    /** Width and height of the picture being played, once the player knows them. */
+    private var pictureSize by mutableStateOf<Pair<Int, Int>?>(null)
     var isInPictureInPicture by mutableStateOf(false)
 
     var quality by mutableStateOf(VideoQuality.AUTO)
@@ -208,6 +220,34 @@ object PlayerController {
     }
 
     // MARK: Public API
+
+    /** Width / height of the video: from the stream's formats, else the picture being played. */
+    val videoAspectRatio: Float?
+        get() {
+            val info = playerInfo
+            val format = info?.let { it.adaptiveFormats + it.muxedFormats }
+                ?.firstOrNull { it.isVideo && (it.width ?: 0) > 0 && (it.height ?: 0) > 0 }
+            if (format != null) return format.width!!.toFloat() / format.height!!
+            return pictureSize?.let { (width, height) -> width.toFloat() / height }
+        }
+
+    val isVerticalVideo: Boolean
+        get() = videoAspectRatio?.let { it < 1f } ?: (currentVideo?.isShort == true)
+
+    /**
+     * Like the official app: wide videos turn the screen sideways, vertical ones stay
+     * upright and fill the whole screen.
+     */
+    fun enterFullscreen() {
+        isPortraitFullscreen = isVerticalVideo
+        isFullscreen = true
+    }
+
+    /** A wide video coming up in portrait fullscreen turns the screen sideways. */
+    private fun matchFullscreenToVideo() {
+        val ratio = videoAspectRatio ?: return
+        if (isPortraitFullscreen && ratio > 1f) isPortraitFullscreen = false
+    }
 
     fun play(video: VideoItem, newQueue: List<VideoItem>? = null, startAt: Double? = null) {
         ShortsPlayer.pause()
@@ -404,6 +444,7 @@ object PlayerController {
         exo.clearMediaItems()
         currentVideo = video
         playerInfo = null
+        pictureSize = null
         playbackError = null
         currentTime = startAt ?: 0.0
         duration = video.durationSeconds?.toDouble() ?: 0.0
@@ -558,6 +599,7 @@ object PlayerController {
             val info = YouTubeService.player(video.id)
             if (currentVideo?.id != video.id) return
             playerInfo = info
+            matchFullscreenToVideo()
             Log.debug("stream ${video.id}: hls=${info.hlsUrl != null} adaptive=${info.adaptiveFormats.size} muxed=${info.muxedFormats.size} captions=${info.captions.size} adWait=${(info.availableAt - System.currentTimeMillis()) / 1000}s")
             captionTracks = info.captions
             if (duration <= 0 && info.lengthSeconds != null) duration = info.lengthSeconds.toDouble()
@@ -765,6 +807,12 @@ object PlayerController {
                 else -> Unit
             }
             isPlaying = exo.isPlaying || (exo.playWhenReady && state == Player.STATE_BUFFERING)
+        }
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            if (videoSize.width <= 0 || videoSize.height <= 0) return
+            pictureSize = videoSize.width to videoSize.height
+            matchFullscreenToVideo()
         }
 
         override fun onPlayerError(error: PlaybackException) {

@@ -33,8 +33,15 @@ final class PlayerManager {
     @ObservationIgnored private weak var webView: WKWebView?
 
     var isExpanded = false {
-        didSet { OrientationController.setAllowed(isExpanded ? .allButUpsideDown : .portrait) }
+        didSet {
+            if !isExpanded { isPortraitFullscreen = false }
+            OrientationController.setAllowed(isExpanded && !isPortraitFullscreen ? .allButUpsideDown : .portrait)
+        }
     }
+    /// Fullscreen kept upright, for videos taller than they are wide.
+    private(set) var isPortraitFullscreen = false
+    /// Size of the picture being played, once the player knows it.
+    private(set) var videoSize: CGSize = .zero
 
     private(set) var quality: VideoQuality = .auto
     private(set) var rate: Float = 1
@@ -150,6 +157,51 @@ final class PlayerManager {
         }
         start(video, startAt: startAt)
         isExpanded = true
+    }
+
+    // MARK: Fullscreen
+
+    /// Width / height of the video: from the stream's formats, else the picture being played.
+    var videoAspectRatio: Double? {
+        let formats = (playerInfo?.adaptiveFormats ?? []) + (playerInfo?.muxedFormats ?? [])
+        if let format = formats.first(where: { $0.isVideo && ($0.width ?? 0) > 0 && ($0.height ?? 0) > 0 }),
+           let width = format.width, let height = format.height {
+            return Double(width) / Double(height)
+        }
+        if videoSize.width > 0, videoSize.height > 0 { return videoSize.width / videoSize.height }
+        return nil
+    }
+
+    var isVerticalVideo: Bool {
+        if let ratio = videoAspectRatio { return ratio < 1 }
+        return currentVideo?.isShort == true
+    }
+
+    /// Like the official app: wide videos turn the screen sideways, vertical ones stay
+    /// upright and fill the whole screen.
+    func enterFullscreen() {
+        if isVerticalVideo {
+            isPortraitFullscreen = true
+            OrientationController.setAllowed(.portrait)
+        } else {
+            OrientationController.rotate(toLandscape: true)
+        }
+    }
+
+    func exitFullscreen() {
+        if isPortraitFullscreen {
+            isPortraitFullscreen = false
+            OrientationController.setAllowed(isExpanded ? .allButUpsideDown : .portrait)
+        } else {
+            OrientationController.rotate(toLandscape: false)
+        }
+    }
+
+    /// A wide video coming up in portrait fullscreen turns the screen sideways.
+    private func matchFullscreenToVideo() {
+        guard isPortraitFullscreen, let ratio = videoAspectRatio, ratio > 1 else { return }
+        isPortraitFullscreen = false
+        OrientationController.rotate(toLandscape: true)
     }
 
     func playQueueItem(at index: Int) {
@@ -327,6 +379,7 @@ final class PlayerManager {
         player.replaceCurrentItem(with: nil)
         currentVideo = video
         playerInfo = nil
+        videoSize = .zero
         playbackError = nil
         currentTime = startAt ?? 0
         duration = Double(video.durationSeconds ?? 0)
@@ -477,6 +530,7 @@ final class PlayerManager {
             let info = try await service.player(video.id)
             guard !Task.isCancelled, currentVideo?.id == video.id else { return }
             playerInfo = info
+            matchFullscreenToVideo()
             Log.debug("stream \(video.id): hls=\(info.hlsURL != nil) adaptive=\(info.adaptiveFormats.count) muxed=\(info.muxedFormats.count) captions=\(info.captions.count) adWait=\(Int(info.availableAt.timeIntervalSinceNow))s")
             captionTracks = info.captions
             if duration <= 0, let length = info.lengthSeconds { duration = Double(length) }
@@ -675,6 +729,14 @@ final class PlayerManager {
         observations = [
             item.observe(\.status, options: [.new]) { [weak self] item, _ in
                 Task { @MainActor in self?.handleStatus(of: item) }
+            },
+            item.observe(\.presentationSize, options: [.new]) { [weak self] item, _ in
+                let size = item.presentationSize
+                Task { @MainActor in
+                    guard let self, item === self.player.currentItem, size.width > 0, size != self.videoSize else { return }
+                    self.videoSize = size
+                    self.matchFullscreenToVideo()
+                }
             },
         ]
         observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in

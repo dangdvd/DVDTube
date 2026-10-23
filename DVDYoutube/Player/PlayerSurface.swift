@@ -115,7 +115,7 @@ struct PlayerSurface: View {
             HStack {
                 Button {
                     if mode == .fullscreen {
-                        OrientationController.rotate(toLandscape: false)
+                        player.exitFullscreen()
                     } else {
                         withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) { player.isExpanded = false }
                     }
@@ -136,7 +136,7 @@ struct PlayerSurface: View {
                         Label("Thử lại trình phát gốc", systemImage: "arrow.clockwise")
                     }
                     Button {
-                        OrientationController.rotate(toLandscape: mode != .fullscreen)
+                        toggleFullscreen()
                     } label: {
                         Label(mode == .fullscreen ? "Thoát toàn màn hình" : "Toàn màn hình",
                               systemImage: "arrow.up.left.and.arrow.down.right")
@@ -151,9 +151,13 @@ struct PlayerSurface: View {
             }
             .foregroundStyle(.white)
             .padding(.horizontal, mode == .fullscreen ? max(insets.leading, 12) : 6)
-            .padding(.top, 6)
+            .padding(.top, mode == .fullscreen ? max(insets.top, 6) : 6)
             Spacer()
         }
+    }
+
+    private func toggleFullscreen() {
+        if mode == .fullscreen { player.exitFullscreen() } else { player.enterFullscreen() }
     }
 
     private var showPoster: Bool {
@@ -194,7 +198,7 @@ struct PlayerSurface: View {
                 .padding(.vertical, 5)
                 .background(Capsule().fill(Color.black.opacity(0.6)))
                 .foregroundStyle(.white)
-                .padding(.top, mode == .fullscreen ? 20 : 10)
+                .padding(.top, mode == .fullscreen ? max(insets.top, 20) : 10)
             Spacer()
         }
         .allowsHitTesting(false)
@@ -343,7 +347,7 @@ struct PlayerSurface: View {
             }
             .padding(.leading, mode == .fullscreen ? max(insets.leading, 16) : 4)
             .padding(.trailing, mode == .fullscreen ? max(insets.trailing, 16) : 4)
-            .padding(.top, mode == .fullscreen ? 12 : 2)
+            .padding(.top, mode == .fullscreen ? max(insets.top, 12) : 2)
             .padding(.bottom, mode == .fullscreen ? max(insets.bottom, 12) : 0)
         }
         .foregroundStyle(.white)
@@ -353,7 +357,7 @@ struct PlayerSurface: View {
         HStack(spacing: 6) {
             if mode == .fullscreen {
                 Button {
-                    OrientationController.rotate(toLandscape: false)
+                    player.exitFullscreen()
                 } label: {
                     Image(systemName: "chevron.down").controlIcon()
                 }
@@ -471,7 +475,7 @@ struct PlayerSurface: View {
                     }
                 }
                 Button {
-                    OrientationController.rotate(toLandscape: mode != .fullscreen)
+                    toggleFullscreen()
                 } label: {
                     Image(systemName: mode == .fullscreen
                         ? "arrow.down.right.and.arrow.up.left"
@@ -533,7 +537,8 @@ struct PlayerSurface: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(style.captionBackground)))
-                    .padding(.bottom, controlsVisible ? (mode == .fullscreen ? 72 : 44) : 12)
+                    .padding(.bottom, (controlsVisible ? (mode == .fullscreen ? 72 : 44) : 12)
+                        + (mode == .fullscreen ? insets.bottom : 0))
                     .padding(.horizontal, 24)
             }
         }
