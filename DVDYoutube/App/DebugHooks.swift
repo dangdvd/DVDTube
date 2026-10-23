@@ -124,9 +124,16 @@ enum DebugHooks {
     /// A finished stream's chat replay: the frame page, then one fetch 10 minutes in.
     private static func probeChatReplay() async {
         do {
-            let streams = try await YouTubeService.shared.channel("@NASA", tab: .streams)
-            for video in streams.initialPage.videos.filter({ !$0.isLive }).prefix(5) {
-                guard let chat = try await YouTubeService.shared.watchInfo(video.id).liveChat, chat.isReplay else { continue }
+            var candidates: [VideoItem] = []
+            for channel in ["@LofiGirl", "@NASA"] {
+                let streams = try await YouTubeService.shared.channel(channel, tab: .streams)
+                Log.debug("chat replay probe: \(channel) streams tab has \(streams.initialPage.videos.count) videos")
+                candidates += streams.initialPage.videos.filter { !$0.isLive }.prefix(3)
+            }
+            for video in candidates {
+                let chat = try await YouTubeService.shared.watchInfo(video.id).liveChat
+                Log.debug("chat replay probe: \(video.id) chat=\(chat.map { $0.isReplay ? "replay" : "live" } ?? "none")")
+                guard let chat, chat.isReplay else { continue }
                 let page = LiveChatParser.parse(try await InnerTube.shared.liveChatPage(continuation: chat.modes[0].continuation, replay: true))
                 Log.debug("chat replay probe: \(video.id) page messages=\(page.messages.count) next=\(page.continuation != nil) seek=\(page.seekContinuation != nil)")
                 if let token = page.seekContinuation ?? page.continuation {

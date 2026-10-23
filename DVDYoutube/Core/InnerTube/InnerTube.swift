@@ -250,39 +250,87 @@ final class InnerTube {
         return json
     }
 
-    /// Cuts the `ytInitialData = {...}` object out of a YouTube HTML page.
+    /// Cuts the `ytInitialData` object out of a YouTube HTML page. It is either a plain
+    /// object (`ytInitialData = {...}`) or a JS string literal (`ytInitialData = '\x7b...'`).
     static func initialData(in html: Data) -> JNode? {
         let bytes = [UInt8](html)
         let marker = Array("ytInitialData".utf8)
-        guard bytes.count > marker.count else { return nil }
         var searchFrom = 0
-        while let found = Self.index(of: marker, in: bytes, from: searchFrom) {
+        var snippets: [String] = []
+        while let found = index(of: marker, in: bytes, from: searchFrom) {
             searchFrom = found + marker.count
-            // The object starts at the first "{" after the marker (` = {`, `"] = {`).
-            guard let start = bytes[searchFrom...].prefix(16).firstIndex(of: UInt8(ascii: "{")) else { continue }
-            var depth = 0
-            var inString = false
-            var escaped = false
-            var index = start
-            while index < bytes.count {
-                let byte = bytes[index]
-                if inString {
-                    if escaped { escaped = false }
-                    else if byte == UInt8(ascii: "\\") { escaped = true }
-                    else if byte == UInt8(ascii: "\"") { inString = false }
-                } else if byte == UInt8(ascii: "\"") {
-                    inString = true
-                } else if byte == UInt8(ascii: "{") {
-                    depth += 1
-                } else if byte == UInt8(ascii: "}") {
-                    depth -= 1
-                    if depth == 0 {
-                        return try? JNode(data: Data(bytes[start...index]))
-                    }
+            let window = bytes[searchFrom..<min(searchFrom + 24, bytes.count)]
+            snippets.append(String(decoding: window, as: UTF8.self))
+            guard let open = window.firstIndex(where: { $0 == UInt8(ascii: "{") || $0 == UInt8(ascii: "'") }) else { continue }
+            if bytes[open] == UInt8(ascii: "{") {
+                if let end = matchingBrace(bytes, from: open), let json = try? JNode(data: Data(bytes[open...end])) {
+                    return json
                 }
-                index += 1
+            } else if let text = jsStringLiteral(bytes, from: open), let json = try? JNode(data: Data(text.utf8)) {
+                return json
             }
-            return nil
+        }
+        Log.debug("ytInitialData not found in \(bytes.count) bytes, markers: \(snippets.prefix(4))")
+        return nil
+    }
+
+    /// Index of the `}` closing the object that starts at `start` (string-aware).
+    private static func matchingBrace(_ bytes: [UInt8], from start: Int) -> Int? {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var index = start
+        while index < bytes.count {
+            let byte = bytes[index]
+            if inString {
+                if escaped { escaped = false }
+                else if byte == UInt8(ascii: "\\") { escaped = true }
+                else if byte == UInt8(ascii: "\"") { inString = false }
+            } else if byte == UInt8(ascii: "\"") {
+                inString = true
+            } else if byte == UInt8(ascii: "{") {
+                depth += 1
+            } else if byte == UInt8(ascii: "}") {
+                depth -= 1
+                if depth == 0 { return index }
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    /// Decodes a single-quoted JS string literal starting at `start` (\xHH, \uHHHH, \n, …).
+    private static func jsStringLiteral(_ bytes: [UInt8], from start: Int) -> String? {
+        var out: [UInt8] = []
+        var index = start + 1
+        func hex(_ count: Int) -> UInt32? {
+            guard index + count <= bytes.count,
+                  let value = UInt32(String(decoding: bytes[index..<index + count], as: UTF8.self), radix: 16) else { return nil }
+            index += count
+            return value
+        }
+        while index < bytes.count {
+            let byte = bytes[index]
+            index += 1
+            if byte == UInt8(ascii: "'") { return String(decoding: out, as: UTF8.self) }
+            guard byte == UInt8(ascii: "\\"), index < bytes.count else {
+                out.append(byte)
+                continue
+            }
+            let escape = bytes[index]
+            index += 1
+            switch escape {
+            case UInt8(ascii: "x"):
+                guard let value = hex(2) else { return nil }
+                out.append(contentsOf: Array(String(UnicodeScalar(UInt8(value))).utf8))
+            case UInt8(ascii: "u"):
+                guard let value = hex(4), let scalar = UnicodeScalar(value) else { return nil }
+                out.append(contentsOf: Array(String(scalar).utf8))
+            case UInt8(ascii: "n"): out.append(0x0A)
+            case UInt8(ascii: "t"): out.append(0x09)
+            case UInt8(ascii: "r"): out.append(0x0D)
+            default: out.append(escape)
+            }
         }
         return nil
     }
