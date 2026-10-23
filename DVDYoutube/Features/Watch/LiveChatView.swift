@@ -57,12 +57,23 @@ final class LiveChatModel {
 
     private func runLive(_ mode: LiveChatInfo.Mode) async {
         var token = mode.continuation
+        // Like youtube.com, the first request opens the chat frame; later ones poll the API.
+        var fromPage = true
         var failures = 0
+        var fetches = 0
         while !Task.isCancelled {
             do {
-                let chunk = LiveChatParser.parse(try await InnerTube.shared.liveChat(continuation: token))
+                let json = fromPage
+                    ? try await InnerTube.shared.liveChatPage(continuation: token, replay: false)
+                    : try await InnerTube.shared.liveChat(continuation: token)
+                let chunk = LiveChatParser.parse(json)
                 guard !Task.isCancelled else { return }
+                fetches += 1
+                if fetches <= 2 {
+                    Log.debug("live chat: \(chunk.messages.count) messages via \(fromPage ? "page" : "api"), next=\(chunk.continuation != nil), canSend=\(chunk.sendParams != nil)")
+                }
                 failures = 0
+                fromPage = false
                 apply(chunk)
                 guard let next = chunk.continuation else {
                     hasEnded = true
@@ -76,8 +87,17 @@ final class LiveChatModel {
             } catch {
                 failures += 1
                 isLoading = false
-                if failures >= 3 { self.error = error.localizedDescription }
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                Log.debug("live chat \(fromPage ? "page" : "poll") failed: \(error.localizedDescription)")
+                if fromPage {
+                    // The frame did not load: try the API with the same token.
+                    fromPage = false
+                } else if failures >= 2 {
+                    // The polling token may have expired: start over from the frame.
+                    token = mode.continuation
+                    fromPage = true
+                }
+                if failures >= 4 { self.error = error.localizedDescription }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
     }
@@ -88,8 +108,9 @@ final class LiveChatModel {
     /// when the video reaches it.
     private func runReplay(_ mode: LiveChatInfo.Mode) async {
         var pending: [LiveChatMessage] = []
-        var next: String? = mode.continuation
+        var next: String?
         var seekToken: String?
+        var fromPage = true
         var lastMs = -1
         var exhausted = false
 
@@ -100,30 +121,45 @@ final class LiveChatModel {
                 messages = []
                 seenIds = []
                 pending = []
-                next = seekToken ?? mode.continuation
+                if let seekToken { next = seekToken } else { fromPage = true }
                 exhausted = false
             }
             lastMs = nowMs
 
             let needsMore = pending.isEmpty || (pending.last?.offsetMs ?? 0) < nowMs + 5000
-            if needsMore, !exhausted, let token = next {
+            if needsMore, !exhausted, fromPage || next != nil {
                 do {
-                    let chunk = LiveChatParser.parse(try await InnerTube.shared.liveChatReplay(continuation: token, offsetMs: nowMs))
+                    let json = fromPage
+                        ? try await InnerTube.shared.liveChatPage(continuation: mode.continuation, replay: true)
+                        : try await InnerTube.shared.liveChatReplay(continuation: next ?? mode.continuation, offsetMs: nowMs)
+                    let chunk = LiveChatParser.parse(json)
                     guard !Task.isCancelled else { return }
-                    sendParams = nil
-                    restrictedMessage = nil
+                    let wasPage = fromPage
+                    fromPage = false
                     error = nil
-                    let fresh = chunk.messages.filter { !seenIds.contains($0.id) && !pending.contains($0) }
+                    // Only what is around the current position (the frame starts at 0:00).
+                    let fresh = chunk.messages.filter {
+                        !seenIds.contains($0.id) && !pending.contains($0) && ($0.offsetMs ?? 0) >= nowMs - 30_000
+                    }
                     pending = (pending + fresh).sorted { ($0.offsetMs ?? 0) < ($1.offsetMs ?? 0) }
                     seekToken = chunk.seekContinuation ?? seekToken
                     next = chunk.continuation
-                    exhausted = chunk.continuation == nil
+                    if wasPage, let seek = chunk.seekContinuation, (chunk.messages.last?.offsetMs ?? 0) < nowMs - 10_000 {
+                        next = seek
+                    }
+                    exhausted = next == nil
                     if exhausted, pending.isEmpty { hasEnded = true }
                 } catch is CancellationError {
                     return
                 } catch {
-                    self.error = error.localizedDescription
-                    try? await Task.sleep(nanoseconds: 4_000_000_000)
+                    Log.debug("live chat replay \(fromPage ? "page" : "fetch") failed: \(error.localizedDescription)")
+                    if fromPage {
+                        fromPage = false
+                        next = mode.continuation
+                    } else {
+                        self.error = error.localizedDescription
+                        try? await Task.sleep(nanoseconds: 4_000_000_000)
+                    }
                 }
             }
             isLoading = false

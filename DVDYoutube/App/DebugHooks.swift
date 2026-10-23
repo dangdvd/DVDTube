@@ -118,5 +118,27 @@ enum DebugHooks {
         } catch {
             Log.debug("live chat probe failed: \(error.localizedDescription)")
         }
+        await probeChatReplay()
+    }
+
+    /// A finished stream's chat replay: the frame page, then one fetch 10 minutes in.
+    private static func probeChatReplay() async {
+        do {
+            let streams = try await YouTubeService.shared.channel("@NASA", tab: .streams)
+            for video in streams.initialPage.videos.filter({ !$0.isLive }).prefix(5) {
+                guard let chat = try await YouTubeService.shared.watchInfo(video.id).liveChat, chat.isReplay else { continue }
+                let page = LiveChatParser.parse(try await InnerTube.shared.liveChatPage(continuation: chat.modes[0].continuation, replay: true))
+                Log.debug("chat replay probe: \(video.id) page messages=\(page.messages.count) next=\(page.continuation != nil) seek=\(page.seekContinuation != nil)")
+                if let token = page.seekContinuation ?? page.continuation {
+                    let chunk = LiveChatParser.parse(try await InnerTube.shared.liveChatReplay(continuation: token, offsetMs: 600_000))
+                    let offsets = chunk.messages.compactMap(\.offsetMs)
+                    Log.debug("chat replay probe: at 10:00 messages=\(chunk.messages.count) offsets=\(offsets.min() ?? -1)...\(offsets.max() ?? -1) next=\(chunk.continuation != nil)")
+                }
+                return
+            }
+            Log.debug("chat replay probe: no past stream with chat replay found")
+        } catch {
+            Log.debug("chat replay probe failed: \(error.localizedDescription)")
+        }
     }
 }
