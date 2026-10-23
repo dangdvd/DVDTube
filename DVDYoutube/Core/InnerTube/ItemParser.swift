@@ -25,7 +25,22 @@ enum ItemParser {
     ]
 
     static func page(_ node: JNode) -> FeedPage {
-        FeedPage(items: items(in: node), continuation: continuation(in: node))
+        var page = FeedPage(items: items(in: node), continuation: continuation(in: node))
+        if page.items.isEmpty { page.message = emptyMessage(in: node) }
+        return page
+    }
+
+    /// Text of the notice YouTube shows instead of a feed.
+    static func emptyMessage(in node: JNode) -> String? {
+        for key in ["feedNudgeRenderer", "backgroundPromoRenderer", "messageRenderer", "emptyStateViewModel"] {
+            let renderer = node.findFirst(key)
+            guard renderer.exists else { continue }
+            let parts = [renderer["title"], renderer["subtitle"], renderer["text"], renderer["bodyText"]]
+                .compactMap { $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !parts.isEmpty { return parts.joined(separator: "\n") }
+        }
+        return nil
     }
 
     static func items(in node: JNode) -> [FeedItem] {

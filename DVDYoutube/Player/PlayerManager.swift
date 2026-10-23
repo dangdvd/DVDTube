@@ -718,6 +718,9 @@ final class PlayerManager {
 
     fileprivate func pipDidChange(active: Bool) {
         isPiPActive = active
+        if !active, UIApplication.shared.applicationState == .active, currentVideo != nil {
+            isExpanded = true
+        }
     }
 
     fileprivate func restoreFromPiP() {
@@ -741,6 +744,12 @@ final class PlayerManager {
 
     func appWillEnterForeground() {
         playerLayer?.player = player
+        // Like the official app: opening the app while the floating PiP window is shown
+        // ends PiP and continues the video in the full player.
+        if let controller = pipController, controller.isPictureInPictureActive {
+            isExpanded = true
+            controller.stopPictureInPicture()
+        }
     }
 
     // MARK: - Now Playing & remote commands

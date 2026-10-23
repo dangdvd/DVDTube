@@ -160,6 +160,18 @@ struct SettingsView: View {
                 Text("Khi YouTube thay đổi cách cung cấp video, chỉ cần sửa tệp Config/remote-config.json trong kho GitHub là ứng dụng tự cập nhật, không cần cài lại.")
             }
 
+            Section {
+                NavigationLink {
+                    DiagnosticsView()
+                } label: {
+                    Label("Nhật ký chẩn đoán", systemImage: "stethoscope")
+                }
+            } header: {
+                Text("Hỗ trợ")
+            } footer: {
+                Text("Khi gặp lỗi, mở mục này, bấm Sao chép rồi gửi cho người phát triển. Nhật ký chỉ gồm tên API, mã lỗi và thông báo lỗi, không có cookie hay thông tin tài khoản.")
+            }
+
             Section("Giới thiệu") {
                 LabeledContent("Phiên bản", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                 Link(destination: URL(string: "https://github.com/dangdvd/DVDYoutube")!) {
@@ -174,6 +186,47 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("Xóa toàn bộ nhật ký xem?", isPresented: $confirmClearHistory, titleVisibility: .visible) {
             Button("Xóa", role: .destructive) { library.clearHistory() }
+        }
+    }
+}
+
+struct DiagnosticsView: View {
+    @State private var text = DiagnosticsLog.shared.text
+    @State private var copied = false
+
+    var body: some View {
+        ScrollView {
+            Text(text)
+                .font(.system(.caption2, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+        .navigationTitle("Nhật ký chẩn đoán")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button(copied ? "Đã chép" : "Sao chép") {
+                    UIPasteboard.general.string = text
+                    copied = true
+                }
+                Menu {
+                    ShareLink(item: text) { Label("Chia sẻ", systemImage: "square.and.arrow.up") }
+                    Button {
+                        text = DiagnosticsLog.shared.text
+                    } label: {
+                        Label("Làm mới", systemImage: "arrow.clockwise")
+                    }
+                    Button(role: .destructive) {
+                        DiagnosticsLog.shared.clear()
+                        text = DiagnosticsLog.shared.text
+                    } label: {
+                        Label("Xóa nhật ký", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
         }
     }
 }

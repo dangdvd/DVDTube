@@ -11,6 +11,7 @@ final class FeedModel {
     private(set) var isLoadingMore = false
     private(set) var error: String?
     private(set) var hasLoaded = false
+    private(set) var message: String?
 
     @ObservationIgnored private let loader: () async throws -> FeedPage
     @ObservationIgnored private var kind: ContinuationKind = .browse
@@ -34,6 +35,7 @@ final class FeedModel {
             items = page.items
             continuation = page.continuation
             kind = page.kind
+            message = page.message
             hasLoaded = true
             Log.debug("feed loaded: \(page.items.count) items, continuation=\(page.continuation != nil)")
         } catch {
