@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 import WebKit
 
@@ -16,6 +17,7 @@ struct GoogleSignInView: View {
     @State private var isFinishing = false
     @State private var errorMessage: String?
     @State private var cookieText = ""
+    @State private var page = SignInPageController()
 
     var body: some View {
         NavigationStack {
@@ -88,11 +90,37 @@ struct GoogleSignInView: View {
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemBackground))
-            GoogleLoginWebView(addsAccount: addsAccount) { cookies in
+            GoogleLoginWebView(addsAccount: addsAccount, page: page) { cookies in
                 guard !isFinishing else { return }
                 Task { await finish(with: cookies, fromWebLogin: true) }
             }
+            .overlay(alignment: .bottom) {
+                if page.isPasskeyPage { passkeyBanner }
+            }
+            .animation(.easeInOut(duration: 0.2), value: page.isPasskeyPage)
         }
+    }
+
+    /// Shown on Google's passkey step, which cannot work inside an app on iOS.
+    private var passkeyBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Khóa đăng nhập (Face ID) không dùng được ở đây", systemImage: "faceid")
+                .font(.subheadline.weight(.semibold))
+            Text("iOS chỉ cho dùng khóa đăng nhập trong Safari và ứng dụng của Google. Hãy đăng nhập bằng mật khẩu — chạm 🔑 trên bàn phím để điền mật khẩu đã lưu bằng Face ID — hoặc chọn \"Thử cách khác\" › \"Nhấn Có trên điện thoại\".")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button {
+                page.usePassword()
+            } label: {
+                Label("Đăng nhập bằng mật khẩu", systemImage: "key.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16).fill(.regularMaterial))
+        .padding(12)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private var manualImport: some View {
@@ -138,8 +166,79 @@ struct GoogleSignInView: View {
 
 /// `WKWebView` showing Google's sign-in page, reporting youtube.com cookies once the
 /// session is established.
+/// Watches Google's sign-in page for the passkey step and can switch it to the password.
+@MainActor
+@Observable
+final class SignInPageController {
+    private(set) var isPasskeyPage = false
+    @ObservationIgnored weak var webView: WKWebView?
+    @ObservationIgnored private var timer: Timer?
+
+    /// The passkey prompt is on screen and no password field is.
+    private static let detectScript = """
+    (function () {
+      var text = ((document.body && document.body.innerText) || '').normalize('NFC');
+      var passkey = /khoá đăng nhập|khóa đăng nhập|passkey/i.test(text);
+      return passkey && !document.querySelector('input[type=password]');
+    })()
+    """
+
+    /// "Try another way", then "Enter your password".
+    private static let passwordScript = """
+    (function () {
+      function click(pattern) {
+        var items = document.querySelectorAll('button,[role=button],[role=link],li,a,div[jsaction]');
+        for (var i = 0; i < items.length; i++) {
+          var text = (items[i].innerText || '').normalize('NFC').trim();
+          if (text.length > 0 && text.length < 60 && pattern.test(text)) { items[i].click(); return true; }
+        }
+        return false;
+      }
+      var password = /nhập mật khẩu|enter your password/i;
+      if (click(password)) return 'password';
+      if (click(/thử cách khác|try another way/i)) {
+        setTimeout(function () { click(password); }, 1500);
+        return 'another way';
+      }
+      return 'none';
+    })()
+    """
+
+    func start() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.check() }
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func check() {
+        guard let webView, webView.url?.host?.contains("google") == true else {
+            if isPasskeyPage { isPasskeyPage = false }
+            return
+        }
+        webView.evaluateJavaScript(Self.detectScript) { [weak self] result, _ in
+            let found = (result as? Bool) ?? false
+            Task { @MainActor in
+                if self?.isPasskeyPage != found { self?.isPasskeyPage = found }
+            }
+        }
+    }
+
+    func usePassword() {
+        webView?.evaluateJavaScript(Self.passwordScript) { result, _ in
+            Log.debug("sign-in: switch to password -> \(result as? String ?? "?")")
+        }
+    }
+}
+
 private struct GoogleLoginWebView: UIViewRepresentable {
     var addsAccount = false
+    var page: SignInPageController
     var onSignedIn: ([String: String]) -> Void
 
     private static let loginURL = URL(string:
@@ -162,7 +261,11 @@ private struct GoogleLoginWebView: UIViewRepresentable {
             + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(short) Mobile/15E148 Safari/604.1"
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onSignedIn: onSignedIn) }
+    func makeCoordinator() -> Coordinator {
+        let coordinator = Coordinator(onSignedIn: onSignedIn)
+        coordinator.page = page
+        return coordinator
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -172,7 +275,13 @@ private struct GoogleLoginWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         webView.load(URLRequest(url: addsAccount ? Self.addAccountURL : Self.loginURL))
+        page.webView = webView
+        page.start()
         return webView
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.page?.stop()
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
@@ -181,6 +290,7 @@ private struct GoogleLoginWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         var onSignedIn: ([String: String]) -> Void
+        weak var page: SignInPageController?
         private var reported = false
 
         init(onSignedIn: @escaping ([String: String]) -> Void) {
