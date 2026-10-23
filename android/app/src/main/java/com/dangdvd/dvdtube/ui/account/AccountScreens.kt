@@ -67,6 +67,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.dangdvd.dvdtube.core.AccountNotification
+import com.dangdvd.dvdtube.core.Log
 import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.innertube.AuthSession
 import com.dangdvd.dvdtube.core.services.YouTubeService
@@ -91,6 +92,36 @@ private const val CONTINUE = "https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_ha
 private const val LOGIN_URL = "https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=$CONTINUE&hl=vi"
 private const val ADD_ACCOUNT_URL = "https://accounts.google.com/AddSession?service=youtube&uilel=3&continue=$CONTINUE&hl=vi"
 
+/** The passkey prompt is on screen and no password field is. */
+private const val DETECT_PASSKEY_SCRIPT = """
+(function () {
+  var text = ((document.body && document.body.innerText) || '').normalize('NFC');
+  var passkey = /khoá đăng nhập|khóa đăng nhập|passkey/i.test(text);
+  return passkey && !document.querySelector('input[type=password]');
+})()
+"""
+
+/** "Try another way", then "Enter your password". */
+private const val PASSWORD_SCRIPT = """
+(function () {
+  function click(pattern) {
+    var items = document.querySelectorAll('button,[role=button],[role=link],li,a,div[jsaction]');
+    for (var i = 0; i < items.length; i++) {
+      var text = (items[i].innerText || '').normalize('NFC').trim();
+      if (text.length > 0 && text.length < 60 && pattern.test(text)) { items[i].click(); return true; }
+    }
+    return false;
+  }
+  var password = /nhập mật khẩu|enter your password/i;
+  if (click(password)) return 'password';
+  if (click(/thử cách khác|try another way/i)) {
+    setTimeout(function () { click(password); }, 1500);
+    return 'another way';
+  }
+  return 'none';
+})()
+"""
+
 /**
  * Google rejects sign-in from user agents that look like an embedded web view ("; wv"),
  * so present the user agent of Chrome on Android instead.
@@ -109,6 +140,20 @@ fun SignInDialog(addingAccount: Boolean, onDismiss: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var cookieText by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf(0) }
+    var loginWebView by remember { mutableStateOf<WebView?>(null) }
+    var passkeyPage by remember { mutableStateOf(false) }
+    // Google's passkey step cannot work inside an app: watch for it and offer the password.
+    LaunchedEffect(loginWebView, manual) {
+        val view = loginWebView ?: return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            if (manual || view.url?.contains("google") != true) {
+                passkeyPage = false
+                continue
+            }
+            view.evaluateJavascript(DETECT_PASSKEY_SCRIPT) { result -> passkeyPage = result == "true" }
+        }
+    }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
@@ -169,7 +214,29 @@ fun SignInDialog(addingAccount: Boolean, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     )
-                    GoogleLoginWebView(addingAccount, onProgress = { progress = it }) { cookies -> finish(cookies, fromWebLogin = true) }
+                    Box(Modifier.fillMaxSize()) {
+                        GoogleLoginWebView(
+                            addingAccount,
+                            onProgress = { progress = it },
+                            onWebView = { loginWebView = it },
+                        ) { cookies -> finish(cookies, fromWebLogin = true) }
+                        if (passkeyPage) {
+                            Column(
+                                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp)).padding(14.dp),
+                            ) {
+                                Text("Khóa đăng nhập không dùng được ở đây", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "Khóa đăng nhập chỉ dùng được trong trình duyệt và ứng dụng của Google. Hãy đăng nhập bằng mật khẩu (trình quản lý mật khẩu có thể tự điền) hoặc chọn \"Thử cách khác\" › \"Nhấn Có trên điện thoại\".",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                )
+                                Button(onClick = {
+                                    loginWebView?.evaluateJavascript(PASSWORD_SCRIPT) { Log.debug("sign-in: switch to password -> $it") }
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Đăng nhập bằng mật khẩu") }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -178,7 +245,12 @@ fun SignInDialog(addingAccount: Boolean, onDismiss: () -> Unit) {
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun GoogleLoginWebView(addingAccount: Boolean, onProgress: (Int) -> Unit, onSignedIn: (Map<String, String>) -> Unit) {
+private fun GoogleLoginWebView(
+    addingAccount: Boolean,
+    onProgress: (Int) -> Unit,
+    onWebView: (WebView) -> Unit,
+    onSignedIn: (Map<String, String>) -> Unit,
+) {
     AndroidView(
         factory = { context ->
             WebView(context).apply {
@@ -207,6 +279,7 @@ private fun GoogleLoginWebView(addingAccount: Boolean, onProgress: (Int) -> Unit
                     }
                 }
                 loadUrl(if (addingAccount) ADD_ACCOUNT_URL else LOGIN_URL)
+                onWebView(this)
             }
         },
         modifier = Modifier.fillMaxSize(),
