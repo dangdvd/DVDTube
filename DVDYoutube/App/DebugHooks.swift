@@ -113,7 +113,12 @@ enum DebugHooks {
                 }
             }.mapValues(\.count)
             let badges = model.messages.filter { $0.isOwner || $0.isModerator || $0.isMember || $0.isVerified }.count
-            Log.debug("live chat probe: \(model.messages.count) messages \(kinds), badges=\(badges), withPhoto=\(model.messages.filter { $0.authorPhoto != nil }.count), error=\(model.error ?? "none"), ended=\(model.hasEnded)")
+            Log.debug("live chat probe: \(model.messages.count) messages \(kinds), badges=\(badges), withPhoto=\(model.messages.filter { $0.authorPhoto != nil }.count), error=\(model.error ?? "none"), ended=\(model.hasEnded), views=\(model.modes.map(\.title))")
+            if let other = model.modes.first(where: { $0 != model.selectedMode }) {
+                model.select(other)
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                Log.debug("live chat probe: switched to \(other.title): \(model.messages.count) messages, error=\(model.error ?? "none")")
+            }
             model.stop()
         } catch {
             Log.debug("live chat probe failed: \(error.localizedDescription)")

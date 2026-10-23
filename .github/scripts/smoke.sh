@@ -43,7 +43,7 @@ run search 20 -DVDTubeDemoSearch "lofi hip hop"
 run watch 45 -DVDTubeDemoVideo "aqz-KE-bpKQ"
 run channel 20 -DVDTubeDemoChannel "@NASA"
 run shorts 35 -DVDTubeDemoTab shorts
-run livechat 60 -DVDTubeDemoLiveChat
+run livechat 75 -DVDTubeDemoLiveChat
 xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 
 echo "=== summary"

@@ -45,20 +45,26 @@ struct LiveChatChunk {
 }
 
 enum LiveChatParser {
-    /// `conversationBar.liveChatRenderer` of the `next` response.
+    /// `conversationBar.liveChatRenderer` of the `next` response. Only its main reload
+    /// token is usable: the per-mode tokens in that response's menu are a short form that
+    /// the chat endpoints reject; the chat page itself lists usable ones (`modes(in:)`).
     static func info(_ watch: JNode) -> LiveChatInfo? {
         let renderer = watch.at("conversationBar", "liveChatRenderer")
-        guard renderer.exists else { return nil }
-        var modes: [LiveChatInfo.Mode] = renderer.findFirst("subMenuItems").array.compactMap { item in
+        guard renderer.exists,
+              let token = renderer["continuations"].array.lazy
+                .compactMap({ $0.at("reloadContinuationData", "continuation").string }).first
+        else { return nil }
+        let items = renderer.findFirst("subMenuItems").array
+        let title = (items.first { $0["selected"].bool == true } ?? items.first)?["title"].text ?? "Trò chuyện"
+        return LiveChatInfo(modes: [LiveChatInfo.Mode(title: title, continuation: token)], isReplay: renderer["isReplay"].bool ?? false)
+    }
+
+    /// "Top chat" / "Live chat" (or their replays) from the chat page's header.
+    static func modes(in json: JNode) -> [LiveChatInfo.Mode] {
+        json.findFirst("subMenuItems").array.compactMap { item in
             guard let token = item.at("continuation", "reloadContinuationData", "continuation").string else { return nil }
             return LiveChatInfo.Mode(title: item["title"].text ?? "Trò chuyện", continuation: token)
         }
-        if modes.isEmpty, let token = renderer["continuations"].array.lazy
-            .compactMap({ $0.at("reloadContinuationData", "continuation").string }).first {
-            modes = [LiveChatInfo.Mode(title: "Trò chuyện", continuation: token)]
-        }
-        guard !modes.isEmpty else { return nil }
-        return LiveChatInfo(modes: modes, isReplay: renderer["isReplay"].bool ?? false)
     }
 
     static func parse(_ json: JNode) -> LiveChatChunk {

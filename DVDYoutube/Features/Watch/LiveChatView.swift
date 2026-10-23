@@ -13,6 +13,8 @@ final class LiveChatModel {
     private(set) var sendParams: String?
     private(set) var restrictedMessage: String?
     private(set) var selectedMode: LiveChatInfo.Mode
+    /// Chat views offered by the chat page (starts with the watch page's default view).
+    private(set) var modes: [LiveChatInfo.Mode]
     let info: LiveChatInfo
 
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -22,6 +24,7 @@ final class LiveChatModel {
     init(info: LiveChatInfo) {
         self.info = info
         selectedMode = info.modes[0]
+        modes = info.modes
     }
 
     func start() {
@@ -68,6 +71,7 @@ final class LiveChatModel {
                     : try await InnerTube.shared.liveChat(continuation: token)
                 let chunk = LiveChatParser.parse(json)
                 guard !Task.isCancelled else { return }
+                if fromPage { adoptModes(from: json) }
                 fetches += 1
                 if fetches <= 2 {
                     Log.debug("live chat: \(chunk.messages.count) messages via \(fromPage ? "page" : "api"), next=\(chunk.continuation != nil), canSend=\(chunk.sendParams != nil)")
@@ -135,6 +139,7 @@ final class LiveChatModel {
                     let chunk = LiveChatParser.parse(json)
                     guard !Task.isCancelled else { return }
                     let wasPage = fromPage
+                    if wasPage { adoptModes(from: json) }
                     fromPage = false
                     error = nil
                     // Only what is around the current position (the frame starts at 0:00).
@@ -171,6 +176,14 @@ final class LiveChatModel {
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
+    }
+
+    /// The page's own menu has tokens that work for switching views.
+    private func adoptModes(from json: JNode) {
+        let pageModes = LiveChatParser.modes(in: json)
+        guard pageModes.count > 1 else { return }
+        modes = pageModes
+        if let same = pageModes.first(where: { $0.title == selectedMode.title }) { selectedMode = same }
     }
 
     // MARK: Messages
@@ -266,10 +279,10 @@ struct LiveChatSheet: View {
             .navigationTitle(model.info.isReplay ? "Phát lại nội dung trò chuyện" : "Trò chuyện trực tiếp")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if model.info.modes.count > 1 {
+                if model.modes.count > 1 {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
-                            ForEach(model.info.modes, id: \.continuation) { mode in
+                            ForEach(model.modes, id: \.continuation) { mode in
                                 Button {
                                     followLatest = true
                                     model.select(mode)
