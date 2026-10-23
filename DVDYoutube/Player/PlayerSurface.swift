@@ -395,14 +395,23 @@ struct PlayerSurface: View {
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .lineLimit(4)
-            Button("Thử lại") { player.retry() }
+            HStack {
+                Button("Thử lại") {
+                    if player.usesWebPlayer { player.switchToNativePlayer() } else { player.retry() }
+                }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                if !player.usesWebPlayer, AppSettings.shared.webPlayerFallback {
+                    Button("Trình phát web") { player.switchToWebPlayer(reason: message) }
+                        .buttonStyle(.bordered)
+                        .tint(.white)
+                }
+            }
+            .controlSize(.small)
         }
         .foregroundStyle(.white)
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.8))
+        .background(Color.black)
     }
 }
 
