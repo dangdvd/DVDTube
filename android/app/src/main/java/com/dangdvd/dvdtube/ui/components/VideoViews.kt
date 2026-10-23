@@ -26,8 +26,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.MoreVert
@@ -41,6 +44,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -68,9 +72,11 @@ import com.dangdvd.dvdtube.core.PlaylistItem
 import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.storage.DownloadManager
 import com.dangdvd.dvdtube.core.storage.DownloadState
+import com.dangdvd.dvdtube.core.storage.HiddenContentStore
 import com.dangdvd.dvdtube.core.storage.LibraryActions
 import com.dangdvd.dvdtube.core.storage.LibraryStore
 import com.dangdvd.dvdtube.player.PlayerController
+import com.dangdvd.dvdtube.player.Toasts
 import com.dangdvd.dvdtube.ui.Brand
 import com.dangdvd.dvdtube.ui.Route
 import com.dangdvd.dvdtube.ui.Router
@@ -174,6 +180,14 @@ fun VideoMenu(video: VideoItem, extra: (@Composable (close: () -> Unit) -> Unit)
     Box {
         IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, "Tùy chọn", Modifier.size(20.dp)) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val current = PlayerController.currentVideo
+            if (current != null && current.id != video.id) {
+                DropdownMenuItem(
+                    text = { Text("Phát tiếp theo") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null) },
+                    onClick = { open = false; PlayerController.playAfterCurrent(video) },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("Thêm vào hàng đợi") },
                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null) },
@@ -204,6 +218,27 @@ fun VideoMenu(video: VideoItem, extra: (@Composable (close: () -> Unit) -> Unit)
                 onClick = { open = false; shareText(context, video.shareUrl, video.title) },
             )
             extra?.invoke { open = false }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Không quan tâm") },
+                leadingIcon = { Icon(Icons.Default.Block, null) },
+                onClick = {
+                    open = false
+                    HiddenContentStore.hide(video)
+                    Toasts.show("Đã ẩn video. Bạn sẽ không thấy video này trong đề xuất nữa.")
+                },
+            )
+            if (video.channelId != null) {
+                DropdownMenuItem(
+                    text = { Text("Không đề xuất kênh này") },
+                    leadingIcon = { Icon(Icons.Default.PersonRemove, null) },
+                    onClick = {
+                        open = false
+                        HiddenContentStore.hideChannel(video)
+                        Toasts.show("Sẽ không đề xuất kênh ${video.channelName ?: "này"} nữa")
+                    },
+                )
+            }
         }
     }
 }
@@ -311,7 +346,7 @@ fun FeedItemView(item: FeedItem, compact: Boolean, context: List<VideoItem>) {
     }
 }
 
-/** Feed items for a LazyColumn, calling [onLoadMore] near the end. */
+/** Feed items for a LazyColumn, calling [onLoadMore] near the end. Pass recommendations through [HiddenContentStore.filter]. */
 fun LazyListScope.feedItems(
     items: List<FeedItem>,
     compact: Boolean,

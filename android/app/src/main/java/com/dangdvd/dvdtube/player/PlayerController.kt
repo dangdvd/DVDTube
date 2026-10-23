@@ -140,6 +140,28 @@ object PlayerController {
         private set
     var upNextCountdown by mutableStateOf(0)
         private set
+    /** Seconds left on the sleep timer (updated while it runs). */
+    var sleepRemaining by mutableStateOf<Int?>(null)
+        private set
+
+    /** Audio only: the picture is not downloaded at all (saves mobile data). */
+    var isAudioOnly by mutableStateOf(false)
+        private set
+    /** What the user chose in the player during this session (wins over the automatic rule). */
+    private var audioOnlyChoice: Boolean? = null
+    private var audioBitrate = 0
+    /** Touches on the video are ignored until unlocked (YouTube's "Lock screen"). */
+    var isScreenLocked by mutableStateOf(false)
+    /** "Stats for nerds" overlay. */
+    var showsStats by mutableStateOf(false)
+
+    /** Digital wellbeing reminders ("Take a break", bedtime). */
+    enum class Reminder { TAKE_BREAK, BEDTIME }
+    var reminder by mutableStateOf<Reminder?>(null)
+    private var continuousWatch = 0.0
+    private var lastPlayingAt = 0L
+    private var bedtimeSnoozedUntil = 0L
+    private var bedtimeDismissedNight: String? = null
 
     val hasNext: Boolean get() = queueIndex + 1 < queue.size || nextAutoplayVideo != null
     val hasPrevious: Boolean get() = queueIndex > 0 || currentTime > 5
@@ -179,6 +201,7 @@ object PlayerController {
         sessionPlayer = SessionPlayer(exo)
         rate = AppSettings.playbackSpeed
         startTicker()
+        startWellbeingLoop()
     }
 
     // MARK: Public API
@@ -226,6 +249,22 @@ object PlayerController {
         if (index !in queue.indices || index == queueIndex) return
         queue = queue.toMutableList().also { it.removeAt(index) }
         if (index < queueIndex) queueIndex--
+    }
+
+    /** "Play next": right after the current video. */
+    fun playAfterCurrent(video: VideoItem) {
+        val current = currentVideo
+        if (current == null) {
+            play(video)
+            return
+        }
+        if (video.id == current.id) return
+        val rest = queue.filter { it.id != video.id }.toMutableList()
+        val index = rest.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
+        rest.add(minOf(index + 1, rest.size), video)
+        queue = rest
+        queueIndex = index
+        Toasts.show("Sẽ phát tiếp theo")
     }
 
     fun playNext() {
@@ -378,9 +417,12 @@ object PlayerController {
         usesWebPlayer = false
         webFallbackReason = null
         quality = defaultQuality()
+        isAudioOnly = wantsAudioOnly
+        audioBitrate = 0
+        applyAudioOnlyTracks()
         isLoading = true
         pendingSeek = startAt ?: if (AppSettings.resumePlayback) LibraryStore.resumePosition(video.id) else null
-        if (AppSettings.saveHistory) LibraryStore.recordWatch(video, pendingSeek ?: 0.0, duration)
+        if (AppSettings.saveHistory && !AppSettings.isIncognito) LibraryStore.recordWatch(video, pendingSeek ?: 0.0, duration)
         loadWatchInfo(video.id)
 
         if (isCasting) {
@@ -395,7 +437,69 @@ object PlayerController {
 
     private fun defaultQuality(): VideoQuality {
         val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
-        return if (connectivity?.isActiveNetworkMetered == true) AppSettings.cellularQuality else AppSettings.wifiQuality
+        var value = if (connectivity?.isActiveNetworkMetered == true) AppSettings.cellularQuality else AppSettings.wifiQuality
+        // Data saver: at most 360p on mobile data.
+        if (AppSettings.savesData && (value == VideoQuality.AUTO || value.height > 360)) value = VideoQuality.P360
+        return value
+    }
+
+    /** Audio only for the next video: the user's choice in this session, otherwise the settings. */
+    private val wantsAudioOnly: Boolean
+        get() = audioOnlyChoice ?: (AppSettings.audioOnlyMode || (AppSettings.audioOnlyOnCellular && AppSettings.isMeteredNetwork))
+
+    /** Switches between video and audio only, continuing from the same position. */
+    fun switchAudioOnly(on: Boolean) {
+        audioOnlyChoice = on
+        AppSettings.audioOnlyMode = on
+        if (on == isAudioOnly) return
+        isAudioOnly = on
+        applyAudioOnlyTracks()
+        Toasts.show(if (on) "Chỉ phát âm thanh — không tải hình, tiết kiệm dữ liệu" else "Đã bật lại hình")
+        if (currentVideo == null || isCasting || usesWebPlayer || isLocalPlayback) return
+        reloadStream()
+    }
+
+    /** The video decoder is switched off in audio-only mode. */
+    private fun applyAudioOnlyTracks() {
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, isAudioOnly && !isLocalPlayback)
+            .build()
+    }
+
+    /** Rebuilds the media source for the current video (after switching audio only). */
+    private fun reloadStream() {
+        val video = currentVideo ?: return
+        val resumeAt = currentTime
+        loadJob?.cancel()
+        isLoading = true
+        playbackError = null
+        if (!isAudioOnly) quality = defaultQuality()
+        loadJob = AppScope.launch {
+            val info = playerInfo
+            if (info != null && info.videoId == video.id && info.availableAt <= System.currentTimeMillis()) {
+                fallbackStage = 0
+                val source = makeSource(info, if (isAudioOnly) -1 else 0, video)
+                if (currentVideo?.id != video.id) return@launch
+                if (source != null) {
+                    pendingSeek = resumeAt
+                    startSource(source, video)
+                } else {
+                    isLoading = false
+                    playbackError = "Không phát được video."
+                }
+            } else {
+                pendingSeek = resumeAt
+                loadStream(video)
+            }
+        }
+    }
+
+    /** The AAC stream: the largest normally, the smallest with data saver on mobile data. */
+    private fun audioFormat(info: PlayerInfo): com.dangdvd.dvdtube.core.StreamFormat? {
+        val aac = info.adaptiveFormats.filter { it.isAudio && it.isAAC }
+        val main = aac.filter { it.isDefaultAudio }
+        val candidates = main.ifEmpty { aac }
+        return if (AppSettings.savesData) candidates.minByOrNull { it.bitrate } else candidates.maxByOrNull { it.bitrate }
     }
 
     private fun loadWatchInfo(videoId: String) {
@@ -442,7 +546,7 @@ object PlayerController {
             }
             adWaitRemaining = 0
 
-            val source = makeSource(info, fallbackStage, video) ?: throw InnerTubeException.NoStreams()
+            val source = makeSource(info, if (isAudioOnly) -1 else fallbackStage, video) ?: throw InnerTubeException.NoStreams()
             if (currentVideo?.id != video.id) return
             startSource(source, video)
             loadExtras(video.id, info)
@@ -476,12 +580,22 @@ object PlayerController {
     private fun progressive(uri: String, video: VideoItem): MediaSource =
         ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem(uri, video))
 
-    /** Stage 0: HLS (adaptive, best). Stage 1: muxed progressive. Stage 2: video + audio merged. */
+    /**
+     * Stage -1: audio only. Stage 0: HLS (adaptive, best). Stage 1: muxed progressive.
+     * Stage 2: video + audio merged.
+     */
     private fun makeSource(info: PlayerInfo, stage: Int, video: VideoItem): MediaSource? {
         for (s in stage..2) {
             when (s) {
+                -1 -> audioFormat(info)?.let {
+                    fallbackStage = -1
+                    audioBitrate = it.bitrate
+                    return progressive(it.url, video)
+                }
                 0 -> info.hlsUrl?.let {
                     fallbackStage = 0
+                    // Audio only without a separate audio stream (live): the smallest video.
+                    if (isAudioOnly) quality = VideoQuality.P144
                     return HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem(it, video))
                 }
                 1 -> info.muxedFormats.filter { it.mimeType.contains("mp4") }.maxByOrNull { it.height ?: 0 }?.let {
@@ -519,6 +633,7 @@ object PlayerController {
         val height = quality.maxHeight
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .setMaxVideoSize(if (height == null) Int.MAX_VALUE else height * 16 / 9 + 1, height ?: Int.MAX_VALUE)
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, isAudioOnly && !isLocalPlayback)
             .build()
     }
 
@@ -585,7 +700,7 @@ object PlayerController {
     private val nextAutoplayVideo: VideoItem?
         get() {
             if (!AppSettings.autoplay) return null
-            val related = watchInfo?.related?.videos ?: return null
+            val related = watchInfo?.related?.videos?.filter { !com.dangdvd.dvdtube.core.storage.HiddenContentStore.isHidden(it) } ?: return null
             val recent = LibraryStore.history.take(50).map { it.video.id }.toSet() + queue.map { it.id }
             return related.firstOrNull { it.id !in recent && !it.isLive && !it.isShort } ?: related.firstOrNull { !it.isShort }
         }
@@ -698,7 +813,9 @@ object PlayerController {
     fun setSleepTimer(minutes: Int?) {
         sleepJob?.cancel()
         sleepTimerEnd = null
+        sleepRemaining = null
         sleepAtEndOfVideo = false
+        exo.volume = 1f
         if (minutes == null) {
             Toasts.show("Đã tắt hẹn giờ")
             return
@@ -708,16 +825,134 @@ object PlayerController {
             Toasts.show("Sẽ dừng khi hết video này")
             return
         }
-        val millis = minutes * 60_000L
-        sleepTimerEnd = System.currentTimeMillis() + millis
-        Toasts.show("Sẽ dừng phát sau $minutes phút")
+        startSleepCountdown(System.currentTimeMillis() + minutes * 60_000L)
+        Toasts.show(if (minutes >= 60 && minutes % 60 == 0) "Video sẽ dừng sau ${minutes / 60} giờ" else "Video sẽ dừng sau $minutes phút")
+    }
+
+    /** Adds time to a running timer (or starts one). */
+    fun extendSleepTimer(minutes: Int) {
+        val base = maxOf(sleepTimerEnd ?: 0L, System.currentTimeMillis())
+        sleepJob?.cancel()
+        sleepAtEndOfVideo = false
+        exo.volume = 1f
+        startSleepCountdown(base + minutes * 60_000L)
+        Toasts.show("Đã thêm $minutes phút")
+    }
+
+    val sleepTimerLabel: String?
+        get() {
+            if (sleepAtEndOfVideo) return "Hết video"
+            val remaining = sleepRemaining ?: return null
+            return com.dangdvd.dvdtube.core.formatTime(remaining.toDouble())
+        }
+
+    private fun startSleepCountdown(end: Long) {
+        sleepTimerEnd = end
+        sleepRemaining = ((end - System.currentTimeMillis() + 999) / 1000).toInt().coerceAtLeast(0)
         sleepJob = AppScope.launch {
-            delay(millis)
-            sleepTimerEnd = null
-            pause()
-            Toasts.show("Đã hết giờ hẹn – tạm dừng phát")
+            while (isActive) {
+                delay(500)
+                val remaining = end - System.currentTimeMillis()
+                sleepRemaining = ((remaining + 999) / 1000).toInt().coerceAtLeast(0)
+                // Fade the sound out over the last 10 seconds, like a sleep timer should.
+                if (remaining in 1..10_000) exo.volume = remaining / 10_000f
+                if (remaining <= 0) {
+                    sleepTimerEnd = null
+                    sleepRemaining = null
+                    pause()
+                    exo.volume = 1f
+                    Toasts.show("Đã hết giờ hẹn — đã dừng phát")
+                    return@launch
+                }
+            }
         }
     }
+
+    // MARK: Digital wellbeing
+
+    private fun startWellbeingLoop() {
+        AppScope.launch {
+            while (isActive) {
+                delay(1000)
+                runCatching { wellbeingTick() }
+            }
+        }
+    }
+
+    private fun nightKey(time: Long): String = com.dangdvd.dvdtube.core.storage.WatchTimeStore.dayKey(time - 12 * 3_600_000L)
+
+    private fun wellbeingTick() {
+        val now = System.currentTimeMillis()
+        if (!isPlaying) {
+            // A long pause counts as a break.
+            if (now - lastPlayingAt > 15 * 60_000L) continuousWatch = 0.0
+            return
+        }
+        lastPlayingAt = now
+        com.dangdvd.dvdtube.core.storage.WatchTimeStore.add(1.0, now)
+        continuousWatch += 1
+        val foreground = androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState
+            .isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+        if (reminder != null || isInPictureInPicture || !foreground) return
+        val breakMinutes = AppSettings.breakReminderMinutes
+        if (breakMinutes > 0 && continuousWatch >= breakMinutes * 60) {
+            continuousWatch = 0.0
+            pause()
+            reminder = Reminder.TAKE_BREAK
+            return
+        }
+        if (AppSettings.bedtimeReminder && AppSettings.isBedtime(now) && now >= bedtimeSnoozedUntil &&
+            bedtimeDismissedNight != nightKey(now)
+        ) {
+            pause()
+            reminder = Reminder.BEDTIME
+        }
+    }
+
+    /** [snoozeMinutes]: remind again later (bedtime); otherwise not again tonight. */
+    fun dismissReminder(kind: Reminder, snoozeMinutes: Int? = null) {
+        if (kind == Reminder.BEDTIME) {
+            if (snoozeMinutes != null) bedtimeSnoozedUntil = System.currentTimeMillis() + snoozeMinutes * 60_000L
+            else bedtimeDismissedNight = nightKey(System.currentTimeMillis())
+        }
+        reminder = null
+    }
+
+    // MARK: Stats for nerds
+
+    val playbackMethod: String
+        get() = when {
+            isCasting -> "Chromecast"
+            usesWebPlayer -> "Trình phát web"
+            isLocalPlayback -> "Tệp đã tải xuống"
+            fallbackStage == -1 -> "Chỉ âm thanh (AAC ${audioBitrate / 1000} kbps)"
+            fallbackStage == 0 -> if (isAudioOnly) "HLS 144p (chỉ âm thanh)" else "HLS"
+            fallbackStage == 1 -> "MP4 ghép sẵn"
+            else -> "Hình + tiếng ghép trên máy"
+        }
+
+    val statsLines: List<Pair<String, String>>
+        get() {
+            val lines = mutableListOf("Video" to (currentVideo?.id ?: "–"), "Cách phát" to playbackMethod)
+            exo.videoFormat?.takeIf { it.width > 0 }?.let { format ->
+                lines += "Độ phân giải" to "${format.width}×${format.height}${if (format.frameRate > 0) " @${format.frameRate.toInt()}fps" else ""}"
+                format.codecs?.let { lines += "Mã hóa hình" to it }
+                if (format.bitrate > 0) lines += "Bitrate hình" to "${format.bitrate / 1000} kbps"
+            }
+            exo.audioFormat?.let { format ->
+                lines += "Mã hóa tiếng" to (format.codecs ?: format.sampleMimeType ?: "?")
+                if (format.bitrate > 0) lines += "Bitrate tiếng" to "${format.bitrate / 1000} kbps"
+            }
+            exo.videoDecoderCounters?.let { counters ->
+                if (counters.droppedBufferCount > 0) lines += "Khung hình bị bỏ" to "${counters.droppedBufferCount}"
+            }
+            lines += "Bộ đệm" to String.format(java.util.Locale.ROOT, "%.1f giây", maxOf(bufferedTime - currentTime, 0.0))
+            lines += "Chất lượng" to quality.title
+            lines += "Tốc độ phát" to "${rate}x"
+            lines += "Mạng" to if (AppSettings.isMeteredNetwork) "Dữ liệu di động" else "Wi-Fi"
+            if (AppSettings.savesData) lines += "Tiết kiệm dữ liệu" to "Đang bật"
+            return lines
+        }
 
     /** Touch and hold the video to watch at 2x until released. */
     fun beginSpeedBoost() {
@@ -784,7 +1019,7 @@ object PlayerController {
 
     private fun saveProgress(completed: Boolean = false) {
         val video = currentVideo ?: return
-        if (currentTime <= 0 && !completed) return
+        if ((currentTime <= 0 && !completed) || AppSettings.isIncognito) return
         lastHistorySave = System.currentTimeMillis()
         LibraryStore.updatePosition(video.id, if (completed) duration else currentTime, duration)
     }

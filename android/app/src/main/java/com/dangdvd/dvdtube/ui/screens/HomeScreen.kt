@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.outlined.AddBox
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -271,6 +272,7 @@ fun HomeScreen() {
                         }
                     }
                 }
+                item(key = "incognito") { IncognitoBanner() }
                 val category = state.category
                 when {
                     category == HomeCategory.ALL && AccountStore.isSignedIn -> {
@@ -278,13 +280,13 @@ fun HomeScreen() {
                         if (home.hasLoaded && home.items.isEmpty() && home.error == null) {
                             // YouTube returned no recommendations (typically: watch history is off).
                             item(key = "notice") { AccountNotice(home.message) }
-                            pagedFeed(state.forYou, scope)
+                            pagedFeed(state.forYou, scope, hidesDismissed = true)
                         } else {
-                            pagedFeed(home, scope)
+                            pagedFeed(home, scope, hidesDismissed = true)
                         }
                     }
-                    category == HomeCategory.ALL -> pagedFeed(state.forYou, scope)
-                    else -> pagedFeed(state.model(category), scope)
+                    category == HomeCategory.ALL -> pagedFeed(state.forYou, scope, hidesDismissed = true)
+                    else -> pagedFeed(state.model(category), scope, hidesDismissed = true)
                 }
             }
         }
@@ -350,6 +352,10 @@ fun NotificationBell() {
 fun AccountButton() {
     val profile = AccountStore.profile
     IconButton(onClick = { if (AccountStore.isSignedIn) Router.showAccountSwitcher = true else Router.signIn() }) {
-        Avatar(if (AccountStore.isSignedIn) profile?.avatar else null, 28.dp, if (AccountStore.isSignedIn) profile?.name ?: "" else "?")
+        if (com.dangdvd.dvdtube.core.AppSettings.isIncognito) {
+            Icon(Icons.Outlined.VisibilityOff, "Đang ẩn danh")
+        } else {
+            Avatar(if (AccountStore.isSignedIn) profile?.avatar else null, 28.dp, if (AccountStore.isSignedIn) profile?.name ?: "" else "?")
+        }
     }
 }

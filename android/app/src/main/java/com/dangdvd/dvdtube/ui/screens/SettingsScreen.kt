@@ -79,6 +79,12 @@ private sealed class SettingsDialog {
     data object SponsorCategories : SettingsDialog()
     data object RemoteConfig : SettingsDialog()
     data object ClearHistory : SettingsDialog()
+    data object DoubleTap : SettingsDialog()
+    data object BreakReminder : SettingsDialog()
+    data object BedtimeStart : SettingsDialog()
+    data object BedtimeEnd : SettingsDialog()
+    data object CaptionSizeChoice : SettingsDialog()
+    data object CaptionBackground : SettingsDialog()
 }
 
 @Composable
@@ -122,9 +128,37 @@ fun SettingsScreen() {
                     AppSettings.autoPictureInPicture = it
                 }
                 ToggleRow(null, "Tiếp tục từ chỗ đã xem", AppSettings.resumePlayback) { AppSettings.resumePlayback = it }
+                SettingRow(null, "Chạm hai lần để tua", "${AppSettings.doubleTapSeconds} giây") { dialog = SettingsDialog.DoubleTap }
                 SettingRow(null, "Ngôn ngữ phụ đề", languageName(AppSettings.captionLanguage)) { dialog = SettingsDialog.CaptionLanguage }
+                SettingRow(null, "Cỡ chữ phụ đề", AppSettings.captionSize.title) { dialog = SettingsDialog.CaptionSizeChoice }
+                SettingRow(null, "Nền phụ đề", captionBackgroundTitle(AppSettings.captionBackground)) { dialog = SettingsDialog.CaptionBackground }
                 ToggleRow(null, "Trình phát web dự phòng", AppSettings.webPlayerFallback,
                     "Dùng trình phát nhúng của YouTube (đã chặn quảng cáo) khi luồng gốc bị từ chối") { AppSettings.webPlayerFallback = it }
+            }
+            item {
+                Section("Tiết kiệm dữ liệu")
+                ToggleRow(null, "Tiết kiệm dữ liệu khi dùng 4G/5G", AppSettings.dataSaver,
+                    "Video tối đa 360p, âm thanh dung lượng nhỏ nhất, ảnh thu nhỏ cỡ nhỏ, không tải trước Shorts") {
+                    AppSettings.dataSaver = it
+                }
+                ToggleRow(null, "Tự động chỉ phát âm thanh khi dùng 4G/5G", AppSettings.audioOnlyOnCellular,
+                    "Không tải hình khi dùng dữ liệu di động") { AppSettings.audioOnlyOnCellular = it }
+                ToggleRow(null, "Luôn chỉ phát âm thanh", AppSettings.audioOnlyMode,
+                    "Bật/tắt nhanh bằng nút tai nghe trên trình phát") { com.dangdvd.dvdtube.player.PlayerController.switchAudioOnly(it) }
+            }
+            item {
+                Section("Sức khỏe số")
+                SettingRow(null, "Nhắc tôi nghỉ giải lao",
+                    AppSettings.breakReminderMinutes.let { if (it == 0) "Tắt" else "Sau mỗi ${com.dangdvd.dvdtube.ui.player.sleepDurationTitle(it)}" }) {
+                    dialog = SettingsDialog.BreakReminder
+                }
+                ToggleRow(null, "Nhắc tôi khi đến giờ đi ngủ", AppSettings.bedtimeReminder,
+                    "Video tạm dừng và hiện lời nhắc trong khung giờ này") { AppSettings.bedtimeReminder = it }
+                if (AppSettings.bedtimeReminder) {
+                    SettingRow(null, "Bắt đầu", clockText(AppSettings.bedtimeStart)) { dialog = SettingsDialog.BedtimeStart }
+                    SettingRow(null, "Kết thúc", clockText(AppSettings.bedtimeEnd)) { dialog = SettingsDialog.BedtimeEnd }
+                }
+                SettingRow(null, "Thời gian xem của bạn", null) { Router.open(Route.WatchTime()) }
             }
             item {
                 Section("SponsorBlock")
@@ -138,6 +172,7 @@ fun SettingsScreen() {
             item {
                 Section("Tải xuống")
                 SettingRow(null, "Chất lượng tải xuống", AppSettings.downloadQuality.title) { dialog = SettingsDialog.DownloadQuality }
+                ToggleRow(null, "Chỉ tải xuống qua Wi-Fi", AppSettings.downloadOnWifiOnly) { AppSettings.downloadOnWifiOnly = it }
             }
             item {
                 Section("Thông báo")
@@ -164,7 +199,13 @@ fun SettingsScreen() {
             }
             item {
                 Section("Quyền riêng tư")
+                ToggleRow(null, "Chế độ ẩn danh", AppSettings.isIncognito,
+                    "Không lưu video đã xem và tìm kiếm (máy lẫn tài khoản). Tự tắt khi mở lại ứng dụng") { AppSettings.isIncognito = it }
                 ToggleRow(null, "Lưu nhật ký xem trên máy", AppSettings.saveHistory) { AppSettings.saveHistory = it }
+                SettingRow(null, "Nội dung đã ẩn",
+                    "${com.dangdvd.dvdtube.core.storage.HiddenContentStore.videos.size + com.dangdvd.dvdtube.core.storage.HiddenContentStore.channels.size}") {
+                    Router.open(Route.HiddenContent())
+                }
                 SettingRow(null, "Xóa nhật ký xem", "${LibraryStore.history.size} video") { dialog = SettingsDialog.ClearHistory }
                 SettingRow(null, "Xóa lịch sử tìm kiếm", "${LibraryStore.searchHistory.size}") {
                     LibraryStore.clearSearchHistory()
@@ -267,6 +308,15 @@ fun SettingsScreen() {
                 },
             )
         }
+        SettingsDialog.DoubleTap -> ChoiceDialog("Chạm hai lần để tua", AppSettings.doubleTapOptions.map { it to "$it giây" },
+            AppSettings.doubleTapSeconds, { dialog = null }) { AppSettings.doubleTapSeconds = it }
+        SettingsDialog.BreakReminder -> BreakReminderDialog { dialog = null }
+        SettingsDialog.BedtimeStart -> TimeDialog("Bắt đầu giờ đi ngủ", AppSettings.bedtimeStart, { dialog = null }) { AppSettings.bedtimeStart = it }
+        SettingsDialog.BedtimeEnd -> TimeDialog("Kết thúc giờ đi ngủ", AppSettings.bedtimeEnd, { dialog = null }) { AppSettings.bedtimeEnd = it }
+        SettingsDialog.CaptionSizeChoice -> ChoiceDialog("Cỡ chữ phụ đề", com.dangdvd.dvdtube.core.CaptionSize.entries.map { it to it.title },
+            AppSettings.captionSize, { dialog = null }) { AppSettings.captionSize = it }
+        SettingsDialog.CaptionBackground -> ChoiceDialog("Nền phụ đề", listOf(0f, 0.5f, 0.75f, 1f).map { it to captionBackgroundTitle(it) },
+            AppSettings.captionBackground, { dialog = null }) { AppSettings.captionBackground = it }
         SettingsDialog.ClearHistory -> AlertDialog(
             onDismissRequest = { dialog = null },
             title = { Text("Xóa toàn bộ nhật ký xem trên máy?") },
@@ -323,4 +373,24 @@ fun DiagnosticsScreen() {
             }
         }
     }
+}
+
+private fun captionBackgroundTitle(value: Float): String = when {
+    value <= 0f -> "Không có"
+    value <= 0.5f -> "Mờ"
+    value < 1f -> "Đậm"
+    else -> "Đen"
+}
+
+/** Picks a time of day (minutes after midnight). */
+@Composable
+private fun TimeDialog(title: String, minutes: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+    val state = androidx.compose.material3.rememberTimePickerState(initialHour = minutes / 60, initialMinute = minutes % 60, is24Hour = true)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { androidx.compose.material3.TimePicker(state = state) },
+        confirmButton = { TextButton(onClick = { onPick(state.hour * 60 + state.minute); onDismiss() }) { Text("Lưu") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } },
+    )
 }

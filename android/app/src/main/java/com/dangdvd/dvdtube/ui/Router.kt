@@ -35,6 +35,8 @@ sealed class Route {
     class Notifications : Route()
     class Settings : Route()
     class Diagnostics : Route()
+    class WatchTime : Route()
+    class HiddenContent : Route()
 }
 
 /**

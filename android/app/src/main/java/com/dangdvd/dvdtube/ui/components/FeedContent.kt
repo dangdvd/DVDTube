@@ -4,6 +4,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.LaunchedEffect
+import com.dangdvd.dvdtube.core.storage.HiddenContentStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -16,6 +17,8 @@ fun LazyListScope.pagedFeed(
     scope: CoroutineScope,
     compact: Boolean = false,
     emptyTitle: String = "Không có nội dung",
+    /** Recommendations leave out what was marked "Not interested". */
+    hidesDismissed: Boolean = false,
 ) {
     when {
         (feed.isLoading || !feed.hasLoaded) && feed.items.isEmpty() && feed.error == null -> item(key = "feed-loading") {
@@ -28,7 +31,7 @@ fun LazyListScope.pagedFeed(
         feed.items.isEmpty() -> item(key = "feed-empty") {
             EmptyState(Icons.Default.VideoLibrary, emptyTitle, feed.message)
         }
-        else -> feedItems(feed.items, compact, feed.isLoadingMore,
+        else -> feedItems(if (hidesDismissed) HiddenContentStore.filter(feed.items) else feed.items, compact, feed.isLoadingMore,
             if (feed.canLoadMore) ({ scope.launch { feed.loadMore() } }) else null)
     }
 }

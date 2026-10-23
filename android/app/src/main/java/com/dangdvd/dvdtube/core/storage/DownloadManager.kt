@@ -95,6 +95,10 @@ object DownloadManager {
 
     fun download(video: VideoItem) {
         if (jobs.containsKey(video.id) || isDownloaded(video.id)) return
+        if (AppSettings.downloadOnWifiOnly && AppSettings.isMeteredNetwork) {
+            Toasts.show("Chỉ tải xuống khi có Wi-Fi (đổi trong Cài đặt › Tải xuống)")
+            return
+        }
         setState(video.id, DownloadState.Preparing)
         jobs[video.id] = AppScope.launch { run(video) }
         Toasts.show("Đang tải xuống…")
