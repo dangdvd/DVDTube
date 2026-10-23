@@ -109,7 +109,7 @@ enum APIConfig {
         return [.visionOS]
     }
 
-    static let defaultRemoteConfigURL = "https://raw.githubusercontent.com/dangdvd/DVDYoutube/main/Config/remote-config.json"
+    static let defaultRemoteConfigURL = "https://raw.githubusercontent.com/dangdvd/DVDTube/main/Config/remote-config.json"
 
     static var remoteConfigURL: String {
         let stored = defaults.string(forKey: SettingsKey.remoteConfigURL) ?? ""
