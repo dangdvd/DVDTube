@@ -226,13 +226,16 @@ final class InnerTube {
     /// The first page of a chat is YouTube's own chat frame (`/live_chat?continuation=`):
     /// its `ytInitialData` holds the first messages and the token to keep polling with.
     func liveChatPage(continuation: String, replay: Bool) async throws -> JNode {
-        var components = URLComponents(string: "https://www.youtube.com/\(replay ? "live_chat_replay" : "live_chat")")!
-        components.queryItems = [
-            URLQueryItem(name: "continuation", value: continuation),
-            URLQueryItem(name: "hl", value: APIConfig.hl),
-            URLQueryItem(name: "gl", value: APIConfig.gl),
-        ]
-        guard let url = components.url else { throw InnerTubeError.invalidResponse }
+        // Tokens are already URL-encoded ("…%3D"); youtube.com puts them into the URL as is.
+        // Encoding them again (URLQueryItem) turns %3D into %253D and YouTube rejects the token.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.insert("%")
+        allowed.remove(charactersIn: "&+#")
+        let token = continuation.addingPercentEncoding(withAllowedCharacters: allowed) ?? continuation
+        let path = replay ? "live_chat_replay" : "live_chat"
+        guard let url = URL(string: "https://www.youtube.com/\(path)?continuation=\(token)&hl=\(APIConfig.hl)&gl=\(APIConfig.gl)") else {
+            throw InnerTubeError.invalidResponse
+        }
         var request = URLRequest(url: url)
         request.setValue("\(APIConfig.hl),en;q=0.9", forHTTPHeaderField: "Accept-Language")
         if let userAgent = APIConfig.webProfile.resolvedUserAgent(gl: APIConfig.gl) {
