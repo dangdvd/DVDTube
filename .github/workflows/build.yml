@@ -1,4 +1,4 @@
-name: Build iOS app
+name: Build apps
 
 on:
   push:
@@ -64,14 +64,55 @@ jobs:
           name: build-log
           path: build.log
 
-      - name: Publish release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK (release, signed with the sideload key)
+        working-directory: android
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Collect APK
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk DVDTube.apk
+          ls -lh DVDTube.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DVDTube-apk
+          path: DVDTube.apk
+          retention-days: 30
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release with IPA and APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" DVDTube-unsigned.ipa \
+          gh release create "$GITHUB_REF_NAME" artifacts/DVDTube-unsigned.ipa artifacts/DVDTube.apk \
+            --repo "$GITHUB_REPOSITORY" \
             --title "DVDTube $GITHUB_REF_NAME" \
-            --notes "Tệp IPA chưa ký. Cài bằng AltStore, SideStore, Sideloadly hoặc TrollStore — xem README."
+            --notes "IPA chưa ký cho iPhone (cài bằng SideStore, AltStore, Sideloadly…) và APK cho Android — xem README."
 
   smoke:
     name: Simulator smoke test
