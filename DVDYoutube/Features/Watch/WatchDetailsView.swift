@@ -12,6 +12,7 @@ struct WatchDetailsView: View {
     @State private var showDescription = false
     @State private var showComments = false
     @State private var showQueue = false
+    @State private var showTranscript = false
     @State private var relatedMore: [FeedItem] = []
     @State private var relatedToken: String?
     @State private var loadingMore = false
@@ -57,6 +58,10 @@ struct WatchDetailsView: View {
                     .presentationDetents([.medium, .large])
                     .presentationContentInteraction(.scrolls)
             }
+        }
+        .sheet(isPresented: $showTranscript) {
+            TranscriptSheet()
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showQueue) {
             QueueSheet()
@@ -122,13 +127,18 @@ struct WatchDetailsView: View {
     private func actionBar(_ video: VideoItem) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                let reported = player.watchInfo?.videoId == video.id ? player.watchInfo?.likeStatus : nil
-                let liked = LibraryActions.isLiked(video.id, reported: reported)
-                pill(liked ? "hand.thumbsup.fill" : "hand.thumbsup",
-                     player.watchInfo?.likeCountText ?? "Thích") {
-                    LibraryActions.toggleLike(video, reported: reported)
-                }
-                ShareLink(item: video.shareURL, subject: Text(video.title)) {
+                likeDislikePill(video)
+                Menu {
+                    ShareLink(item: video.shareURL, subject: Text(video.title)) {
+                        Label("Chia sẻ video", systemImage: "square.and.arrow.up")
+                    }
+                    if player.currentTime > 5, !video.isLive,
+                       let atTime = URL(string: "https://youtu.be/\(video.id)?t=\(Int(player.currentTime))") {
+                        ShareLink(item: atTime, subject: Text(video.title)) {
+                            Label("Chia sẻ tại \(formatTime(player.currentTime))", systemImage: "clock")
+                        }
+                    }
+                } label: {
                     pillLabel("arrowshape.turn.up.right", "Chia sẻ")
                 }
                 .buttonStyle(.plain)
@@ -141,12 +151,47 @@ struct WatchDetailsView: View {
                 if !video.isLive {
                     downloadPill(video)
                 }
+                if !player.captionTracks.isEmpty {
+                    pill("text.quote", "Bản chép lời") { showTranscript = true }
+                }
                 if player.isPiPPossible {
                     pill("pip.enter", "PiP") { player.togglePictureInPicture() }
                 }
             }
             .padding(.horizontal, 12)
         }
+    }
+
+    /// [👍 count | 👎] like the official app.
+    private func likeDislikePill(_ video: VideoItem) -> some View {
+        let reported = player.watchInfo?.videoId == video.id ? player.watchInfo?.likeStatus : nil
+        let liked = LibraryActions.isLiked(video.id, reported: reported)
+        let disliked = LibraryActions.isDisliked(video.id, reported: reported)
+        return HStack(spacing: 0) {
+            Button {
+                LibraryActions.toggleLike(video, reported: reported)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: liked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                    Text(player.watchInfo?.likeCountText ?? "Thích")
+                }
+                .padding(.leading, 14)
+                .padding(.trailing, 10)
+                .padding(.vertical, 8)
+            }
+            Divider().frame(height: 20)
+            Button {
+                LibraryActions.toggleDislike(video, reported: reported)
+            } label: {
+                Image(systemName: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                    .padding(.leading, 10)
+                    .padding(.trailing, 14)
+                    .padding(.vertical, 8)
+            }
+        }
+        .font(.subheadline.weight(.medium))
+        .buttonStyle(.plain)
+        .background(Capsule().fill(Color(.secondarySystemFill)))
     }
 
     @ViewBuilder

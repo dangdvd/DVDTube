@@ -84,6 +84,34 @@ enum AccountParser {
     }
 }
 
+extension AccountParser {
+    static func playlistOptions(_ json: JNode) -> [AccountPlaylistOption] {
+        json.findAll("playlistAddToOptionRenderer").compactMap { option in
+            guard let id = option["playlistId"].string else { return nil }
+            return AccountPlaylistOption(
+                id: id,
+                title: option["title"].text ?? id,
+                containsVideo: option["containsSelectedVideos"].string == "ALL"
+            )
+        }
+    }
+
+    static func notifications(_ json: JNode) -> [AccountNotification] {
+        json.findAll("notificationRenderer").compactMap { item in
+            guard let message = item["shortMessage"].text else { return nil }
+            return AccountNotification(
+                id: item["notificationId"].string ?? UUID().uuidString,
+                message: message,
+                timeText: item["sentTimeText"].text,
+                avatar: item["thumbnail"].bestImageURL,
+                thumbnail: item["videoThumbnail"].bestImageURL,
+                videoId: item.findFirst("watchEndpoint")["videoId"].string,
+                isRead: item["read"].bool ?? true
+            )
+        }
+    }
+}
+
 enum CommentsParser {
     struct SortOption: Hashable {
         var title: String
@@ -93,6 +121,7 @@ enum CommentsParser {
     static func parse(_ json: JNode) -> (page: CommentsPage, sortOptions: [SortOption]) {
         var payloads: [String: JNode] = [:]
         var toolbarStates: [String: JNode] = [:]
+        var toolbarSurfaces: [String: JNode] = [:]
         for mutation in json.at("frameworkUpdates", "entityBatchUpdate", "mutations").array {
             guard let key = mutation["entityKey"].string else { continue }
             let payload = mutation["payload"]
@@ -100,6 +129,8 @@ enum CommentsParser {
                 payloads[key] = payload["commentEntityPayload"]
             } else if payload["engagementToolbarStateEntityPayload"].exists {
                 toolbarStates[key] = payload["engagementToolbarStateEntityPayload"]
+            } else if payload["engagementToolbarSurfaceEntityPayload"].exists {
+                toolbarSurfaces[key] = payload["engagementToolbarSurfaceEntityPayload"]
             }
         }
 
@@ -137,7 +168,9 @@ enum CommentsParser {
                 repliesToken: repliesToken,
                 isPinned: viewModel["pinnedText"].exists,
                 isCreator: author["isCreator"].bool ?? false,
-                isHearted: heartState == "TOOLBAR_HEART_STATE_HEARTED"
+                isHearted: heartState == "TOOLBAR_HEART_STATE_HEARTED",
+                replyParams: viewModel["toolbarSurfaceKey"].string
+                    .flatMap { toolbarSurfaces[$0] }?.findFirst("createReplyParams").string
             )
         }
 
@@ -165,7 +198,15 @@ enum CommentsParser {
                 continuation = item["continuationItemRenderer"].findFirst("continuationCommand")["token"].string
             }
         }
-        return (CommentsPage(comments: comments, continuation: continuation, countText: countText), sortOptions)
+        return (
+            CommentsPage(
+                comments: comments,
+                continuation: continuation,
+                countText: countText,
+                createParams: json.findFirst("createCommentParams").string
+            ),
+            sortOptions
+        )
     }
 }
 
@@ -304,7 +345,8 @@ enum PlayerParser {
             muxedFormats: muxed,
             captions: captions,
             availableAt: Date().addingTimeInterval(prerollAdSeconds(json)),
-            expiresAt: expires
+            expiresAt: expires,
+            storyboard: json.at("storyboards", "playerStoryboardSpecRenderer", "spec").string.flatMap(Storyboard.init(spec:))
         )
     }
 

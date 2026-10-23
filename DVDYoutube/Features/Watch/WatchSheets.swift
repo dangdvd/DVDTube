@@ -141,6 +141,12 @@ struct CommentsSheet: View {
     @State private var replyTokens: [String: String] = [:]
     @State private var loadingReplies: Set<String> = []
     @State private var headerCount: String?
+    @State private var createParams: String?
+    @State private var replyTarget: Comment?
+    @State private var draft = ""
+    @State private var isPosting = false
+    @FocusState private var composerFocused: Bool
+    @Environment(AccountStore.self) private var account
 
     var body: some View {
         NavigationStack {
@@ -148,7 +154,7 @@ struct CommentsSheet: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     ForEach(comments) { comment in
                         VStack(alignment: .leading, spacing: 10) {
-                            CommentRow(comment: comment)
+                            CommentRow(comment: comment, onReply: replyAction(for: comment))
                             if let token = comment.repliesToken {
                                 repliesSection(for: comment, token: token)
                             }
@@ -166,6 +172,11 @@ struct CommentsSheet: View {
                     }
                 }
                 .padding()
+            }
+            .safeAreaInset(edge: .bottom) {
+                if account.isSignedIn, createParams != nil || replyTarget != nil {
+                    composer
+                }
             }
             .navigationTitle(headerCount ?? countText.map { "Bình luận \($0)" } ?? "Bình luận")
             .navigationBarTitleDisplayMode(.inline)
@@ -202,7 +213,7 @@ struct CommentsSheet: View {
         let loaded = replies[comment.id] ?? []
         VStack(alignment: .leading, spacing: 12) {
             ForEach(loaded) { reply in
-                CommentRow(comment: reply, isReply: true)
+                CommentRow(comment: reply, isReply: true, onReply: replyAction(for: comment))
             }
             let nextToken = loaded.isEmpty ? token : replyTokens[comment.id]
             if let nextToken {
@@ -239,6 +250,7 @@ struct CommentsSheet: View {
             let result = try await YouTubeService.shared.comments(token)
             comments.append(contentsOf: result.page.comments)
             continuation = result.page.continuation
+            if let params = result.page.createParams { createParams = params }
             if let count = result.page.countText { headerCount = count }
             if !result.sortOptions.isEmpty {
                 sortOptions = result.sortOptions
@@ -248,6 +260,90 @@ struct CommentsSheet: View {
             self.error = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func replyAction(for comment: Comment) -> (() -> Void)? {
+        guard account.isSignedIn, comment.replyParams != nil else { return nil }
+        return {
+            replyTarget = comment
+            composerFocused = true
+        }
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let target = replyTarget {
+                HStack {
+                    Text("Phản hồi \(target.authorName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        replyTarget = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 10) {
+                AvatarView(url: account.profile?.avatar, size: 30, name: account.profile?.name ?? "")
+                TextField(replyTarget == nil ? "Viết bình luận…" : "Viết phản hồi…", text: $draft, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($composerFocused)
+                Button {
+                    Task { await post() }
+                } label: {
+                    if isPosting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                    }
+                }
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPosting)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private func post() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        isPosting = true
+        defer { isPosting = false }
+        let target = replyTarget
+        do {
+            if let target, let params = target.replyParams {
+                _ = try await InnerTube.shared.createReply(text, params: params)
+            } else if let params = createParams {
+                _ = try await InnerTube.shared.createComment(text, params: params)
+            } else {
+                return
+            }
+            let mine = Comment(
+                id: "local-\(UUID().uuidString)",
+                authorName: account.profile?.handle ?? account.profile?.name ?? "Bạn",
+                authorAvatar: account.profile?.avatar,
+                text: text,
+                publishedText: "Vừa xong",
+                isPinned: false,
+                isCreator: false,
+                isHearted: false
+            )
+            if let target {
+                replies[target.id, default: []].insert(mine, at: 0)
+            } else {
+                comments.insert(mine, at: 0)
+            }
+            draft = ""
+            replyTarget = nil
+            composerFocused = false
+            PlayerManager.shared.showToast(target == nil ? "Đã đăng bình luận" : "Đã đăng phản hồi")
+        } catch {
+            PlayerManager.shared.showToast("Không đăng được: \(error.localizedDescription)")
+        }
     }
 
     private func loadMore() async {
@@ -269,6 +365,7 @@ struct CommentsSheet: View {
 struct CommentRow: View {
     let comment: Comment
     var isReply = false
+    var onReply: (() -> Void)?
 
     @State private var expanded = false
     @Environment(Router.self) private var router
@@ -304,6 +401,11 @@ struct CommentRow: View {
                     if comment.isHearted {
                         Image(systemName: "heart.fill").foregroundStyle(.red)
                     }
+                    if let onReply {
+                        Button("Phản hồi", action: onReply)
+                            .font(.caption.weight(.semibold))
+                            .buttonStyle(.plain)
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -319,9 +421,13 @@ struct SaveToPlaylistSheet: View {
 
     @Environment(LibraryStore.self) private var library
     @Environment(PlayerManager.self) private var player
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
     @State private var showCreate = false
     @State private var newName = ""
+    @State private var accountPlaylists: [AccountPlaylistOption] = []
+    @State private var loadingAccount = false
+    @State private var showCreateOnAccount = false
 
     var body: some View {
         NavigationStack {
@@ -330,6 +436,26 @@ struct SaveToPlaylistSheet: View {
                     LibraryActions.toggleWatchLater(video)
                 } label: {
                     checkRow("Xem sau", icon: "clock", checked: LibraryActions.isInWatchLater(video.id))
+                }
+                if account.isSignedIn {
+                    Section("Danh sách phát trên YouTube") {
+                        if loadingAccount && accountPlaylists.isEmpty {
+                            ProgressView()
+                        }
+                        ForEach(accountPlaylists) { option in
+                            Button {
+                                Task { await toggle(option) }
+                            } label: {
+                                checkRow(option.title, icon: "play.square.stack", checked: option.containsVideo)
+                            }
+                        }
+                        Button {
+                            newName = ""
+                            showCreateOnAccount = true
+                        } label: {
+                            Label("Danh sách phát mới trên YouTube", systemImage: "plus")
+                        }
+                    }
                 }
                 ForEach(library.playlists) { playlist in
                     let contains = playlist.videos.contains { $0.id == video.id }
@@ -355,6 +481,29 @@ struct SaveToPlaylistSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Xong") { dismiss() } }
             }
+            .task {
+                guard account.isSignedIn else { return }
+                loadingAccount = true
+                accountPlaylists = (try? await YouTubeService.shared.accountPlaylistOptions(videoId: video.id)) ?? []
+                loadingAccount = false
+            }
+            .alert("Danh sách phát mới trên YouTube", isPresented: $showCreateOnAccount) {
+                TextField("Tên danh sách phát", text: $newName)
+                Button("Hủy", role: .cancel) {}
+                Button("Tạo") {
+                    let name = newName.trimmingCharacters(in: .whitespaces)
+                    guard !name.isEmpty else { return }
+                    Task {
+                        do {
+                            _ = try await InnerTube.shared.createPlaylist(title: name, videoId: video.id)
+                            player.showToast("Đã tạo \(name) (riêng tư) và lưu video")
+                            accountPlaylists = (try? await YouTubeService.shared.accountPlaylistOptions(videoId: video.id)) ?? accountPlaylists
+                        } catch {
+                            player.showToast("Không tạo được danh sách phát")
+                        }
+                    }
+                }
+            }
             .alert("Danh sách phát mới", isPresented: $showCreate) {
                 TextField("Tên danh sách phát", text: $newName)
                 Button("Hủy", role: .cancel) {}
@@ -368,6 +517,23 @@ struct SaveToPlaylistSheet: View {
         }
     }
 
+    private func toggle(_ option: AccountPlaylistOption) async {
+        guard let index = accountPlaylists.firstIndex(where: { $0.id == option.id }) else { return }
+        let add = !option.containsVideo
+        accountPlaylists[index].containsVideo = add
+        do {
+            if add {
+                try await InnerTube.shared.editPlaylist(option.id, add: video.id)
+            } else {
+                try await InnerTube.shared.editPlaylist(option.id, remove: video.id)
+            }
+            player.showToast(add ? "Đã lưu vào \(option.title)" : "Đã xóa khỏi \(option.title)")
+        } catch {
+            accountPlaylists[index].containsVideo = !add
+            player.showToast("Không cập nhật được danh sách phát")
+        }
+    }
+
     private func checkRow(_ title: String, icon: String, checked: Bool) -> some View {
         HStack {
             Label(title, systemImage: icon).foregroundStyle(.primary)
@@ -375,5 +541,87 @@ struct SaveToPlaylistSheet: View {
             Image(systemName: checked ? "checkmark.square.fill" : "square")
                 .foregroundStyle(checked ? Color.brand : .secondary)
         }
+    }
+}
+
+/// "Show transcript": the caption track as a list, tap a line to jump there.
+struct TranscriptSheet: View {
+    @Environment(PlayerManager.self) private var player
+    @Environment(\.dismiss) private var dismiss
+    @State private var cues: [CaptionCue] = []
+    @State private var track: CaptionTrack?
+    @State private var isLoading = true
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List {
+                    if isLoading {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else if cues.isEmpty {
+                        Text("Không tải được bản chép lời.").foregroundStyle(.secondary)
+                    }
+                    ForEach(Array(cues.enumerated()), id: \.offset) { index, cue in
+                        let active = player.currentTime >= cue.start && player.currentTime < cue.end
+                        Button {
+                            player.seek(to: cue.start)
+                        } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                Text(formatTime(cue.start))
+                                    .font(.caption.monospacedDigit())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color(.tertiarySystemFill)))
+                                Text(cue.text)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .listRowBackground(active ? Color.brand.opacity(0.15) : Color.clear)
+                        .id(index)
+                    }
+                }
+                .listStyle(.plain)
+                .onChange(of: activeIndex) { _, index in
+                    if let index { withAnimation { proxy.scrollTo(index, anchor: .center) } }
+                }
+            }
+            .navigationTitle(track.map { "Bản chép lời • \($0.name)" } ?? "Bản chép lời")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if player.captionTracks.count > 1 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            ForEach(player.captionTracks) { option in
+                                Button(option.name) { Task { await load(option) } }
+                            }
+                        } label: {
+                            Image(systemName: "globe")
+                        }
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Xong") { dismiss() } }
+            }
+        }
+        .task {
+            let preferred = AppSettings.shared.captionLanguage
+            let initial = player.selectedCaption
+                ?? player.captionTracks.first { $0.languageCode.hasPrefix(preferred) && !$0.isAutoGenerated }
+                ?? player.captionTracks.first { !$0.isAutoGenerated }
+                ?? player.captionTracks.first
+            if let initial { await load(initial) } else { isLoading = false }
+        }
+    }
+
+    private var activeIndex: Int? {
+        cues.lastIndex { player.currentTime >= $0.start }
+    }
+
+    private func load(_ option: CaptionTrack) async {
+        isLoading = true
+        track = option
+        cues = (try? await CaptionLoader.load(track: option, translateTo: nil)) ?? []
+        isLoading = false
     }
 }

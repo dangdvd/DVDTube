@@ -128,6 +128,24 @@ struct WatchInfo {
     var isSubscribed: Bool?
 }
 
+/// An account playlist in the "Save to…" sheet.
+struct AccountPlaylistOption: Identifiable, Hashable {
+    var id: String
+    var title: String
+    var containsVideo: Bool
+}
+
+/// An entry of the account's YouTube notifications (bell).
+struct AccountNotification: Identifiable, Hashable {
+    var id: String
+    var message: String
+    var timeText: String?
+    var avatar: URL?
+    var thumbnail: URL?
+    var videoId: String?
+    var isRead: Bool
+}
+
 struct AccountProfile: Codable, Hashable {
     var name: String
     var handle: String?
@@ -148,12 +166,16 @@ struct Comment: Identifiable, Hashable {
     var isPinned: Bool
     var isCreator: Bool
     var isHearted: Bool
+    /// Present when signed in: lets the account reply to this comment.
+    var replyParams: String?
 }
 
 struct CommentsPage {
     var comments: [Comment]
     var continuation: String?
     var countText: String?
+    /// Present when signed in: lets the account post a new comment.
+    var createParams: String?
 }
 
 enum ChannelTab: String, CaseIterable, Identifiable {
@@ -242,6 +264,7 @@ struct PlayerInfo {
     /// streams only work after this moment.
     var availableAt: Date
     var expiresAt: Date?
+    var storyboard: Storyboard?
 
     var bestAudio: StreamFormat? {
         adaptiveFormats.filter { $0.isAudio && $0.isAAC && $0.isDefaultAudio }.max { $0.bitrate < $1.bitrate }
@@ -260,6 +283,60 @@ struct PlayerInfo {
             thumbnail: thumbnail, durationText: lengthSeconds.map(formatDuration),
             durationSeconds: lengthSeconds, isLive: isLive
         )
+    }
+}
+
+/// Sprite sheets of small frames used for the preview while scrubbing.
+/// Spec format: `baseURL|w#h#count#cols#rows#intervalMs#name#sigh|…` (one entry per level).
+struct Storyboard: Hashable {
+    var baseURL: String
+    var level: Int
+    var width: Int
+    var height: Int
+    var count: Int
+    var columns: Int
+    var rows: Int
+    var intervalMs: Int
+    var name: String
+    var signature: String
+
+    init?(spec: String) {
+        let parts = spec.components(separatedBy: "|")
+        guard parts.count > 1 else { return nil }
+        // The last level has the largest frames.
+        let level = parts.count - 2
+        let fields = parts[parts.count - 1].components(separatedBy: "#")
+        guard fields.count >= 8,
+              let width = Int(fields[0]), let height = Int(fields[1]), let count = Int(fields[2]),
+              let columns = Int(fields[3]), let rows = Int(fields[4]), let interval = Int(fields[5]),
+              width > 0, height > 0, count > 0, columns > 0, rows > 0 else { return nil }
+        baseURL = parts[0]
+        self.level = level
+        self.width = width
+        self.height = height
+        self.count = count
+        self.columns = columns
+        self.rows = rows
+        intervalMs = interval
+        name = fields[6]
+        signature = fields[7]
+    }
+
+    /// Sprite sheet URL and the frame's rectangle (in sheet pixels) for a playback time.
+    func frame(at seconds: Double, duration: Double) -> (url: URL, rect: CGRect)? {
+        let interval = intervalMs > 0 ? Double(intervalMs) : max(duration * 1000 / Double(count), 1)
+        let index = min(max(Int(seconds * 1000 / interval), 0), count - 1)
+        let perSheet = columns * rows
+        let sheet = index / perSheet
+        let position = index % perSheet
+        let sheetName = name.replacingOccurrences(of: "$M", with: String(sheet))
+        let urlString = baseURL
+            .replacingOccurrences(of: "$L", with: String(level))
+            .replacingOccurrences(of: "$N", with: sheetName)
+            + "&sigh=" + signature
+        guard let url = URL(string: urlString) else { return nil }
+        let rect = CGRect(x: (position % columns) * width, y: (position / columns) * height, width: width, height: height)
+        return (url, rect)
     }
 }
 

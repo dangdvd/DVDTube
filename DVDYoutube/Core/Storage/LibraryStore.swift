@@ -185,6 +185,15 @@ final class LibraryStore {
 
     func isLiked(_ videoId: String) -> Bool { liked.contains { $0.id == videoId } }
 
+    private(set) var disliked: Set<String> = []
+
+    func toggleDislike(_ video: VideoItem) {
+        if disliked.remove(video.id) == nil {
+            disliked.insert(video.id)
+            if isLiked(video.id) { toggleLike(video) }
+        }
+    }
+
     func toggleLike(_ video: VideoItem) {
         if let index = liked.firstIndex(where: { $0.id == video.id }) {
             liked.remove(at: index)

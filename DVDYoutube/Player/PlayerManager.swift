@@ -52,6 +52,17 @@ final class PlayerManager {
     private(set) var queueIndex = 0
     private(set) var isPiPActive = false
 
+    // Extras of the official player.
+    private(set) var isLooping = false
+    private(set) var sleepTimerEnd: Date?
+    private(set) var sleepAtEndOfVideo = false
+    private(set) var isSpeedBoosted = false
+    private(set) var videoFill = false
+    private(set) var upNext: VideoItem?
+    private(set) var upNextCountdown = 0
+    @ObservationIgnored private var sleepTask: Task<Void, Never>?
+    @ObservationIgnored private var upNextTask: Task<Void, Never>?
+
     var hasNext: Bool { queueIndex + 1 < queue.count || nextAutoplayVideo != nil }
     var hasPrevious: Bool { queueIndex > 0 || currentTime > 5 }
 
@@ -190,6 +201,7 @@ final class PlayerManager {
 
     func close() {
         saveProgress()
+        cancelUpNext()
         loadTask?.cancel()
         watchTask?.cancel()
         player.pause()
@@ -250,6 +262,10 @@ final class PlayerManager {
     // MARK: - Loading
 
     private func start(_ video: VideoItem, startAt: Double?) {
+        upNextTask?.cancel()
+        upNext = nil
+        isLooping = false
+        isSpeedBoosted = false
         loadTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -553,12 +569,109 @@ final class PlayerManager {
 
     private func handleEnded() {
         saveProgress(completed: true)
-        if hasNext, settings.autoplay || queueIndex + 1 < queue.count {
-            playNext()
-        } else {
+        if isLooping {
+            seek(to: 0)
+            player.playImmediately(atRate: rate)
+            return
+        }
+        if sleepAtEndOfVideo {
+            sleepAtEndOfVideo = false
             isPlaying = false
+            showToast("Đã hết giờ hẹn – tạm dừng phát")
+            return
+        }
+        let hasQueued = queueIndex + 1 < queue.count
+        guard settings.autoplay || hasQueued,
+              let next = hasQueued ? queue[queueIndex + 1] : nextAutoplayVideo else {
+            isPlaying = false
+            return
+        }
+        // "Up next" card with a short countdown, like the official app.
+        isPlaying = false
+        upNext = next
+        upNextCountdown = 5
+        upNextTask?.cancel()
+        upNextTask = Task { [weak self] in
+            for remaining in stride(from: 5, through: 1, by: -1) {
+                guard let self, !Task.isCancelled else { return }
+                self.upNextCountdown = remaining
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            guard let self, !Task.isCancelled, self.upNext != nil else { return }
+            self.upNext = nil
+            self.playNext()
         }
     }
+
+    // MARK: - Player extras
+
+    func cancelUpNext() {
+        upNextTask?.cancel()
+        upNext = nil
+    }
+
+    func playUpNextNow() {
+        upNextTask?.cancel()
+        upNext = nil
+        playNext()
+    }
+
+    func setLooping(_ on: Bool) {
+        isLooping = on
+        showToast(on ? "Đã bật phát lặp lại" : "Đã tắt phát lặp lại")
+    }
+
+    /// `nil` turns the timer off, `0` stops at the end of the current video.
+    func setSleepTimer(minutes: Int?) {
+        sleepTask?.cancel()
+        sleepTimerEnd = nil
+        sleepAtEndOfVideo = false
+        guard let minutes else {
+            showToast("Đã tắt hẹn giờ")
+            return
+        }
+        if minutes == 0 {
+            sleepAtEndOfVideo = true
+            showToast("Sẽ dừng khi hết video này")
+            return
+        }
+        sleepTimerEnd = Date().addingTimeInterval(Double(minutes) * 60)
+        showToast("Sẽ dừng phát sau \(minutes) phút")
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.sleepTimerEnd = nil
+            self.pause()
+            self.showToast("Đã hết giờ hẹn – tạm dừng phát")
+        }
+    }
+
+    /// Touch and hold the video to watch at 2x until released.
+    func beginSpeedBoost() {
+        guard isPlaying, !usesWebPlayer, !isSpeedBoosted else { return }
+        isSpeedBoosted = true
+        player.rate = 2
+    }
+
+    func endSpeedBoost() {
+        guard isSpeedBoosted else { return }
+        isSpeedBoosted = false
+        if isPlaying { player.rate = rate }
+    }
+
+    /// Pinch in fullscreen: fill the screen (cropping) or fit the whole picture.
+    func setVideoFill(_ fill: Bool) {
+        guard fill != videoFill else { return }
+        videoFill = fill
+        showToast(fill ? "Thu phóng để lấp đầy màn hình" : "Kích thước gốc")
+    }
+
+    func toggleAutoplay() {
+        settings.autoplay.toggle()
+        showToast(settings.autoplay ? "Tự động phát: Bật" : "Tự động phát: Tắt")
+    }
+
+    var autoplayEnabled: Bool { settings.autoplay }
 
     private func setupObservers() {
         timeObserver = player.addPeriodicTimeObserver(

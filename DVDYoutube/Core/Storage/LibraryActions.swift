@@ -14,9 +14,23 @@ enum LibraryActions {
     static func toggleLike(_ video: VideoItem, reported: String? = nil) {
         if account.isSignedIn {
             let liked = account.isLiked(video.id, reported: reported)
-            Task { await account.setLiked(video.id, !liked) }
+            Task { await account.setRating(video.id, liked ? "INDIFFERENT" : "LIKE") }
         } else {
             library.toggleLike(video)
+            if library.isLiked(video.id), library.disliked.contains(video.id) { library.toggleDislike(video) }
+        }
+    }
+
+    static func isDisliked(_ videoId: String, reported: String? = nil) -> Bool {
+        account.isSignedIn ? account.isDisliked(videoId, reported: reported) : library.disliked.contains(videoId)
+    }
+
+    static func toggleDislike(_ video: VideoItem, reported: String? = nil) {
+        if account.isSignedIn {
+            let disliked = account.isDisliked(video.id, reported: reported)
+            Task { await account.setRating(video.id, disliked ? "INDIFFERENT" : "DISLIKE") }
+        } else {
+            library.toggleDislike(video)
         }
     }
 

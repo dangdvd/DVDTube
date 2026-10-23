@@ -14,6 +14,7 @@ final class AccountStore {
     private(set) var subscribedChannels: [ChannelItem] = []
     private(set) var isRefreshing = false
     private(set) var lastError: String?
+    private(set) var unseenNotifications = 0
 
     var syncWatchHistory: Bool {
         didSet { UserDefaults.standard.set(syncWatchHistory, forKey: Self.syncHistoryKey) }
@@ -22,7 +23,8 @@ final class AccountStore {
     /// Changes made in this session (or learned from watch pages) that win over the
     /// possibly stale subscription list.
     private var subscriptionState: [String: Bool] = [:]
-    private var likeState: [String: Bool] = [:]
+    /// "LIKE", "DISLIKE" or "INDIFFERENT" per video, set in this session.
+    private var ratingState: [String: String] = [:]
     private var watchLaterState: [String: Bool] = [:]
     @ObservationIgnored private var reportedWatched: Set<String> = []
 
@@ -73,7 +75,7 @@ final class AccountStore {
         profile = nil
         subscribedChannels = []
         subscriptionState = [:]
-        likeState = [:]
+        ratingState = [:]
         watchLaterState = [:]
         reportedWatched = []
         UserDefaults.standard.removeObject(forKey: Self.profileKey)
@@ -96,6 +98,16 @@ final class AccountStore {
             lastError = error.localizedDescription
         }
         await refreshSubscriptions()
+        await refreshNotificationCount()
+    }
+
+    func refreshNotificationCount() async {
+        guard isSignedIn, let count = try? await InnerTube.shared.unseenNotificationCount() else { return }
+        unseenNotifications = count
+    }
+
+    func markNotificationsSeen() {
+        unseenNotifications = 0
     }
 
     func refreshSubscriptions() async {
@@ -139,17 +151,26 @@ final class AccountStore {
 
     // MARK: Likes
 
-    func isLiked(_ videoId: String, reported: String?) -> Bool {
-        likeState[videoId] ?? (reported == "LIKE")
+    func rating(_ videoId: String, reported: String?) -> String {
+        ratingState[videoId] ?? reported ?? "INDIFFERENT"
     }
 
-    func setLiked(_ videoId: String, _ liked: Bool) async {
-        let previous = likeState[videoId]
-        likeState[videoId] = liked
+    func isLiked(_ videoId: String, reported: String?) -> Bool {
+        rating(videoId, reported: reported) == "LIKE"
+    }
+
+    func isDisliked(_ videoId: String, reported: String?) -> Bool {
+        rating(videoId, reported: reported) == "DISLIKE"
+    }
+
+    func setRating(_ videoId: String, _ rating: String) async {
+        let previous = ratingState[videoId]
+        ratingState[videoId] = rating
+        let action = rating == "LIKE" ? "like" : (rating == "DISLIKE" ? "dislike" : "removelike")
         do {
-            try await InnerTube.shared.like(videoId: videoId, action: liked ? "like" : "removelike")
+            try await InnerTube.shared.like(videoId: videoId, action: action)
         } catch {
-            likeState[videoId] = previous
+            ratingState[videoId] = previous
             PlayerManager.shared.showToast("Không cập nhật được lượt thích")
         }
     }

@@ -9,6 +9,9 @@ struct SettingsView: View {
     @Environment(Router.self) private var router
 
     @State private var confirmClearHistory = false
+    @State private var notifyNewVideos = NewVideoNotifier.isEnabled
+    @State private var checkingNewVideos = false
+    @State private var notificationsDenied = false
     @State private var refreshingConfig = false
     @State private var configStatus: String?
 
@@ -78,6 +81,33 @@ struct SettingsView: View {
                 Text("Phát video")
             } footer: {
                 Text("Phát trong nền và PiP là các tính năng của YouTube Premium, ở đây được bật miễn phí.")
+            }
+
+            Section {
+                Toggle("Báo khi kênh đăng ký có video mới", isOn: Binding(
+                    get: { notifyNewVideos },
+                    set: { enabled in Task { await setNewVideoNotifications(enabled) } }
+                ))
+                if notifyNewVideos {
+                    Button {
+                        Task {
+                            checkingNewVideos = true
+                            let count = await NewVideoNotifier.checkForNewVideos()
+                            checkingNewVideos = false
+                            player.showToast(count > 0 ? "Có \(count) video mới" : "Chưa có video mới")
+                        }
+                    } label: {
+                        HStack {
+                            Text("Kiểm tra ngay")
+                            Spacer()
+                            if checkingNewVideos { ProgressView() }
+                        }
+                    }
+                }
+            } header: {
+                Text("Thông báo")
+            } footer: {
+                Text("iOS tự quyết định thời điểm kiểm tra trong nền (thường vài lần mỗi ngày, khi máy đang sạc hoặc dùng Wi-Fi). Cần bật Làm mới ứng dụng trong nền cho DVDTube.")
             }
 
             Section("Phụ đề") {
@@ -184,8 +214,36 @@ struct SettingsView: View {
         }
         .navigationTitle("Cài đặt")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Chưa được phép gửi thông báo", isPresented: $notificationsDenied) {
+            Button("Mở Cài đặt") {
+                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            }
+            Button("Đóng", role: .cancel) {}
+        } message: {
+            Text("Hãy bật Thông báo cho DVDTube trong Cài đặt của iOS.")
+        }
         .confirmationDialog("Xóa toàn bộ nhật ký xem?", isPresented: $confirmClearHistory, titleVisibility: .visible) {
             Button("Xóa", role: .destructive) { library.clearHistory() }
+        }
+    }
+}
+
+extension SettingsView {
+    func setNewVideoNotifications(_ enabled: Bool) async {
+        guard enabled else {
+            UserDefaults.standard.set(false, forKey: NewVideoNotifier.enabledKey)
+            notifyNewVideos = false
+            return
+        }
+        let granted = await NewVideoNotifier.requestPermission()
+        UserDefaults.standard.set(granted, forKey: NewVideoNotifier.enabledKey)
+        notifyNewVideos = granted
+        if granted {
+            NewVideoNotifier.schedule()
+            // Record what exists now so only later uploads are announced.
+            await NewVideoNotifier.checkForNewVideos()
+        } else {
+            notificationsDenied = true
         }
     }
 }

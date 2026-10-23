@@ -33,6 +33,7 @@ struct DVDYoutubeApp: App {
             case .background:
                 player.appDidEnterBackground()
                 shorts.pause()
+                NewVideoNotifier.schedule()
             case .active:
                 player.appWillEnterForeground()
             default:

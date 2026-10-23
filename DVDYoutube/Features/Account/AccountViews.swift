@@ -115,3 +115,100 @@ struct AccountHeader: View {
         }
     }
 }
+
+/// The account's YouTube notifications (the bell in the official app).
+struct NotificationsView: View {
+    @Environment(AccountStore.self) private var account
+    @Environment(PlayerManager.self) private var player
+    @State private var items: [AccountNotification] = []
+    @State private var isLoading = true
+    @State private var error: String?
+
+    var body: some View {
+        List {
+            ForEach(items) { item in
+                Button {
+                    if let videoId = item.videoId {
+                        player.play(VideoItem(id: videoId, title: "", thumbnail: item.thumbnail))
+                    }
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Circle()
+                            .fill(item.isRead ? Color.clear : Color.brand)
+                            .frame(width: 6, height: 6)
+                            .padding(.top, 18)
+                        AvatarView(url: item.avatar, size: 40)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.message)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .lineLimit(3)
+                            if let time = item.timeText {
+                                Text(time).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        if let thumbnail = item.thumbnail {
+                            RemoteImage(url: thumbnail)
+                                .frame(width: 96, height: 54)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .listStyle(.plain)
+        .overlay {
+            if isLoading && items.isEmpty {
+                ProgressView()
+            } else if let error, items.isEmpty {
+                ErrorStateView(message: error) { Task { await load() } }
+            } else if items.isEmpty {
+                ContentUnavailableView("Chưa có thông báo", systemImage: "bell.slash")
+            }
+        }
+        .refreshable { await load() }
+        .navigationTitle("Thông báo")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            items = try await YouTubeService.shared.accountNotifications()
+            error = nil
+            account.markNotificationsSeen()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+/// Bell button with the unseen-count badge.
+struct NotificationBell: View {
+    @Environment(AccountStore.self) private var account
+    @Environment(Router.self) private var router
+
+    var body: some View {
+        Button {
+            router.open(.notifications)
+        } label: {
+            Image(systemName: "bell")
+                .overlay(alignment: .topTrailing) {
+                    if account.unseenNotifications > 0 {
+                        Text(account.unseenNotifications > 9 ? "9+" : "\(account.unseenNotifications)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.red))
+                            .offset(x: 8, y: -6)
+                    }
+                }
+        }
+        .accessibilityLabel("Thông báo")
+    }
+}

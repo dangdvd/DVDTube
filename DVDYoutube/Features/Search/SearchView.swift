@@ -12,6 +12,7 @@ struct SearchView: View {
     @State private var suggestions: [String] = []
     @State private var model: FeedModel?
     @State private var suggestTask: Task<Void, Never>?
+    @State private var showVoice = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -37,6 +38,13 @@ struct SearchView: View {
         .onChange(of: query) { _, newValue in
             updateSuggestions(for: newValue)
         }
+        .sheet(isPresented: $showVoice) {
+            VoiceSearchSheet { text in
+                query = text
+                submit(text)
+            }
+            .presentationDetents([.height(340)])
+        }
     }
 
     private var searchField: some View {
@@ -56,6 +64,15 @@ struct SearchView: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+            } else {
+                Button {
+                    focused = false
+                    showVoice = true
+                } label: {
+                    Image(systemName: "mic.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Tìm kiếm bằng giọng nói")
             }
         }
         .padding(.horizontal, 10)
