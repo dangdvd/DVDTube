@@ -54,6 +54,16 @@ enum OrientationController {
         }
     }
 
+    /// Keeps the screen in the orientation it has now, whichever way the phone is turned.
+    @MainActor
+    static func lockCurrent() {
+        switch UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.interfaceOrientation {
+        case .landscapeLeft: setAllowed(.landscapeLeft)
+        case .landscapeRight: setAllowed(.landscapeRight)
+        default: setAllowed(.portrait)
+        }
+    }
+
     @MainActor
     static var isLandscape: Bool {
         UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first?.interfaceOrientation.isLandscape ?? false

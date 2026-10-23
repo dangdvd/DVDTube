@@ -34,12 +34,17 @@ final class PlayerManager {
 
     var isExpanded = false {
         didSet {
-            if !isExpanded { isPortraitFullscreen = false }
-            OrientationController.setAllowed(isExpanded && !isPortraitFullscreen ? .allButUpsideDown : .portrait)
+            if !isExpanded {
+                isPortraitFullscreen = false
+                fullscreenQuarterTurns = 0
+            }
+            if fullscreenQuarterTurns == 0 { OrientationController.setAllowed(fullscreenOrientations) }
         }
     }
     /// Fullscreen kept upright, for videos taller than they are wide.
     private(set) var isPortraitFullscreen = false
+    /// Clockwise quarter turns of the fullscreen player, picked with its rotate buttons.
+    private(set) var fullscreenQuarterTurns = 0
     /// Size of the picture being played, once the player knows it.
     private(set) var videoSize: CGSize = .zero
 
@@ -189,17 +194,40 @@ final class PlayerManager {
     }
 
     func exitFullscreen() {
+        resetFullscreenRotation()
         if isPortraitFullscreen {
             isPortraitFullscreen = false
-            OrientationController.setAllowed(isExpanded ? .allButUpsideDown : .portrait)
+            OrientationController.setAllowed(fullscreenOrientations)
         } else {
             OrientationController.rotate(toLandscape: false)
         }
     }
 
-    /// A wide video coming up in portrait fullscreen turns the screen sideways.
+    /// Turns the fullscreen picture and controls a quarter turn, e.g. to watch lying down.
+    /// The screen stays in its current orientation meanwhile, whichever way the phone is held.
+    func rotateFullscreen(clockwise: Bool) {
+        fullscreenQuarterTurns = (fullscreenQuarterTurns + (clockwise ? 1 : 3)) % 4
+        if fullscreenQuarterTurns == 0 {
+            OrientationController.setAllowed(fullscreenOrientations)
+        } else {
+            OrientationController.lockCurrent()
+        }
+    }
+
+    func resetFullscreenRotation() {
+        guard fullscreenQuarterTurns != 0 else { return }
+        fullscreenQuarterTurns = 0
+        OrientationController.setAllowed(fullscreenOrientations)
+    }
+
+    private var fullscreenOrientations: UIInterfaceOrientationMask {
+        isExpanded && !isPortraitFullscreen ? .allButUpsideDown : .portrait
+    }
+
+    /// A wide video coming up in portrait fullscreen turns the screen sideways
+    /// (unless the player was turned by hand).
     private func matchFullscreenToVideo() {
-        guard isPortraitFullscreen, let ratio = videoAspectRatio, ratio > 1 else { return }
+        guard isPortraitFullscreen, fullscreenQuarterTurns == 0, let ratio = videoAspectRatio, ratio > 1 else { return }
         isPortraitFullscreen = false
         OrientationController.rotate(toLandscape: true)
     }

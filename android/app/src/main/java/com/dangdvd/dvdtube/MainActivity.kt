@@ -121,12 +121,14 @@ class MainActivity : AppCompatActivity() {
     private fun observePlayerLayout() {
         lifecycleScope.launch {
             snapshotFlow {
-                listOf(PlayerController.isExpanded, PlayerController.isFullscreen, PlayerController.currentVideo != null,
-                    PlayerController.isPortraitFullscreen)
+                PlayerLayout(PlayerController.isExpanded, PlayerController.isFullscreen, PlayerController.currentVideo != null,
+                    PlayerController.isPortraitFullscreen, PlayerController.fullscreenRotation)
             }
-                .collect { (expanded, fullscreen, hasVideo, upright) ->
-                    // Vertical videos fill the screen upright; only wide ones turn it sideways.
+                .collect { (expanded, fullscreen, hasVideo, upright, rotation) ->
+                    // Vertical videos fill the screen upright; only wide ones turn it sideways,
+                    // unless the screen was turned with the rotate buttons.
                     requestedOrientation = when {
+                        fullscreen && rotation != null -> orientationFor(rotation)
                         fullscreen && !upright -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                         else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
                     }
@@ -148,6 +150,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private data class PlayerLayout(
+        val expanded: Boolean,
+        val fullscreen: Boolean,
+        val hasVideo: Boolean,
+        val upright: Boolean,
+        val rotation: Int?,
+    )
+
+    /** The fixed screen orientation that shows content turned by [rotation] (Surface.ROTATION_*). */
+    private fun orientationFor(rotation: Int): Int {
+        @Suppress("DEPRECATION")
+        val current = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else windowManager.defaultDisplay)?.rotation ?: 0
+        val portraitNow = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+        val naturallyPortrait = (current % 2 == 0) == portraitNow
+        val byRotation = if (naturallyPortrait) {
+            intArrayOf(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+                ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE)
+        } else {
+            intArrayOf(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT,
+                ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
+        }
+        return byRotation[rotation and 3]
+    }
+
     /** Turning the phone sideways on the watch page enters fullscreen, like the official app. */
     private fun setupRotationToFullscreen() {
         orientationListener = object : OrientationEventListener(this) {
@@ -158,7 +184,9 @@ class MainActivity : AppCompatActivity() {
                 if (landscape && PlayerController.isExpanded && !PlayerController.isFullscreen && PlayerController.currentVideo != null) {
                     fullscreenFromRotation = true
                     PlayerController.isFullscreen = true
-                } else if (portrait && PlayerController.isFullscreen && fullscreenFromRotation) {
+                } else if (portrait && PlayerController.isFullscreen && fullscreenFromRotation &&
+                    PlayerController.fullscreenRotation == null
+                ) {
                     PlayerController.isFullscreen = false
                 }
             }
