@@ -78,6 +78,12 @@ enum DebugHooks {
         if let channel = value("-DVDTubeDemoChannel") {
             router.openChannel(id: channel)
         }
+        if arguments.contains("-DVDTubeDemoAudioOnly") {
+            PlayerManager.shared.setAudioOnly(true)
+        }
+        if arguments.contains("-DVDTubeDemoSleepTimer") {
+            PlayerManager.shared.setSleepTimer(minutes: 1)
+        }
         if let video = value("-DVDTubeDemoVideo") {
             PlayerManager.shared.play(VideoItem(id: video, title: ""))
         }

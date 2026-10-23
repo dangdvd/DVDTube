@@ -41,6 +41,7 @@ run() {
 run home 30
 run search 20 -DVDTubeDemoSearch "lofi hip hop"
 run watch 45 -DVDTubeDemoVideo "aqz-KE-bpKQ"
+run audio 40 -DVDTubeDemoVideo "aqz-KE-bpKQ" -DVDTubeDemoAudioOnly -DVDTubeDemoSleepTimer
 run channel 20 -DVDTubeDemoChannel "@NASA"
 run shorts 35 -DVDTubeDemoTab shorts
 run livechat 75 -DVDTubeDemoLiveChat
@@ -50,4 +51,6 @@ xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 echo "=== summary"
 grep -h "HTTP" "$OUT"/*.log | sed -E 's/, [0-9]+ bytes//' | sort | uniq -c | sort -rn | head -n 30
 grep -h -E "stream |item |playing |failed|short |web |live chat|chat replay|relay|error:" "$OUT"/*.log | head -n 80
+echo "=== audio only"
+grep -h -E "stage -1|item ready|item failed|stream " "$OUT/audio.log" | head -n 20
 exit 0

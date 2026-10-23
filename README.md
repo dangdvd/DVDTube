@@ -20,7 +20,12 @@ hình trong hình (PiP), tải video xem offline.
 | Shorts | Vuốt dọc toàn màn hình, tự lặp, tải trước video kế tiếp, thích / bình luận / chia sẻ. |
 | Kênh đăng ký | Đăng ký không cần tài khoản; nhập/xuất từ Google Takeout (`subscriptions.csv`). |
 | Trang xem video | Mini player kéo xuống/lên, vuốt lên toàn màn hình, chạm đúp tua ±10 giây, xem trước khung hình khi kéo thanh tua, chương (chapters), chất lượng, tốc độ, phụ đề (kể cả tự dịch sang tiếng Việt), AirPlay, hàng đợi. |
-| Điều khiển giống app gốc | Giữ màn hình để tua nhanh 2x, chụm hai ngón để phóng đầy màn hình, lặp lại video, hẹn giờ tắt (15 phút → hết video), tự phát video tiếp theo có đếm ngược 5 giây và nút bật/tắt. |
+| Điều khiển giống app gốc | Giữ màn hình để tua nhanh 2x, chụm hai ngón để phóng đầy màn hình, chạm hai lần để tua (5–60 giây, chỉnh được), tốc độ 0,25x–4x (kéo thanh trượt), lặp lại video, tự phát video tiếp theo có đếm ngược 5 giây, khóa màn hình (chống chạm nhầm), thống kê chi tiết (độ phân giải, bitrate, bộ đệm…), cỡ chữ và nền phụ đề. |
+| Hẹn giờ tắt | Nút 🌙 ngay dưới video và trong ⚙ trình phát: 5 phút → 2 giờ, khi hết video, hoặc tự chọn giờ/phút; hiện đồng hồ đếm ngược trên trình phát và mini player, thêm +5/+15/+30 phút, âm thanh nhỏ dần 10 giây cuối rồi dừng (chạy cả khi phát nền/khóa máy). |
+| Chỉ phát âm thanh | Nút 🎧 trên trình phát / dưới video: không tải hình, chỉ tải luồng âm thanh (~1 MB/phút, ~0,4 MB/phút khi tiết kiệm dữ liệu) — nghe nhạc, podcast bằng 4G rất tiết kiệm; tùy chọn tự bật khi dùng dữ liệu di động. |
+| Tiết kiệm dữ liệu | Khi dùng 4G/5G: video tối đa 360p, ảnh thu nhỏ cỡ nhỏ, không tải trước Shorts; tùy chọn chỉ tải xuống qua Wi-Fi. |
+| Sức khỏe số | Nhắc nghỉ giải lao sau mỗi 15 phút → 3 giờ xem, nhắc giờ đi ngủ (khung giờ tự đặt, nhắc lại sau 10 phút), thống kê thời gian xem (hôm nay, hôm qua, 7 ngày, trung bình/ngày). |
+| Ẩn danh & đề xuất | Chế độ ẩn danh (không lưu nhật ký xem/tìm kiếm); menu ⋮ của video có *Phát tiếp theo*, *Không quan tâm*, *Không đề xuất kênh này* (quản lý trong *Cài đặt › Nội dung đã ẩn*). |
 | Dưới video | Thích / Không thích, Chia sẻ (kể cả *chia sẻ tại thời điểm đang xem*), Lưu vào danh sách phát, Tải xuống, Bản chép lời (transcript) bấm để tua tới đoạn đó. |
 | Bình luận | Xem bình luận, phản hồi, sắp xếp Hàng đầu / Mới nhất; viết bình luận và trả lời khi đã đăng nhập. |
 | Trò chuyện trực tiếp | Live chat của buổi phát trực tiếp (Hàng đầu / Tất cả, Super Chat, hội viên), gửi tin nhắn khi đã đăng nhập; video đã phát trực tiếp có *phát lại nội dung trò chuyện* chạy theo thời gian video. |
