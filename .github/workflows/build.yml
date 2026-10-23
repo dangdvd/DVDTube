@@ -80,7 +80,15 @@ jobs:
 
       - name: Build APK (release, signed with the sideload key)
         working-directory: android
-        run: ./gradlew --no-daemon --stacktrace assembleRelease
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon assembleRelease 2>&1 | tee gradle.log
+
+      - name: Show compile errors
+        if: failure()
+        working-directory: android
+        run: |
+          grep -E "^e: |^w: .*(deprecat|unchecked)|What went wrong|error:" gradle.log | grep -v "^w:" | head -150 || true
 
       - name: Collect APK
         run: |
