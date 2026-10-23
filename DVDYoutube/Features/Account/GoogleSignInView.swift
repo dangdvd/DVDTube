@@ -94,11 +94,10 @@ struct GoogleSignInView: View {
                 guard !isFinishing else { return }
                 Task { await finish(with: cookies, fromWebLogin: true) }
             }
-            .overlay(alignment: .bottom) {
-                if page.isPasskeyPage { passkeyBanner }
-            }
-            .animation(.easeInOut(duration: 0.2), value: page.isPasskeyPage)
+            // Below the page rather than over it, so Google's own buttons stay visible.
+            if page.isPasskeyPage { passkeyBanner }
         }
+        .animation(.easeInOut(duration: 0.2), value: page.isPasskeyPage)
     }
 
     /// Shown on Google's passkey step, which cannot work inside an app on iOS.
@@ -112,14 +111,22 @@ struct GoogleSignInView: View {
             Button {
                 page.usePassword()
             } label: {
-                Label("Đăng nhập bằng mật khẩu", systemImage: "key.fill")
-                    .frame(maxWidth: .infinity)
+                HStack(spacing: 8) {
+                    if page.isSwitching {
+                        ProgressView().tint(.white)
+                        Text("Đang chuyển sang mật khẩu…")
+                    } else {
+                        Label("Đăng nhập bằng mật khẩu", systemImage: "key.fill")
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .disabled(page.isSwitching)
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16).fill(.regularMaterial))
-        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
@@ -164,45 +171,85 @@ struct GoogleSignInView: View {
     }
 }
 
-/// `WKWebView` showing Google's sign-in page, reporting youtube.com cookies once the
-/// session is established.
 /// Watches Google's sign-in page for the passkey step and can switch it to the password.
 @MainActor
 @Observable
 final class SignInPageController {
     private(set) var isPasskeyPage = false
+    /// Working through "Try another way" › "Enter your password" after the user asked for it.
+    private(set) var isSwitching = false
     @ObservationIgnored weak var webView: WKWebView?
     @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var switchDeadline = Date.distantPast
+    @ObservationIgnored private var missedSteps = 0
+    @ObservationIgnored private var openedSelection = false
 
-    /// The passkey prompt is on screen and no password field is.
-    private static let detectScript = """
+    /// The passkey prompt is on screen, with no visible password field or password option.
+    private static let detectScript = #"""
     (function () {
+      function shown(el) {
+        if (!el || el.getAttribute('aria-hidden') === 'true') return false;
+        var r = el.getBoundingClientRect();
+        return r.width > 8 && r.height > 8 && getComputedStyle(el).visibility !== 'hidden';
+      }
       var text = ((document.body && document.body.innerText) || '').normalize('NFC');
-      var passkey = /khoá đăng nhập|khóa đăng nhập|passkey/i.test(text);
-      return passkey && !document.querySelector('input[type=password]');
+      if (!/khoá đăng nhập|khóa đăng nhập|passkey/i.test(text)) return false;
+      var fields = document.querySelectorAll('input[type=password]');
+      for (var i = 0; i < fields.length; i++) if (shown(fields[i])) return false;
+      return !/(^|\n)\s*(nhập mật khẩu|enter your password)/i.test(text);
     })()
-    """
+    """#
 
-    /// "Try another way", then "Enter your password".
-    private static let passwordScript = """
+    /// One step towards the password: "done" once a password field shows, otherwise taps
+    /// "Enter your password" or "Try another way" ("password" / "another way"), "waiting"
+    /// while the last tap is still loading, "none" when neither is on the page.
+    /// Google only reacts to taps on the button itself, so the events go to the element
+    /// holding the label and bubble up through its handlers.
+    private static let passwordScript = #"""
     (function () {
-      function click(pattern) {
-        var items = document.querySelectorAll('button,[role=button],[role=link],li,a,div[jsaction]');
-        for (var i = 0; i < items.length; i++) {
-          var text = (items[i].innerText || '').normalize('NFC').trim();
-          if (text.length > 0 && text.length < 60 && pattern.test(text)) { items[i].click(); return true; }
+      function shown(el) {
+        if (!el || el.getAttribute('aria-hidden') === 'true') return false;
+        var r = el.getBoundingClientRect();
+        return r.width > 8 && r.height > 8 && getComputedStyle(el).visibility !== 'hidden';
+      }
+      function find(pattern) {
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+          var text = node.data.normalize('NFC').replace(/\s+/g, ' ').trim();
+          if (text.length > 0 && text.length < 80 && pattern.test(text) && shown(node.parentElement)) return node.parentElement;
         }
-        return false;
+        return null;
       }
-      var password = /nhập mật khẩu|enter your password/i;
-      if (click(password)) return 'password';
-      if (click(/thử cách khác|try another way/i)) {
-        setTimeout(function () { click(password); }, 1500);
-        return 'another way';
+      function tap(el) {
+        var target = el.closest('button,a,[role=button],[role=link],[jsaction]') || el;
+        target.scrollIntoView({ block: 'center' });
+        var r = el.getBoundingClientRect();
+        var base = { bubbles: true, cancelable: true, composed: true, view: window, button: 0,
+                     clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+        function fire(type, Kind, extra) {
+          try { el.dispatchEvent(new Kind(type, Object.assign({}, base, extra))); } catch (e) {}
+        }
+        var pointer = window.PointerEvent || MouseEvent;
+        fire('pointerdown', pointer, { pointerId: 1, pointerType: 'mouse', isPrimary: true, buttons: 1 });
+        fire('mousedown', MouseEvent, { buttons: 1 });
+        if (target.focus) target.focus();
+        fire('pointerup', pointer, { pointerId: 1, pointerType: 'mouse', isPrimary: true });
+        fire('mouseup', MouseEvent, {});
+        fire('click', MouseEvent, {});
       }
-      return 'none';
+      var fields = document.querySelectorAll('input[type=password]');
+      for (var i = 0; i < fields.length; i++) if (shown(fields[i])) return 'done';
+      var step = 'password';
+      var item = find(/^(nhập mật khẩu|enter your password)/i);
+      if (!item) { step = 'another way'; item = find(/^(thử cách khác|try another way)$/i); }
+      if (!item) return 'none';
+      var last = window.__dvdtubeTap;
+      if (last && last.step === step && Date.now() - last.at < 2500) return 'waiting';
+      window.__dvdtubeTap = { step: step, at: Date.now() };
+      tap(item);
+      return step;
     })()
-    """
+    """#
 
     func start() {
         timer?.invalidate()
@@ -217,6 +264,7 @@ final class SignInPageController {
     }
 
     private func check() {
+        if isSwitching { advance() }
         guard let webView, webView.url?.host?.contains("google") == true else {
             if isPasskeyPage { isPasskeyPage = false }
             return
@@ -230,12 +278,59 @@ final class SignInPageController {
     }
 
     func usePassword() {
-        webView?.evaluateJavaScript(Self.passwordScript) { result, _ in
-            Log.debug("sign-in: switch to password -> \(result as? String ?? "?")")
+        isSwitching = true
+        switchDeadline = Date().addingTimeInterval(25)
+        missedSteps = 0
+        openedSelection = false
+        advance()
+    }
+
+    private func advance() {
+        guard let webView, Date() < switchDeadline else {
+            Log.debug("sign-in: switch to password -> gave up")
+            isSwitching = false
+            return
         }
+        webView.evaluateJavaScript(Self.passwordScript) { [weak self] result, _ in
+            let step = result as? String ?? "?"
+            Task { @MainActor in self?.handle(step) }
+        }
+    }
+
+    private func handle(_ step: String) {
+        guard isSwitching else { return }
+        if step != "waiting" { Log.debug("sign-in: switch to password -> \(step)") }
+        switch step {
+        case "done":
+            isSwitching = false
+        case "password", "waiting":
+            break
+        default:
+            // The taps did not move the page on: open Google's list of sign-in methods.
+            missedSteps += 1
+            if missedSteps >= 3 { openSelectionPage() }
+        }
+    }
+
+    /// `…/challenge/pk…?TL=…` → `…/challenge/selection?TL=…`, the "Try another way" list.
+    private func openSelectionPage() {
+        guard !openedSelection, let webView, let url = webView.url,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let range = components.path.range(of: "/challenge/.*$", options: .regularExpression),
+              !components.path.hasSuffix("/challenge/selection")
+        else { return }
+        components.path.replaceSubrange(range, with: "/challenge/selection")
+        guard let selection = components.url else { return }
+        openedSelection = true
+        missedSteps = 0
+        switchDeadline = Date().addingTimeInterval(20)
+        Log.debug("sign-in: switch to password -> opening the sign-in options")
+        webView.load(URLRequest(url: selection))
     }
 }
 
+/// `WKWebView` showing Google's sign-in page, reporting youtube.com cookies once the
+/// session is established.
 private struct GoogleLoginWebView: UIViewRepresentable {
     var addsAccount = false
     var page: SignInPageController
