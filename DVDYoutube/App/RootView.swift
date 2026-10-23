@@ -49,6 +49,9 @@ struct RootView: View {
             SaveToPlaylistSheet(video: video)
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $router.showSignIn) {
+            GoogleSignInView()
+        }
     }
 
     /// Detects taps on the already-selected tab (pop to root / scroll to top).

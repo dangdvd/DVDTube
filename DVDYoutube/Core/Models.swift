@@ -121,6 +121,16 @@ struct WatchInfo {
     var commentsToken: String?
     var commentCountText: String?
     var chapters: [Chapter]
+    /// Signed-in state from YouTube: "LIKE", "DISLIKE" or "INDIFFERENT".
+    var likeStatus: String?
+    var isSubscribed: Bool?
+}
+
+struct AccountProfile: Codable, Hashable {
+    var name: String
+    var handle: String?
+    var email: String?
+    var avatar: URL?
 }
 
 struct Comment: Identifiable, Hashable {

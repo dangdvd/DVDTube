@@ -63,7 +63,23 @@ enum WatchParser {
             related: FeedPage(items: related.items.filter { $0.video?.id != videoId }, continuation: related.continuation, kind: .next),
             commentsToken: commentsToken,
             commentCountText: commentCount,
-            chapters: chapters
+            chapters: chapters,
+            likeStatus: primary["videoActions"].findFirst("likeStatusEntity")["likeStatus"].string,
+            isSubscribed: secondary.findFirst("subscribeButtonRenderer")["subscribed"].bool
+        )
+    }
+}
+
+enum AccountParser {
+    /// `account/account_menu` → the active account's name, handle and avatar.
+    static func profile(_ json: JNode) -> AccountProfile? {
+        let header = json.findFirst("activeAccountHeaderRenderer")
+        guard let name = header["accountName"].text else { return nil }
+        return AccountProfile(
+            name: name,
+            handle: header["channelHandle"].text,
+            email: header["email"].text,
+            avatar: header["accountPhoto"].bestImageURL
         )
     }
 }

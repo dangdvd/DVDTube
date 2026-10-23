@@ -122,18 +122,18 @@ struct WatchDetailsView: View {
     private func actionBar(_ video: VideoItem) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                let liked = library.isLiked(video.id)
+                let reported = player.watchInfo?.videoId == video.id ? player.watchInfo?.likeStatus : nil
+                let liked = LibraryActions.isLiked(video.id, reported: reported)
                 pill(liked ? "hand.thumbsup.fill" : "hand.thumbsup",
                      player.watchInfo?.likeCountText ?? "Thích") {
-                    library.toggleLike(video)
+                    LibraryActions.toggleLike(video, reported: reported)
                 }
                 ShareLink(item: video.shareURL, subject: Text(video.title)) {
                     pillLabel("arrowshape.turn.up.right", "Chia sẻ")
                 }
                 .buttonStyle(.plain)
-                pill(library.isInWatchLater(video.id) ? "clock.fill" : "clock", "Xem sau") {
-                    library.toggleWatchLater(video)
-                    player.showToast(library.isInWatchLater(video.id) ? "Đã lưu vào Xem sau" : "Đã xóa khỏi Xem sau")
+                pill(LibraryActions.isInWatchLater(video.id) ? "clock.fill" : "clock", "Xem sau") {
+                    LibraryActions.toggleWatchLater(video)
                 }
                 pill("text.badge.plus", "Lưu") {
                     router.playlistSheetVideo = video

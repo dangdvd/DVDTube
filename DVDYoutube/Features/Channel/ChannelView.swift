@@ -203,11 +203,12 @@ private struct SubscribeButtonWide: View {
     let channel: ChannelItem
 
     @Environment(LibraryStore.self) private var library
+    @Environment(AccountStore.self) private var account
 
     var body: some View {
-        let subscribed = library.isSubscribed(channel.id)
+        let subscribed = account.isSignedIn ? account.isSubscribed(channel.id) : library.isSubscribed(channel.id)
         Button {
-            withAnimation(.snappy) { library.toggleSubscription(channel) }
+            toggleSubscription(channel, subscribed: subscribed, account: account, library: library)
         } label: {
             Label(subscribed ? "Đã đăng ký" : "Đăng ký", systemImage: subscribed ? "bell.fill" : "plus")
                 .font(.subheadline.weight(.semibold))

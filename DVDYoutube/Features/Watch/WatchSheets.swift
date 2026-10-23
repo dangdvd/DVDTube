@@ -327,9 +327,9 @@ struct SaveToPlaylistSheet: View {
         NavigationStack {
             List {
                 Button {
-                    library.toggleWatchLater(video)
+                    LibraryActions.toggleWatchLater(video)
                 } label: {
-                    checkRow("Xem sau", icon: "clock", checked: library.isInWatchLater(video.id))
+                    checkRow("Xem sau", icon: "clock", checked: LibraryActions.isInWatchLater(video.id))
                 }
                 ForEach(library.playlists) { playlist in
                     let contains = playlist.videos.contains { $0.id == video.id }

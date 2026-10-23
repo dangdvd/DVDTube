@@ -5,6 +5,8 @@ struct SettingsView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(DownloadManager.self) private var downloads
     @Environment(PlayerManager.self) private var player
+    @Environment(AccountStore.self) private var account
+    @Environment(Router.self) private var router
 
     @State private var confirmClearHistory = false
     @State private var refreshingConfig = false
@@ -12,7 +14,36 @@ struct SettingsView: View {
 
     var body: some View {
         @Bindable var settings = settings
+        @Bindable var account = account
         Form {
+            Section {
+                if account.isSignedIn {
+                    HStack(spacing: 12) {
+                        AvatarView(url: account.profile?.avatar, size: 40, name: account.profile?.name ?? "")
+                        VStack(alignment: .leading) {
+                            Text(account.profile?.name ?? "Tài khoản YouTube").font(.subheadline.weight(.semibold))
+                            if let handle = account.profile?.handle {
+                                Text(handle).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Toggle("Ghi video đã xem vào nhật ký YouTube", isOn: $account.syncWatchHistory)
+                    Button("Đăng xuất", role: .destructive) {
+                        Task { await account.signOut() }
+                    }
+                } else {
+                    Button {
+                        router.showSignIn = true
+                    } label: {
+                        Label("Đăng nhập tài khoản Google", systemImage: "person.crop.circle.badge.plus")
+                    }
+                }
+            } header: {
+                Text("Tài khoản Google")
+            } footer: {
+                Text("Khi đăng nhập, trang chủ, kênh đăng ký, nhật ký xem, video đã thích, Xem sau và danh sách phát lấy từ tài khoản YouTube của bạn; Đăng ký/Thích được ghi lên tài khoản. Phiên đăng nhập (cookie) chỉ lưu trong Keychain của máy và chỉ gửi tới youtube.com. Video vẫn phát qua trình phát không quảng cáo.")
+            }
+
             Section("Chung") {
                 Picker("Ngôn ngữ nội dung", selection: $settings.language) {
                     ForEach(AppSettings.languages, id: \.code) { Text($0.name).tag($0.code) }

@@ -24,6 +24,29 @@ hình trong hình (PiP), tải video xem offline.
 | Thư viện | Nhật ký xem (tiếp tục từ chỗ đã dừng), Xem sau, Video đã thích, danh sách phát riêng. |
 | Tìm kiếm | Gợi ý khi gõ, lịch sử, bộ lọc (Video, Shorts, Kênh, Danh sách phát, Trực tiếp, Mới tải lên), dán link YouTube để mở thẳng. |
 
+## Đăng nhập tài khoản Google (tùy chọn)
+
+Vào tab **Bạn** (hoặc *Cài đặt*) → **Đăng nhập tài khoản Google**. Khi đã đăng nhập:
+
+- Trang chủ hiển thị đề xuất của chính tài khoản YouTube; tab Kênh đăng ký lấy danh sách kênh và
+  video mới từ tài khoản.
+- Tab Bạn có Nhật ký xem, Xem sau, Video đã thích, Danh sách phát của tài khoản.
+- Bấm Đăng ký / Thích / Xem sau được ghi lên tài khoản; video bạn xem được thêm vào nhật ký YouTube
+  (có thể tắt trong Cài đặt).
+- Video **vẫn phát qua trình phát không quảng cáo** của ứng dụng.
+
+Cách hoạt động: bạn đăng nhập trên chính trang của Google (mật khẩu không đi qua ứng dụng). Ứng dụng
+chỉ giữ lại *phiên YouTube* (cookie của youtube.com), lưu trong **Keychain** của máy, và chỉ gửi
+chúng tới `youtube.com` — giống như trang web YouTube làm.
+
+Nếu Google báo *"Trình duyệt hoặc ứng dụng này có thể không an toàn"*, dùng **Nhập cookie thủ
+công** (menu ⋯ trên màn hình đăng nhập): đăng nhập youtube.com trên máy tính (cửa sổ ẩn danh), xuất
+cookie bằng tiện ích *Get cookies.txt LOCALLY*, đóng cửa sổ ẩn danh rồi dán nội dung vào ứng dụng.
+
+> ⚠️ Đây là ứng dụng không chính thức. Dùng tài khoản với ứng dụng bên thứ ba có rủi ro (Google có
+> thể yêu cầu xác minh lại hoặc hạn chế tài khoản), nên cân nhắc dùng tài khoản phụ. Cookie cho
+> toàn quyền truy cập phiên Google: không chia sẻ chúng với ai.
+
 ## Cài đặt lên iPhone
 
 Có hai cách. iOS 17 trở lên.
@@ -90,8 +113,7 @@ nhận, không phải sửa `project.pbxproj`.
 
 ## Giới hạn
 
-- Không đăng nhập tài khoản Google, nên không đồng bộ lịch sử/đăng ký với YouTube và không bình luận
-  hay bấm thích lên YouTube (nút Thích chỉ lưu trong máy).
+- Chưa hỗ trợ viết bình luận, và tài khoản thương hiệu (brand account) / nhiều tài khoản cùng lúc.
 - Video giới hạn độ tuổi, video "dành cho trẻ em" hoặc nội dung trả phí có thể không phát được.
 - YouTube thay đổi API thường xuyên; khi có lỗi phát hàng loạt, hãy cập nhật `remote-config.json`
   hoặc mã nguồn.
