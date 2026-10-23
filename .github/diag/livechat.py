@@ -96,3 +96,64 @@ for label, tokens in [("api", api_tokens), ("watch", page_tokens)]:
             from urllib.parse import unquote
             s, b = req("https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false", {"context": ctx(), "continuation": unquote(token)})
             print(f"api get_live_chat [{label} token unquoted] ->", s, json.loads(b).get("error", {}).get("message") if s != 200 else "ok")
+
+# ---- Round 2: popout header tokens (live) and chat replay -------------------------
+print("\n== popout header modes (live)")
+s, b = req(f"https://www.youtube.com/live_chat?is_popout=1&v={video}", ua=SAFARI)
+pop, why = initial_data(b.decode("utf-8", "replace"))
+lr = pop.get("contents", {}).get("liveChatRenderer", {}) if pop else {}
+for item in next(find(lr.get("header", {}), "subMenuItems"), []):
+    tok = item.get("continuation", {}).get("reloadContinuationData", {}).get("continuation", "")
+    s2, b2 = req("https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false", {"context": ctx(), "continuation": tok})
+    j2 = json.loads(b2)
+    print(" mode", item.get("title"), "selected", item.get("selected"), "->", s2, len(j2.get("continuationContents", {}).get("liveChatContinuation", {}).get("actions", [])), j2.get("error", {}).get("message"))
+print(" send panel:", "liveChatMessageInputRenderer" in json.dumps(lr.get("actionPanel", {}))[:100000], "restricted:", "liveChatRestrictedParticipationRenderer" in json.dumps(lr.get("actionPanel", {})))
+
+for body_extra in [{}, {"contentCheckOk": True, "racyCheckOk": True}]:
+    s, b = req("https://www.youtube.com/youtubei/v1/next?prettyPrint=false", {"context": ctx(), "videoId": video, **body_extra})
+    l = json.loads(b).get("contents", {}).get("twoColumnWatchNextResults", {}).get("conversationBar", {}).get("liveChatRenderer", {})
+    t = [c["reloadContinuationData"]["continuation"] for c in l.get("continuations", []) if "reloadContinuationData" in c]
+    print(" next", body_extra, "token prefix", [x[:14] for x in t])
+
+REPLAY = "DWcJFNfaw9c"
+print("\n== replay", REPLAY)
+s, b = req("https://www.youtube.com/youtubei/v1/next?prettyPrint=false", {"context": ctx(), "videoId": REPLAY})
+l = json.loads(b).get("contents", {}).get("twoColumnWatchNextResults", {}).get("conversationBar", {}).get("liveChatRenderer", {})
+api_rt = [c["reloadContinuationData"]["continuation"] for c in l.get("continuations", []) if "reloadContinuationData" in c]
+api_rt += [i["continuation"]["reloadContinuationData"]["continuation"] for i in next(find(l, "subMenuItems"), [])]
+print(" api tokens", [x[:14] for x in api_rt], "isReplay", l.get("isReplay"))
+s, b = req(f"https://www.youtube.com/watch?v={REPLAY}&hl=vi", ua=SAFARI)
+wd, why = initial_data(b.decode("utf-8", "replace"))
+wl = wd.get("contents", {}).get("twoColumnWatchNextResults", {}).get("conversationBar", {}).get("liveChatRenderer", {}) if wd else {}
+web_rt = [c["reloadContinuationData"]["continuation"] for c in wl.get("continuations", []) if "reloadContinuationData" in c]
+web_rt += [i["continuation"]["reloadContinuationData"]["continuation"] for i in next(find(wl, "subMenuItems"), [])]
+print(" watch tokens", [x[:14] for x in web_rt], why)
+
+def show_replay(label, data):
+    c = data.get("continuationContents", {}).get("liveChatContinuation") or data.get("contents", {}).get("liveChatRenderer") or {}
+    acts = c.get("actions", [])
+    offs = [int(a["replayChatItemAction"]["videoOffsetTimeMsec"]) for a in acts if "replayChatItemAction" in a]
+    print(f"   {label}: actions {len(acts)} offsets {min(offs) if offs else '-'}..{max(offs) if offs else '-'} continuations {[list(x.keys()) for x in c.get('continuations', [])]}")
+    return c
+
+for label, toks in [("api", api_rt[:1]), ("watch", web_rt[:1])]:
+    for tok in toks:
+        for url in [f"https://www.youtube.com/live_chat_replay?continuation={tok}"]:
+            s, b = req(url)
+            d, why = initial_data(b.decode("utf-8", "replace"))
+            print(f" replay page [{label}] -> {s} {len(b)}B {why}")
+            if d:
+                c = show_replay("page", d)
+                for x in c.get("continuations", []):
+                    for k, v in x.items():
+                        s2, b2 = req("https://www.youtube.com/youtubei/v1/live_chat/get_live_chat_replay?prettyPrint=false", {"context": ctx(), "continuation": v["continuation"], "currentPlayerState": {"playerOffsetMs": "600000"}})
+                        print(f"   api replay with {k} @10:00 -> {s2}", json.loads(b2).get("error", {}).get("message"))
+                        if s2 == 200: show_replay(k, json.loads(b2))
+        s2, b2 = req("https://www.youtube.com/youtubei/v1/live_chat/get_live_chat_replay?prettyPrint=false", {"context": ctx(), "continuation": tok, "currentPlayerState": {"playerOffsetMs": "600000"}})
+        print(f" api replay [{label} reload token] @10:00 -> {s2}", json.loads(b2).get("error", {}).get("message"))
+        if s2 == 200: show_replay("direct", json.loads(b2))
+for url in [f"https://www.youtube.com/live_chat_replay?v={REPLAY}", f"https://www.youtube.com/live_chat_replay?is_popout=1&v={REPLAY}"]:
+    s, b = req(url)
+    d, why = initial_data(b.decode("utf-8", "replace"))
+    print(f" {url[24:]} -> {s} {len(b)}B {why}")
+    if d: show_replay("popout", d)
