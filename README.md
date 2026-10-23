@@ -1,7 +1,7 @@
-# DVDTube — xem YouTube không quảng cáo trên iPhone
+# DVDTube — xem YouTube không quảng cáo trên iPhone và Android
 
-Ứng dụng iOS viết bằng SwiftUI, giao diện theo phong cách ứng dụng YouTube chính thức nhưng
-**không có quảng cáo** và mở sẵn các tính năng của YouTube Premium: phát trong nền,
+Ứng dụng iOS (SwiftUI) và Android (Kotlin + Jetpack Compose) cùng tính năng, giao diện theo phong
+cách ứng dụng YouTube chính thức nhưng **không có quảng cáo** và mở sẵn các tính năng của YouTube Premium: phát trong nền,
 hình trong hình (PiP), tải video xem offline.
 
 > DVDTube là dự án cá nhân, không chính thức, không liên kết với Google/YouTube.
@@ -64,7 +64,7 @@ Có hai cách. iOS 17 trở lên.
 
 ### Cách 1 — Không cần máy Mac (tải IPA từ GitHub)
 
-1. Vào tab **Actions** của repo → chọn lần chạy *Build iOS app* mới nhất (dấu tích xanh) →
+1. Vào tab **Actions** của repo → chọn lần chạy *Build apps* mới nhất (dấu tích xanh) →
    tải **DVDTube-unsigned-ipa** ở mục *Artifacts* rồi giải nén ra `DVDTube-unsigned.ipa`.
    Nếu đã tạo tag dạng `v1.0`, tệp IPA cũng có trong mục **Releases**.
 2. Cài tệp IPA bằng một trong các công cụ sau (chúng tự ký lại bằng Apple ID của bạn):
@@ -80,6 +80,24 @@ Có hai cách. iOS 17 trở lên.
    *Bundle Identifier* thành tên riêng, ví dụ `com.tenban.dvdtube`.
 3. Cắm iPhone, chọn thiết bị và bấm **Run** (⌘R). Lần đầu cần bật *Developer Mode* trên iPhone
    và tin cậy nhà phát triển trong *Cài đặt › Cài đặt chung › Quản lý VPN & thiết bị*.
+
+## Cài đặt lên Android
+
+Android 8.0 trở lên. Mỗi lần build, GitHub Actions tạo cả tệp IPA (iPhone) và tệp APK (Android).
+
+1. Vào tab **Actions** của repo → chọn lần chạy *Build apps* mới nhất (dấu tích xanh) → tải
+   **DVDTube-apk** ở mục *Artifacts*, giải nén ra `DVDTube.apk` (nếu đã tạo tag `v…`, tệp APK cũng
+   có trong mục **Releases**).
+2. Mở tệp APK trên điện thoại, cho phép *Cài ứng dụng không rõ nguồn gốc* cho trình duyệt / trình
+   quản lý tệp khi được hỏi, rồi bấm **Cài đặt**.
+3. Không hết hạn, không cần ký lại. Các bản sau ký bằng cùng khóa nên cài đè lên bản cũ, giữ nguyên
+   dữ liệu (đăng ký kênh, nhật ký, tải xuống…).
+
+Bản Android có đầy đủ các tính năng ở bảng trên: phát trong nền với điều khiển trên thông báo và màn
+hình khóa, hình trong hình (tự bật khi về màn hình chính), xoay ngang để xem toàn màn hình, Chromecast
+(qua Google Cast có sẵn trong Google Play services), đăng nhập Google, nhiều tài khoản/kênh thương
+hiệu, tải video lên, live chat, thông báo video mới (WorkManager, khoảng mỗi giờ), mở link YouTube
+được chia sẻ từ ứng dụng khác.
 
 ## Cách hoạt động
 
@@ -117,9 +135,15 @@ DVDYoutube/
 ├─ Components/     Thẻ video, ảnh có cache, danh sách phân trang…
 └─ Resources/      Asset catalog (biểu tượng ứng dụng)
 Config/            Info.plist và remote-config.json
+android/           Ứng dụng Android (Gradle): cùng cấu trúc core/ (InnerTube, dịch vụ, lưu trữ),
+                   player/ (Media3 ExoPlayer, MediaSession), cast/ (Google Cast + relay), ui/ (Compose)
 ```
 
-Dự án dùng *thư mục đồng bộ* của Xcode 16: thêm tệp `.swift` mới vào `DVDYoutube/` là Xcode tự
+Bản Android dùng Media3 ExoPlayer thay cho AVPlayer, WebView cho trình phát web dự phòng và đăng
+nhập, Google Cast SDK cho Chromecast. Build bằng `cd android && ./gradlew assembleRelease`
+(JDK 17, Android SDK 35).
+
+Dự án iOS dùng *thư mục đồng bộ* của Xcode 16: thêm tệp `.swift` mới vào `DVDYoutube/` là Xcode tự
 nhận, không phải sửa `project.pbxproj`.
 
 ## Giới hạn
