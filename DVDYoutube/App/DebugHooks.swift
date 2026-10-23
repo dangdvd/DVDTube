@@ -162,8 +162,10 @@ enum DebugHooks {
             let mediaURIs = uris(String(decoding: media.1, as: UTF8.self))
             Log.debug("relay probe: media playlist -> \(media.0), \(mediaURIs.count) uris, all relayed=\(mediaURIs.allSatisfy { $0.host == "127.0.0.1" })")
             if let first = mediaURIs.first {
-                let initSegment = await get(first)
-                Log.debug("relay probe: first resource -> \(initSegment.0), \(initSegment.1.count) bytes")
+                let head = await get(first, method: "HEAD")
+                Log.debug("relay probe: HEAD first resource -> \(head.0), length=\(head.2["Content-Length"] ?? "none")")
+                let start = await get(first, range: "bytes=0-65535")
+                Log.debug("relay probe: first resource range -> \(start.0), \(start.1.count) bytes")
             }
             if mediaURIs.count > 1 {
                 let partial = await get(mediaURIs[1], range: "bytes=0-1023")
