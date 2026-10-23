@@ -1,0 +1,91 @@
+import SwiftUI
+import UIKit
+
+/// Memory-cached, de-duplicated image loading for thumbnails and avatars.
+actor ImageLoader {
+    static let shared = ImageLoader()
+
+    private nonisolated(unsafe) let cache: NSCache<NSURL, UIImage> = {
+        let cache = NSCache<NSURL, UIImage>()
+        cache.totalCostLimit = 96 << 20
+        return cache
+    }()
+    private var inFlight: [URL: Task<UIImage?, Never>] = [:]
+
+    nonisolated func cached(_ url: URL) -> UIImage? {
+        cache.object(forKey: url as NSURL)
+    }
+
+    func image(for url: URL) async -> UIImage? {
+        if let cached = cached(url) { return cached }
+        if let task = inFlight[url] { return await task.value }
+        let task = Task.detached(priority: .userInitiated) { () -> UIImage? in
+            guard let result = try? await URLSession.shared.data(from: url),
+                  let image = UIImage(data: result.0) else { return nil }
+            return image.preparingForDisplay() ?? image
+        }
+        inFlight[url] = task
+        let image = await task.value
+        inFlight[url] = nil
+        if let image {
+            cache.setObject(image, forKey: url as NSURL, cost: Int(image.size.width * image.size.height * image.scale * 4))
+        }
+        return image
+    }
+}
+
+struct RemoteImage: View {
+    let url: URL?
+    var contentMode: ContentMode = .fill
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        Rectangle()
+            .fill(Color(.secondarySystemFill))
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: contentMode)
+                        .transition(.opacity)
+                }
+            }
+            .clipped()
+            .task(id: url) {
+                guard let url else {
+                    image = nil
+                    return
+                }
+                if let cached = ImageLoader.shared.cached(url) {
+                    image = cached
+                    return
+                }
+                image = nil
+                let loaded = await ImageLoader.shared.image(for: url)
+                withAnimation(.easeOut(duration: 0.2)) { image = loaded }
+            }
+    }
+}
+
+struct AvatarView: View {
+    let url: URL?
+    var size: CGFloat = 36
+    var name: String = ""
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color(.tertiarySystemFill))
+            if url == nil, let initial = name.first {
+                Text(String(initial).uppercased())
+                    .font(.system(size: size * 0.45, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            if url != nil {
+                RemoteImage(url: url)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+    }
+}

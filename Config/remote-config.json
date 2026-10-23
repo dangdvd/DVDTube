@@ -1,0 +1,27 @@
+{
+  "message": "Cấu hình mặc định: phát video qua client visionOS (HLS, không cần PO token).",
+  "playerClients": [
+    {
+      "name": "VISIONOS",
+      "id": 101,
+      "version": "1.04",
+      "host": "youtubei.googleapis.com",
+      "userAgent": "com.google.visionos.youtube/1.04(RealityDevice17,1; U; CPU visionOS 26_6_0 like Mac OS X; {gl})",
+      "deviceMake": "Apple",
+      "deviceModel": "RealityDevice17,1",
+      "osName": "visionOS",
+      "osVersion": "26.6.0.23O770",
+      "platform": "MOBILE",
+      "clientScreen": "WATCH",
+      "sendClientHeaders": false,
+      "extraHeaders": { "X-Goog-Api-Format-Version": "2" }
+    }
+  ],
+  "web": {
+    "name": "WEB",
+    "id": 1,
+    "version": "2.20261019.01.00",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15",
+    "platform": "DESKTOP"
+  }
+}
