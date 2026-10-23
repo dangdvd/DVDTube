@@ -49,6 +49,8 @@ final class Router {
     /// The sign-in sheet adds another Google account instead of replacing the session.
     var signInAddsAccount = false
     var showAccountSwitcher = false
+    /// Chromecast device list.
+    var showCastPicker = false
     var showUpload = false
 
     func signIn(addingAccount: Bool = false) {

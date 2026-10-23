@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// The Cast button in the player's top bar.
+/// The Cast button in the player's top bar. The device list is presented from the root
+/// view: the player's controls hide after a few seconds while a video plays, and a sheet
+/// attached to them would close with them.
 struct CastButton: View {
-    @Environment(PlayerManager.self) private var player
-    @State private var showDevices = false
+    @Environment(Router.self) private var router
     private var cast: CastManager { CastManager.shared }
 
     var body: some View {
         Button {
-            showDevices = true
+            router.showCastPicker = true
         } label: {
             Image(systemName: cast.isActive ? "tv.fill" : "tv")
                 .font(.system(size: 18, weight: .semibold))
@@ -18,10 +19,8 @@ struct CastButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Truyền tới TV (Chromecast)")
-        .sheet(isPresented: $showDevices) {
-            CastDevicesSheet()
-                .presentationDetents([.medium, .large])
-        }
+        // Look for TVs early so the list is ready when the button is tapped.
+        .onAppear { cast.startDiscovery() }
     }
 }
 
@@ -107,7 +106,6 @@ struct CastDevicesSheet: View {
             }
         }
         .onAppear { cast.startDiscovery() }
-        .onDisappear { cast.stopDiscovery() }
         .onChange(of: cast.isConnected) { _, connected in
             if connected { dismiss() }
         }

@@ -52,6 +52,10 @@ struct RootView: View {
         .sheet(isPresented: $router.showSignIn) {
             GoogleSignInView(addsAccount: router.signInAddsAccount)
         }
+        .sheet(isPresented: $router.showCastPicker) {
+            CastDevicesSheet()
+                .presentationDetents([.medium, .large])
+        }
         .sheet(isPresented: $router.showAccountSwitcher) {
             AccountSwitcherSheet()
                 .presentationDetents([.medium, .large])

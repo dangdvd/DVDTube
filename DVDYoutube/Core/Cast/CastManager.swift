@@ -123,6 +123,7 @@ final class CastManager {
     }
 
     private func updateDevices(_ results: Set<NWBrowser.Result>) {
+        defer { Log.debug("cast discovery: \(devices.count) device(s)") }
         devices = results.compactMap { result -> Device? in
             guard case let .service(name, _, _, _) = result.endpoint else { return nil }
             var txt: [String: String] = [:]
