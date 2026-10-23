@@ -8,7 +8,34 @@ import com.dangdvd.dvdtube.core.FeedItem
 import com.dangdvd.dvdtube.core.FeedPage
 import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.services.YouTubeService
+import com.dangdvd.dvdtube.core.storage.AppScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+
+/**
+ * Runs one piece of work at a time in the app scope, so it survives the screen that asked
+ * for it (Android recreates the activity, e.g. when Google Play services or WebView add
+ * resources at first launch). A second caller waits for the running work instead of
+ * starting it again.
+ */
+class SingleFlight {
+    private var job: Job? = null
+
+    val isRunning: Boolean get() = job?.isActive == true
+
+    suspend fun run(restart: Boolean = false, block: suspend () -> Unit) {
+        val running = job
+        if (running != null && running.isActive && !restart) {
+            running.join()
+            return
+        }
+        running?.cancel()
+        val next = AppScope.launch { block() }
+        job = next
+        next.join()
+    }
+}
 
 /** Anything shown as a paginated feed (see [pagedFeed]). */
 interface PagedFeed {
@@ -52,8 +79,14 @@ class FeedModel(private val loader: suspend () -> FeedPage) : PagedFeed {
 
     override val canLoadMore: Boolean get() = continuation != null
 
+    private val flight = SingleFlight()
+
     override suspend fun load(force: Boolean) {
-        if (!force && (hasLoaded || isLoading)) return
+        if (!force && hasLoaded) return
+        flight.run(restart = force) { fetch() }
+    }
+
+    private suspend fun fetch() {
         val current = ++generation
         isLoading = true
         error = null

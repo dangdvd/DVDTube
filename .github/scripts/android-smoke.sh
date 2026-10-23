@@ -30,7 +30,7 @@ scenario() {
 }
 
 scenario home 30 -n "$PACKAGE/.MainActivity"
-scenario search 20 -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT "lofi hip hop" "$PACKAGE"
+scenario search 20 -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT "'lofi hip hop'" "$PACKAGE"
 scenario channel 20 -a android.intent.action.VIEW -d "https://www.youtube.com/@NASA" "$PACKAGE"
 scenario watch 45 -a android.intent.action.VIEW -d "https://www.youtube.com/watch?v=aqz-KE-bpKQ" "$PACKAGE"
 adb shell input keyevent KEYCODE_BACK

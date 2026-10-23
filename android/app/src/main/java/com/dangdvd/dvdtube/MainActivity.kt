@@ -48,7 +48,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { DVDTubeTheme { MainScreen() } }
-        handleIntent(intent)
+        // A recreated activity gets the launch intent again: it was already handled.
+        if (savedInstanceState == null) handleIntent(intent)
         NewVideoWorker.createChannel(this)
         NewVideoWorker.sync(this)
         if (Build.VERSION.SDK_INT >= 33 &&

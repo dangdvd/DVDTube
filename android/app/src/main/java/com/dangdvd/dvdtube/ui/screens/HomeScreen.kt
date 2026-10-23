@@ -64,6 +64,7 @@ import com.dangdvd.dvdtube.ui.Router
 import com.dangdvd.dvdtube.ui.components.Avatar
 import com.dangdvd.dvdtube.ui.components.FeedModel
 import com.dangdvd.dvdtube.ui.components.PagedFeed
+import com.dangdvd.dvdtube.ui.components.SingleFlight
 import com.dangdvd.dvdtube.ui.components.pagedFeed
 import com.dangdvd.dvdtube.ui.isDarkTheme
 import com.dangdvd.dvdtube.ui.player.CastButton
@@ -94,8 +95,14 @@ class HomeFeedModel : PagedFeed {
     private var trendingKind = com.dangdvd.dvdtube.core.ContinuationKind.SEARCH
     override val canLoadMore: Boolean get() = trendingContinuation != null
 
+    private val flight = SingleFlight()
+
     override suspend fun load(force: Boolean) {
-        if (!force && (hasLoaded || isLoading)) return
+        if (!force && hasLoaded) return
+        flight.run(restart = force) { fetch() }
+    }
+
+    private suspend fun fetch() {
         isLoading = true
         error = null
         try {
