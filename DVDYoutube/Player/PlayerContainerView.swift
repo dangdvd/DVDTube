@@ -36,10 +36,16 @@ struct PlayerContainerView: View {
                 Color.black.frame(height: insets.top)
             }
             HStack(spacing: 0) {
-                PlayerSurface(mode: fullscreen ? .fullscreen : (expanded ? .inline : .mini), insets: insets)
-                    .frame(width: videoWidth, height: videoHeight)
+                let turns = fullscreen ? player.fullscreenQuarterTurns : 0
+                let sideways = turns % 2 == 1
+                PlayerSurface(mode: fullscreen ? .fullscreen : (expanded ? .inline : .mini),
+                              insets: Self.rotate(insets, quarterTurns: turns))
+                    .frame(width: sideways ? videoHeight : videoWidth, height: sideways ? videoWidth : videoHeight)
                     .gesture(swipeGesture(fullscreen: fullscreen),
                              including: expanded && !player.isScreenLocked ? .all : .subviews)
+                    .rotationEffect(.degrees(Double(turns) * 90))
+                    .frame(width: videoWidth, height: videoHeight)
+                    .animation(.easeInOut(duration: 0.3), value: turns)
                 if !expanded {
                     MiniPlayerBar()
                 }
@@ -62,6 +68,16 @@ struct PlayerContainerView: View {
         .animation(.spring(response: 0.38, dampingFraction: 0.9), value: expanded)
         .statusBarHidden(fullscreen)
         .persistentSystemOverlays(fullscreen ? .hidden : .automatic)
+    }
+
+    /// The screen's safe area as seen by a player turned clockwise by `quarterTurns`.
+    static func rotate(_ insets: EdgeInsets, quarterTurns: Int) -> EdgeInsets {
+        switch quarterTurns {
+        case 1: return EdgeInsets(top: insets.trailing, leading: insets.top, bottom: insets.leading, trailing: insets.bottom)
+        case 2: return EdgeInsets(top: insets.bottom, leading: insets.trailing, bottom: insets.top, trailing: insets.leading)
+        case 3: return EdgeInsets(top: insets.leading, leading: insets.bottom, bottom: insets.trailing, trailing: insets.top)
+        default: return insets
+        }
     }
 
     /// Same gestures as the official app: on the portrait watch page swipe up for

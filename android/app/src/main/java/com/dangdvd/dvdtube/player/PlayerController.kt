@@ -105,10 +105,16 @@ object PlayerController {
         get() = fullscreenState
         set(value) {
             fullscreenState = value
-            if (!value) isPortraitFullscreen = false
+            if (!value) {
+                isPortraitFullscreen = false
+                fullscreenRotation = null
+            }
         }
     /** Fullscreen kept upright, for videos taller than they are wide. */
     var isPortraitFullscreen by mutableStateOf(false)
+        private set
+    /** Screen rotation (Surface.ROTATION_*) picked with the rotate buttons in fullscreen, if any. */
+    var fullscreenRotation by mutableStateOf<Int?>(null)
         private set
     /** Width and height of the picture being played, once the player knows them. */
     private var pictureSize by mutableStateOf<Pair<Int, Int>?>(null)
@@ -243,10 +249,18 @@ object PlayerController {
         isFullscreen = true
     }
 
-    /** A wide video coming up in portrait fullscreen turns the screen sideways. */
+    /**
+     * Turns the screen a quarter turn, e.g. to watch lying down; it then stays that way
+     * whichever way the phone is held. [currentRotation] is where the screen is now.
+     */
+    fun rotateFullscreen(clockwise: Boolean, currentRotation: Int) {
+        fullscreenRotation = ((fullscreenRotation ?: currentRotation) + if (clockwise) 1 else 3) % 4
+    }
+
+    /** A wide video coming up in portrait fullscreen turns the screen sideways (unless turned by hand). */
     private fun matchFullscreenToVideo() {
         val ratio = videoAspectRatio ?: return
-        if (isPortraitFullscreen && ratio > 1f) isPortraitFullscreen = false
+        if (isPortraitFullscreen && fullscreenRotation == null && ratio > 1f) isPortraitFullscreen = false
     }
 
     fun play(video: VideoItem, newQueue: List<VideoItem>? = null, startAt: Double? = null) {

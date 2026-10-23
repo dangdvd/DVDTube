@@ -51,6 +51,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.RotateLeft
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -84,6 +86,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -435,11 +438,16 @@ private fun StatsOverlay(modifier: Modifier) {
 
 @Composable
 private fun WebPlayerBar(fullscreen: Boolean, onSettings: () -> Unit) {
+    val view = LocalView.current
     Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
         SmallOverlayButton(if (fullscreen) Icons.Default.FullscreenExit else Icons.Default.KeyboardArrowDown) {
             if (fullscreen) PlayerController.isFullscreen = false else PlayerController.isExpanded = false
         }
         Spacer(Modifier.weight(1f))
+        if (fullscreen) {
+            SmallOverlayButton(Icons.Default.RotateLeft) { PlayerController.rotateFullscreen(false, view.display?.rotation ?: 0) }
+            SmallOverlayButton(Icons.Default.RotateRight) { PlayerController.rotateFullscreen(true, view.display?.rotation ?: 0) }
+        }
         SmallOverlayButton(if (fullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen) {
             if (fullscreen) PlayerController.isFullscreen = false else PlayerController.enterFullscreen()
         }
@@ -457,6 +465,7 @@ private fun SmallOverlayButton(icon: androidx.compose.ui.graphics.vector.ImageVe
 
 @Composable
 private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onSleepTimer: () -> Unit, onInteract: () -> Unit) {
+    val view = LocalView.current
     val video = PlayerController.currentVideo
     val info = PlayerController.playerInfo
     val isLive = video?.isLive == true || info?.isLive == true
@@ -552,6 +561,14 @@ private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onSleepT
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 }
                 Spacer(Modifier.weight(1f))
+                if (fullscreen) {
+                    IconButton(onClick = { PlayerController.rotateFullscreen(false, view.display?.rotation ?: 0); onInteract() }) {
+                        Icon(Icons.Default.RotateLeft, "Xoay ngược chiều kim đồng hồ", tint = Color.White)
+                    }
+                    IconButton(onClick = { PlayerController.rotateFullscreen(true, view.display?.rotation ?: 0); onInteract() }) {
+                        Icon(Icons.Default.RotateRight, "Xoay theo chiều kim đồng hồ", tint = Color.White)
+                    }
+                }
                 IconButton(onClick = { if (fullscreen) PlayerController.isFullscreen = false else PlayerController.enterFullscreen() }) {
                     Icon(if (fullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Toàn màn hình", tint = Color.White)
                 }

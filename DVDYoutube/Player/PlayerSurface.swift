@@ -141,6 +141,18 @@ struct PlayerSurface: View {
                         Label(mode == .fullscreen ? "Thoát toàn màn hình" : "Toàn màn hình",
                               systemImage: "arrow.up.left.and.arrow.down.right")
                     }
+                    if mode == .fullscreen {
+                        Button {
+                            player.rotateFullscreen(clockwise: false)
+                        } label: {
+                            Label("Xoay ngược chiều kim đồng hồ", systemImage: "rotate.left")
+                        }
+                        Button {
+                            player.rotateFullscreen(clockwise: true)
+                        } label: {
+                            Label("Xoay theo chiều kim đồng hồ", systemImage: "rotate.right")
+                        }
+                    }
                 } label: {
                     Label("Trình phát web", systemImage: "globe")
                         .font(.caption2.weight(.semibold))
@@ -473,6 +485,16 @@ struct PlayerSurface: View {
                     Button { player.togglePictureInPicture() } label: {
                         Image(systemName: "pip.enter").controlIcon(size: 17)
                     }
+                }
+                if mode == .fullscreen {
+                    Button { player.rotateFullscreen(clockwise: false) } label: {
+                        Image(systemName: "rotate.left").controlIcon(size: 17)
+                    }
+                    .accessibilityLabel("Xoay ngược chiều kim đồng hồ")
+                    Button { player.rotateFullscreen(clockwise: true) } label: {
+                        Image(systemName: "rotate.right").controlIcon(size: 17)
+                    }
+                    .accessibilityLabel("Xoay theo chiều kim đồng hồ")
                 }
                 Button {
                     toggleFullscreen()
