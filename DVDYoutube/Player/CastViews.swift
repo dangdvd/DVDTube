@@ -142,6 +142,9 @@ struct CastingBackdrop: View {
             }
             .foregroundStyle(.white)
             .padding(.horizontal)
+            // Under the top bar, clear of the play button in the middle.
+            .frame(maxHeight: .infinity, alignment: compact ? .center : .top)
+            .padding(.top, compact ? 0 : 48)
         }
         .allowsHitTesting(false)
     }
