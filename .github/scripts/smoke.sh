@@ -35,10 +35,7 @@ run() {
     "$UDID" "$BUNDLE" -DVDTubeVerbose "$@"
   sleep "$wait"
   xcrun simctl io "$UDID" screenshot "$OUT/$name.png"
-  sed 's/^/    /' "$OUT/$name.log" | tail -n 40
-  # Small JPEG preview inline in the log, for reviewers without artifact access.
-  sips -Z 480 -s format jpeg -s formatOptions 45 "$OUT/$name.png" --out "$OUT/$name.jpg" >/dev/null 2>&1 \
-    && echo "SHOT $name $(base64 -i "$OUT/$name.jpg" | tr -d '\n')"
+  sed 's/^/    /' "$OUT/$name.log" | uniq | tail -n 40
 }
 
 run home 30
