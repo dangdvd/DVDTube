@@ -271,7 +271,7 @@ struct SettingsView: View {
 
             Section("Giới thiệu") {
                 LabeledContent("Phiên bản", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
-                Link(destination: URL(string: "https://github.com/dangdvd/DVDYoutube")!) {
+                Link(destination: URL(string: "https://github.com/dangdvd/DVDTube")!) {
                     Label("Mã nguồn trên GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
                 Text("DVDTube là ứng dụng không chính thức, không liên kết với Google hay YouTube. Mọi dữ liệu (đăng ký, nhật ký, danh sách phát) chỉ được lưu trên thiết bị này.")

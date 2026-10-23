@@ -105,7 +105,7 @@ object APIConfig {
     val playerProfiles: List<ClientProfile>
         get() = remote?.playerClients?.takeIf { it.isNotEmpty() } ?: listOf(ClientProfile.VISIONOS)
 
-    const val DEFAULT_REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/dangdvd/DVDYoutube/main/Config/remote-config.json"
+    const val DEFAULT_REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/dangdvd/DVDTube/main/Config/remote-config.json"
 
     val remoteConfigUrl: String get() = AppSettings.remoteConfigUrl.ifBlank { DEFAULT_REMOTE_CONFIG_URL }
 
