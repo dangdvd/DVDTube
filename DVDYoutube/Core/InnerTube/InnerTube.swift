@@ -101,6 +101,7 @@ final class InnerTube {
 
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        Log.debug("\(profile.name) \(endpoint) -> HTTP \(status), \(data.count) bytes")
         guard (200..<300).contains(status) else { throw InnerTubeError.http(status) }
         return try JNode(data: data)
     }
@@ -153,6 +154,7 @@ final class InnerTube {
                     )
                     return try PlayerParser.parse(json, videoId: videoId)
                 } catch let error as InnerTubeError {
+                    Log.debug("player(\(videoId)) via \(profile.name) failed: \(error.localizedDescription)")
                     lastError = error
                     // A bad visitor id shows up as an unplayable response; retry once with a fresh one.
                     if case .unplayable = error, attempt == 0 { continue }

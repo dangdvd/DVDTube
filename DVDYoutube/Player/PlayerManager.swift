@@ -296,6 +296,7 @@ final class PlayerManager {
             let info = try await service.player(video.id)
             guard !Task.isCancelled, currentVideo?.id == video.id else { return }
             playerInfo = info
+            Log.debug("stream \(video.id): hls=\(info.hlsURL != nil) adaptive=\(info.adaptiveFormats.count) muxed=\(info.muxedFormats.count) captions=\(info.captions.count) adWait=\(Int(info.availableAt.timeIntervalSinceNow))s")
             captionTracks = info.captions
             if duration <= 0, let length = info.lengthSeconds { duration = Double(length) }
             enrichCurrentVideo(with: info)
@@ -319,6 +320,7 @@ final class PlayerManager {
             return
         } catch {
             guard !Task.isCancelled, currentVideo?.id == video.id else { return }
+            Log.debug("stream \(video.id) failed: \(error.localizedDescription)")
             isLoading = false
             playbackError = error.localizedDescription
         }
@@ -484,6 +486,7 @@ final class PlayerManager {
         guard item === player.currentItem else { return }
         switch item.status {
         case .readyToPlay:
+            Log.debug("item ready (stage \(fallbackStage)), duration \(item.duration.seconds)")
             isLoading = false
             playbackError = nil
             let seconds = item.duration.seconds
@@ -491,6 +494,7 @@ final class PlayerManager {
             updateNowPlayingInfo()
         case .failed:
             let message = item.error?.localizedDescription ?? "Không phát được video."
+            Log.debug("item failed at stage \(fallbackStage): \(item.error.map { String(describing: $0) } ?? "unknown")")
             if let info = playerInfo, fallbackStage < 2, !isLocalPlayback {
                 // Try the next way of playing the same video.
                 let resumeAt = currentTime
@@ -540,6 +544,9 @@ final class PlayerManager {
 
     private func tick(_ seconds: Double) {
         guard seconds.isFinite, player.currentItem != nil else { return }
+        if Log.verbose, Int(seconds) / 5 != Int(currentTime) / 5 {
+            Log.debug("playing \(currentVideo?.id ?? "?") at \(Int(seconds))s, buffered \(Int(bufferedTime))s")
+        }
         currentTime = seconds
         if let item = player.currentItem {
             if let range = item.loadedTimeRanges.first?.timeRangeValue {

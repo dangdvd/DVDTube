@@ -35,8 +35,10 @@ final class FeedModel {
             continuation = page.continuation
             kind = page.kind
             hasLoaded = true
+            Log.debug("feed loaded: \(page.items.count) items, continuation=\(page.continuation != nil)")
         } catch {
             guard current == generation else { return }
+            Log.debug("feed load failed: \(error)")
             if !(error is CancellationError) { self.error = error.localizedDescription }
         }
         isLoading = false

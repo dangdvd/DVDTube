@@ -1,19 +1,24 @@
 import SwiftUI
 import UIKit
 
-/// Memory-cached, de-duplicated image loading for thumbnails and avatars.
-actor ImageLoader {
-    static let shared = ImageLoader()
-
-    private nonisolated(unsafe) let cache: NSCache<NSURL, UIImage> = {
+/// `NSCache` is thread-safe but not annotated as `Sendable`.
+private final class ImageCache: @unchecked Sendable {
+    let storage: NSCache<NSURL, UIImage> = {
         let cache = NSCache<NSURL, UIImage>()
         cache.totalCostLimit = 96 << 20
         return cache
     }()
+}
+
+/// Memory-cached, de-duplicated image loading for thumbnails and avatars.
+actor ImageLoader {
+    static let shared = ImageLoader()
+
+    private nonisolated let cache = ImageCache()
     private var inFlight: [URL: Task<UIImage?, Never>] = [:]
 
     nonisolated func cached(_ url: URL) -> UIImage? {
-        cache.object(forKey: url as NSURL)
+        cache.storage.object(forKey: url as NSURL)
     }
 
     func image(for url: URL) async -> UIImage? {
@@ -28,7 +33,7 @@ actor ImageLoader {
         let image = await task.value
         inFlight[url] = nil
         if let image {
-            cache.setObject(image, forKey: url as NSURL, cost: Int(image.size.width * image.size.height * image.scale * 4))
+            cache.storage.setObject(image, forKey: url as NSURL, cost: Int(image.size.width * image.size.height * image.scale * 4))
         }
         return image
     }

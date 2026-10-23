@@ -67,6 +67,7 @@ final class ShortsPlayer {
                 }
                 guard !Task.isCancelled, self.currentId == video.id else { return }
                 guard let url = info.hlsURL ?? info.muxedFormats.first?.url else { throw InnerTubeError.noStreams }
+                Log.debug("short \(video.id): playing \(info.hlsURL != nil ? "HLS" : "muxed")")
                 let item = AVPlayerItem(url: url)
                 item.preferredMaximumResolution = CGSize(width: 1920, height: 1920)
                 self.replaceItem(item)
