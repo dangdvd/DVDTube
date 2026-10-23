@@ -1,0 +1,147 @@
+import SwiftUI
+
+struct SettingsView: View {
+    @Environment(AppSettings.self) private var settings
+    @Environment(LibraryStore.self) private var library
+    @Environment(DownloadManager.self) private var downloads
+    @Environment(PlayerManager.self) private var player
+
+    @State private var confirmClearHistory = false
+    @State private var refreshingConfig = false
+    @State private var configStatus: String?
+
+    var body: some View {
+        @Bindable var settings = settings
+        Form {
+            Section("Chung") {
+                Picker("Ngôn ngữ nội dung", selection: $settings.language) {
+                    ForEach(AppSettings.languages, id: \.code) { Text($0.name).tag($0.code) }
+                }
+                Picker("Khu vực", selection: $settings.region) {
+                    ForEach(AppSettings.regions, id: \.code) { Text($0.name).tag($0.code) }
+                }
+                Picker("Giao diện", selection: $settings.theme) {
+                    ForEach(AppTheme.allCases) { Text($0.title).tag($0) }
+                }
+            }
+
+            Section {
+                Picker("Chất lượng khi dùng Wi-Fi", selection: $settings.wifiQuality) {
+                    ForEach(VideoQuality.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Chất lượng khi dùng dữ liệu di động", selection: $settings.cellularQuality) {
+                    ForEach(VideoQuality.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Tốc độ phát mặc định", selection: $settings.playbackSpeed) {
+                    ForEach(AppSettings.speeds, id: \.self) { speed in
+                        Text(speed == 1 ? "Bình thường" : String(format: "%gx", speed)).tag(speed)
+                    }
+                }
+                Toggle("Tự động phát video tiếp theo", isOn: $settings.autoplay)
+                Toggle("Phát trong nền", isOn: $settings.backgroundPlayback)
+                Toggle("Tự động bật hình trong hình (PiP)", isOn: $settings.autoPictureInPicture)
+                    .onChange(of: settings.autoPictureInPicture) { _, _ in player.updateAutoPiP() }
+                Toggle("Tiếp tục từ vị trí đã xem", isOn: $settings.resumePlayback)
+            } header: {
+                Text("Phát video")
+            } footer: {
+                Text("Phát trong nền và PiP là các tính năng của YouTube Premium, ở đây được bật miễn phí.")
+            }
+
+            Section("Phụ đề") {
+                Toggle("Tự động bật phụ đề", isOn: $settings.captionsEnabled)
+                Picker("Ngôn ngữ phụ đề", selection: $settings.captionLanguage) {
+                    ForEach(AppSettings.languages, id: \.code) { Text($0.name).tag($0.code) }
+                }
+            }
+
+            Section {
+                Toggle("Bỏ qua đoạn tài trợ (SponsorBlock)", isOn: $settings.sponsorBlockEnabled)
+                if settings.sponsorBlockEnabled {
+                    ForEach(SponsorBlock.allCategories, id: \.id) { category in
+                        Toggle(category.title, isOn: Binding(
+                            get: { settings.sponsorBlockCategories.contains(category.id) },
+                            set: { enabled in
+                                var categories = settings.sponsorBlockCategories.filter { $0 != category.id }
+                                if enabled { categories.append(category.id) }
+                                settings.sponsorBlockCategories = categories
+                            }
+                        ))
+                        .padding(.leading, 12)
+                    }
+                }
+            } header: {
+                Text("Chặn quảng cáo trong video")
+            } footer: {
+                Text("Quảng cáo của YouTube luôn bị chặn. SponsorBlock bỏ qua thêm các đoạn quảng cáo do người làm video tự lồng vào, dựa trên dữ liệu cộng đồng (sponsor.ajay.app).")
+            }
+
+            Section("Tải xuống") {
+                Picker("Chất lượng tải xuống", selection: $settings.downloadQuality) {
+                    ForEach(VideoQuality.allCases.filter { $0 != .auto }) { Text($0.title).tag($0) }
+                }
+                LabeledContent("Dung lượng đã dùng",
+                               value: ByteCountFormatter.string(fromByteCount: downloads.totalSize, countStyle: .file))
+            }
+
+            Section("Quyền riêng tư") {
+                Toggle("Lưu nhật ký xem", isOn: $settings.saveHistory)
+                Button("Xóa nhật ký xem", role: .destructive) { confirmClearHistory = true }
+                Button("Xóa lịch sử tìm kiếm", role: .destructive) { library.clearSearchHistory() }
+            }
+
+            Section {
+                TextField("URL cấu hình từ xa", text: $settings.remoteConfigURL, prompt: Text(APIConfig.defaultRemoteConfigURL))
+                    .font(.footnote)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                Button {
+                    Task {
+                        refreshingConfig = true
+                        await APIConfig.refreshRemoteConfig()
+                        configStatus = APIConfig.remote == nil ? "Đang dùng cấu hình tích hợp" : "Đã tải cấu hình từ xa"
+                        refreshingConfig = false
+                    }
+                } label: {
+                    HStack {
+                        Text("Cập nhật cấu hình ngay")
+                        Spacer()
+                        if refreshingConfig { ProgressView() }
+                    }
+                }
+                Button("Dùng lại cấu hình tích hợp") {
+                    APIConfig.clearRemoteConfig()
+                    configStatus = "Đang dùng cấu hình tích hợp"
+                }
+                LabeledContent("Client phát video", value: APIConfig.playerProfiles.map { "\($0.name) \($0.version)" }.joined(separator: ", "))
+                    .font(.footnote)
+                if let message = APIConfig.remote?.message {
+                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                }
+                if let configStatus {
+                    Text(configStatus).font(.footnote).foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Nâng cao")
+            } footer: {
+                Text("Khi YouTube thay đổi cách cung cấp video, chỉ cần sửa tệp Config/remote-config.json trong kho GitHub là ứng dụng tự cập nhật, không cần cài lại.")
+            }
+
+            Section("Giới thiệu") {
+                LabeledContent("Phiên bản", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+                Link(destination: URL(string: "https://github.com/dangdvd/DVDYoutube")!) {
+                    Label("Mã nguồn trên GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                Text("DVDTube là ứng dụng không chính thức, không liên kết với Google hay YouTube. Mọi dữ liệu (đăng ký, nhật ký, danh sách phát) chỉ được lưu trên thiết bị này.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Cài đặt")
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Xóa toàn bộ nhật ký xem?", isPresented: $confirmClearHistory, titleVisibility: .visible) {
+            Button("Xóa", role: .destructive) { library.clearHistory() }
+        }
+    }
+}
