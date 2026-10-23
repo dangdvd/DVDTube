@@ -106,7 +106,8 @@ final class ShortsPlayer {
 
     /// Resolves the stream of an upcoming Short so swiping to it starts instantly.
     func prefetch(_ video: VideoItem) {
-        guard cache[video.id] == nil, Date() >= blockedUntil else { return }
+        // Data saver: nothing is fetched ahead on mobile data.
+        guard cache[video.id] == nil, Date() >= blockedUntil, !AppSettings.shared.savesData else { return }
         Task { _ = try? await self.info(for: video.id) }
     }
 

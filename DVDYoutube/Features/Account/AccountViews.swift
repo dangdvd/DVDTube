@@ -284,6 +284,16 @@ struct AccountSwitcherSheet: View {
                     }
                 }
                 Section {
+                    Toggle(isOn: Binding(
+                        get: { AppSettings.shared.isIncognito },
+                        set: { AppSettings.shared.isIncognito = $0 }
+                    )) {
+                        Label("Bật chế độ ẩn danh", systemImage: "eyeglasses")
+                    }
+                } footer: {
+                    Text("Khi ẩn danh, video đã xem và nội dung tìm kiếm không được lưu vào nhật ký (trên máy lẫn tài khoản YouTube). Tự tắt khi mở lại ứng dụng.")
+                }
+                Section {
                     Button {
                         dismiss()
                         router.signIn(addingAccount: true)

@@ -15,7 +15,9 @@ struct PlayerSurface: View {
     @State private var skipFeedback: SkipFeedback?
     @State private var feedbackTask: Task<Void, Never>?
     @State private var showSettings = false
+    @State private var showSleepTimer = false
     @State private var scrubTime: Double?
+    @State private var showUnlock = false
 
     private struct SkipFeedback: Equatable {
         var forward: Bool
@@ -43,6 +45,8 @@ struct PlayerSurface: View {
 
             if player.isCasting {
                 CastingBackdrop(compact: mode == .mini)
+            } else if player.isAudioOnly && !player.usesWebPlayer {
+                AudioOnlyBackdrop(compact: mode == .mini)
             } else if showPoster {
                 RemoteImage(url: player.currentVideo?.displayThumbnail, contentMode: .fit)
                     .background(Color.black)
@@ -61,7 +65,7 @@ struct PlayerSurface: View {
             } else {
                 captionLayer
                 gestureLayer
-                if controlsVisible || player.playbackError != nil || (!player.isPlaying && !player.isLoading) {
+                if !player.isScreenLocked, controlsVisible || player.playbackError != nil || (!player.isPlaying && !player.isLoading) {
                     controls
                         .transition(.opacity)
                 }
@@ -77,6 +81,10 @@ struct PlayerSurface: View {
                 if player.isSpeedBoosted { speedBoostBadge }
                 if let next = player.upNext { upNextOverlay(next) }
             }
+            if mode != .mini {
+                if player.showsStats { StatsOverlay().padding(mode == .fullscreen ? 24 : 8) }
+                if player.isScreenLocked { lockOverlay }
+            }
         }
         .background(Color.black)
         .clipped()
@@ -85,8 +93,15 @@ struct PlayerSurface: View {
             PlayerSettingsSheet()
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showSleepTimer) {
+            NavigationStack { SleepTimerView() }
+                .presentationDetents([.medium, .large])
+        }
         .onChange(of: player.isPlaying) { _, playing in
             if playing { scheduleHide() } else { controlsVisible = true }
+        }
+        .onChange(of: player.isScreenLocked) { _, locked in
+            if locked { controlsVisible = false }
         }
         .onChange(of: player.currentVideo?.id) { _, _ in
             controlsVisible = true
@@ -226,11 +241,45 @@ struct PlayerSurface: View {
         }
     }
 
+    /// "Lock screen": every touch is ignored except the unlock button.
+    private var lockOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.001)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation { showUnlock = true }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                        withAnimation { showUnlock = false }
+                    }
+                }
+            if showUnlock {
+                Button {
+                    player.isScreenLocked = false
+                    showUnlock = false
+                    controlsVisible = true
+                    scheduleHide()
+                } label: {
+                    VStack(spacing: 6) {
+                        Image(systemName: "lock.open.fill").font(.title2)
+                        Text("Nhấn để mở khóa").font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(16)
+                    .background(Circle().fill(Color.black.opacity(0.6)).frame(width: 130, height: 130))
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
+        }
+    }
+
     private func tapRegion(forward: Bool) -> some View {
         Color.clear
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {
-                player.skip(by: forward ? 10 : -10)
+                let seconds = Double(AppSettings.shared.doubleTapSeconds)
+                player.skip(by: forward ? seconds : -seconds)
                 showSkipFeedback(forward: forward)
             }
             .onTapGesture {
@@ -240,7 +289,7 @@ struct PlayerSurface: View {
     }
 
     private func showSkipFeedback(forward: Bool) {
-        let seconds = (skipFeedback?.forward == forward ? skipFeedback?.seconds ?? 0 : 0) + 10
+        let seconds = (skipFeedback?.forward == forward ? skipFeedback?.seconds ?? 0 : 0) + AppSettings.shared.doubleTapSeconds
         skipFeedback = SkipFeedback(forward: forward, seconds: seconds)
         feedbackTask?.cancel()
         feedbackTask = Task {
@@ -273,7 +322,7 @@ struct PlayerSurface: View {
         hideTask?.cancel()
         hideTask = Task {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled, player.isPlaying, scrubTime == nil, !showSettings else { return }
+            guard !Task.isCancelled, player.isPlaying, scrubTime == nil, !showSettings, !showSleepTimer else { return }
             controlsVisible = false
         }
     }
@@ -318,7 +367,27 @@ struct PlayerSurface: View {
                     Image(systemName: "chevron.down").controlIcon()
                 }
             }
+            if let label = player.sleepTimerLabel {
+                Button {
+                    showSleepTimer = true
+                } label: {
+                    Label(label, systemImage: "moon.zzz.fill")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.black.opacity(0.5)))
+                }
+            }
             Spacer()
+            if !player.isCasting, !player.isLocalPlayback {
+                Button {
+                    player.setAudioOnly(!player.isAudioOnly)
+                } label: {
+                    Image(systemName: player.isAudioOnly ? "headphones.circle.fill" : "headphones")
+                        .controlIcon()
+                }
+                .accessibilityLabel(player.isAudioOnly ? "Bật lại hình" : "Chỉ phát âm thanh")
+            }
             Button {
                 player.toggleAutoplay()
             } label: {
@@ -455,13 +524,15 @@ struct PlayerSurface: View {
         VStack {
             Spacer()
             if let caption = player.currentCaption {
+                let style = AppSettings.shared
                 Text(caption)
-                    .font(.system(size: mode == .fullscreen ? 20 : 15, weight: .medium))
+                    .font(.system(size: (mode == .fullscreen ? 20 : 15) * style.captionSize.scale, weight: .medium))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white)
+                    .shadow(color: .black, radius: style.captionBackground < 0.3 ? 2 : 0)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.75)))
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(style.captionBackground)))
                     .padding(.bottom, controlsVisible ? (mode == .fullscreen ? 72 : 44) : 12)
                     .padding(.horizontal, 24)
             }
@@ -599,11 +670,45 @@ struct PlayerSettingsSheet: View {
                         }
                     }
                 }
+                Section {
+                    Toggle(isOn: Binding(get: { player.isAudioOnly }, set: { player.setAudioOnly($0) })) {
+                        Label("Chỉ phát âm thanh", systemImage: "headphones")
+                    }
+                    .disabled(player.isCasting || player.usesWebPlayer)
+                    NavigationLink {
+                        SleepTimerView()
+                    } label: {
+                        HStack {
+                            Label("Hẹn giờ tắt", systemImage: "moon.zzz")
+                            Spacer()
+                            Text(player.sleepTimerLabel ?? "Tắt").foregroundStyle(.secondary).monospacedDigit()
+                        }
+                    }
+                    Button {
+                        player.isScreenLocked = true
+                        dismiss()
+                    } label: {
+                        Label("Khóa màn hình", systemImage: "lock")
+                    }
+                    Toggle(isOn: Binding(get: { player.showsStats }, set: { player.showsStats = $0 })) {
+                        Label("Thống kê chi tiết", systemImage: "chart.bar.doc.horizontal")
+                    }
+                } footer: {
+                    Text("Chỉ phát âm thanh không tải hình ảnh nên tốn ít dữ liệu 4G hơn nhiều (khoảng 1 MB/phút, hoặc 0,4 MB/phút khi bật Tiết kiệm dữ liệu).")
+                }
                 Section("Tốc độ phát") {
                     ForEach(AppSettings.speeds, id: \.self) { speed in
                         checkRow(speed == 1 ? "Bình thường" : String(format: "%gx", speed), selected: abs(Double(player.rate) - speed) < 0.01) {
                             player.setRate(Float(speed))
                         }
+                    }
+                    VStack(alignment: .leading) {
+                        Text("Tùy chỉnh: \(String(format: "%.2fx", player.rate))")
+                            .font(.subheadline)
+                        Slider(
+                            value: Binding(get: { Double(player.rate) }, set: { player.setRate(Float(($0 * 20).rounded() / 20)) }),
+                            in: 0.25...4, step: 0.05
+                        )
                     }
                 }
                 Section("Phụ đề") {
@@ -629,20 +734,6 @@ struct PlayerSettingsSheet: View {
                         get: { player.isLooping },
                         set: { player.setLooping($0) }
                     ))
-                    Menu {
-                        Button("Tắt") { player.setSleepTimer(minutes: nil) }
-                        ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
-                            Button("\(minutes) phút") { player.setSleepTimer(minutes: minutes) }
-                        }
-                        Button("Khi hết video này") { player.setSleepTimer(minutes: 0) }
-                    } label: {
-                        HStack {
-                            Label("Hẹn giờ tắt", systemImage: "moon.zzz")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Text(sleepTimerLabel).foregroundStyle(.secondary)
-                        }
-                    }
                 }
                 Section {
                     if player.usesWebPlayer {
@@ -688,14 +779,6 @@ struct PlayerSettingsSheet: View {
                 }
             }
         }
-    }
-
-    private var sleepTimerLabel: String {
-        if player.sleepAtEndOfVideo { return "Khi hết video" }
-        if let end = player.sleepTimerEnd {
-            return "còn \(max(Int(end.timeIntervalSinceNow / 60) + 1, 1)) phút"
-        }
-        return "Tắt"
     }
 
     private func checkRow(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {

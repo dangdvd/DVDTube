@@ -37,7 +37,8 @@ struct PlayerContainerView: View {
             HStack(spacing: 0) {
                 PlayerSurface(mode: fullscreen ? .fullscreen : (expanded ? .inline : .mini), insets: insets)
                     .frame(width: videoWidth, height: videoHeight)
-                    .gesture(swipeGesture(fullscreen: fullscreen), including: expanded ? .all : .subviews)
+                    .gesture(swipeGesture(fullscreen: fullscreen),
+                             including: expanded && !player.isScreenLocked ? .all : .subviews)
                 if !expanded {
                     MiniPlayerBar()
                 }
@@ -99,10 +100,19 @@ struct MiniPlayerBar: View {
                 Text(player.currentVideo?.title ?? "")
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
-                Text(player.currentVideo?.channelName ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if let label = player.sleepTimerLabel {
+                        Label(label, systemImage: "moon.zzz.fill").monospacedDigit()
+                        Text("•")
+                    }
+                    if player.isAudioOnly {
+                        Image(systemName: "headphones")
+                    }
+                    Text(player.currentVideo?.channelName ?? "")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 10)

@@ -60,7 +60,31 @@ final class PlayerManager {
     private(set) var videoFill = false
     private(set) var upNext: VideoItem?
     private(set) var upNextCountdown = 0
+    /// Seconds left on the sleep timer (updated every second while it runs).
+    private(set) var sleepRemaining: Int?
     @ObservationIgnored private var sleepTask: Task<Void, Never>?
+
+    /// Audio only: the picture is not downloaded at all (saves mobile data).
+    private(set) var isAudioOnly = false
+    /// What the user chose in the player during this session (wins over the automatic rule).
+    @ObservationIgnored private var audioOnlyChoice: Bool?
+    @ObservationIgnored private var audioBitrate = 0
+    /// Touches on the video are ignored until unlocked (YouTube's "Lock screen").
+    var isScreenLocked = false
+    /// "Stats for nerds" overlay.
+    var showsStats = false
+
+    /// Digital wellbeing reminders ("Take a break", bedtime).
+    enum Reminder: Identifiable {
+        case takeBreak, bedtime
+        var id: Self { self }
+    }
+    var reminder: Reminder?
+    @ObservationIgnored private var continuousWatch: Double = 0
+    @ObservationIgnored private var lastPlayingAt = Date.distantPast
+    @ObservationIgnored private var bedtimeSnoozedUntil = Date.distantPast
+    @ObservationIgnored private var bedtimeDismissedNight: String?
+    @ObservationIgnored private var wellbeingTask: Task<Void, Never>?
     @ObservationIgnored private var upNextTask: Task<Void, Never>?
 
     var hasNext: Bool { queueIndex + 1 < queue.count || nextAutoplayVideo != nil }
@@ -99,6 +123,7 @@ final class PlayerManager {
         pipDelegate.owner = self
         setupObservers()
         setupRemoteCommands()
+        startWellbeingLoop()
     }
 
     // MARK: - Public API
@@ -139,6 +164,19 @@ final class PlayerManager {
         queue.removeAll { $0.id == video.id && $0.id != currentVideo?.id }
         queue.append(video)
         showToast("Đã thêm vào hàng đợi")
+    }
+
+    /// "Play next": right after the current video.
+    func playAfterCurrent(_ video: VideoItem) {
+        guard let current = currentVideo else {
+            play(video)
+            return
+        }
+        guard video.id != current.id else { return }
+        queue.removeAll { $0.id == video.id }
+        queueIndex = queue.firstIndex { $0.id == current.id } ?? 0
+        queue.insert(video, at: min(queueIndex + 1, queue.count))
+        showToast("Sẽ phát tiếp theo")
     }
 
     func playNext() {
@@ -302,9 +340,16 @@ final class PlayerManager {
         usesWebPlayer = false
         webFallbackReason = nil
         quality = defaultQuality()
+        isAudioOnly = wantsAudioOnly
+        audioBitrate = 0
         isLoading = true
         pendingSeek = startAt ?? (settings.resumePlayback ? library.resumePosition(for: video.id) : nil)
-        if settings.saveHistory { library.recordWatch(video, position: pendingSeek ?? 0, duration: duration) }
+        if settings.saveHistory, !settings.isIncognito {
+            library.recordWatch(video, position: pendingSeek ?? 0, duration: duration)
+        }
+        let interval = NSNumber(value: settings.doubleTapSeconds)
+        MPRemoteCommandCenter.shared().skipForwardCommand.preferredIntervals = [interval]
+        MPRemoteCommandCenter.shared().skipBackwardCommand.preferredIntervals = [interval]
         updateNowPlayingInfo()
         loadWatchInfo(video.id)
 
@@ -322,7 +367,64 @@ final class PlayerManager {
     }
 
     private func defaultQuality() -> VideoQuality {
-        NetworkMonitor.shared.isExpensive ? settings.cellularQuality : settings.wifiQuality
+        var quality = NetworkMonitor.shared.isExpensive ? settings.cellularQuality : settings.wifiQuality
+        // Data saver: at most 360p on mobile data.
+        if settings.savesData, quality == .auto || quality.rawValue > 360 { quality = .p360 }
+        return quality
+    }
+
+    /// Audio only for the next video: the user's choice in this session, otherwise the settings.
+    private var wantsAudioOnly: Bool {
+        audioOnlyChoice ?? (settings.audioOnlyMode || (settings.audioOnlyOnCellular && NetworkMonitor.shared.isExpensive))
+    }
+
+    /// Switches between video and audio only, continuing from the same position.
+    func setAudioOnly(_ on: Bool) {
+        audioOnlyChoice = on
+        settings.audioOnlyMode = on
+        guard on != isAudioOnly else { return }
+        isAudioOnly = on
+        showToast(on ? "Chỉ phát âm thanh — không tải hình, tiết kiệm dữ liệu" : "Đã bật lại hình")
+        guard currentVideo != nil, !isCasting, !usesWebPlayer, !isLocalPlayback else { return }
+        reloadStream()
+    }
+
+    /// Rebuilds the player item for the current video (after switching audio only).
+    private func reloadStream() {
+        guard let video = currentVideo else { return }
+        let resumeAt = currentTime
+        loadTask?.cancel()
+        isLoading = true
+        playbackError = nil
+        quality = isAudioOnly ? quality : defaultQuality()
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            if let info = self.playerInfo, info.videoId == video.id, info.availableAt <= Date() {
+                self.fallbackStage = 0
+                let item = await self.makeItem(info: info, stage: self.isAudioOnly ? -1 : 0)
+                guard !Task.isCancelled, self.currentVideo?.id == video.id else { return }
+                if let item {
+                    self.pendingSeek = resumeAt
+                    self.startItem(item)
+                } else {
+                    self.isLoading = false
+                    self.playbackError = "Không phát được video."
+                }
+            } else {
+                self.pendingSeek = resumeAt
+                await self.loadStream(for: video)
+            }
+        }
+    }
+
+    /// The AAC stream: the largest normally, the smallest with data saver on mobile data.
+    private func audioFormat(in info: PlayerInfo) -> StreamFormat? {
+        let aac = info.adaptiveFormats.filter { $0.isAudio && $0.isAAC }
+        let main = aac.filter(\.isDefaultAudio)
+        let candidates = main.isEmpty ? aac : main
+        return settings.savesData
+            ? candidates.min { $0.bitrate < $1.bitrate }
+            : candidates.max { $0.bitrate < $1.bitrate }
     }
 
     private func loadWatchInfo(_ videoId: String) {
@@ -369,7 +471,7 @@ final class PlayerManager {
             }
             adWaitRemaining = 0
 
-            guard let item = await makeItem(info: info, stage: fallbackStage) else {
+            guard let item = await makeItem(info: info, stage: isAudioOnly ? -1 : fallbackStage) else {
                 throw InnerTubeError.noStreams
             }
             guard !Task.isCancelled, currentVideo?.id == video.id else { return }
@@ -389,14 +491,23 @@ final class PlayerManager {
         }
     }
 
-    /// Stage 0: HLS (adaptive, best). Stage 1: muxed progressive. Stage 2: video+audio composition.
+    /// Stage -1: audio only. Stage 0: HLS (adaptive, best). Stage 1: muxed progressive.
+    /// Stage 2: video+audio composition.
     private func makeItem(info: PlayerInfo, stage: Int) async -> AVPlayerItem? {
         var stage = stage
         while stage <= 2 {
             switch stage {
+            case -1:
+                if let audio = audioFormat(in: info) {
+                    fallbackStage = -1
+                    audioBitrate = audio.bitrate
+                    return AVPlayerItem(url: audio.url)
+                }
             case 0:
                 if let hls = info.hlsURL {
                     fallbackStage = 0
+                    // Audio only without a separate audio stream (live): the smallest video.
+                    if isAudioOnly { quality = .p144 }
                     return AVPlayerItem(url: hls)
                 }
             case 1:
@@ -440,6 +551,8 @@ final class PlayerManager {
     }
 
     private func startItem(_ item: AVPlayerItem) {
+        // Spectral keeps the pitch at every speed from 0.25x to 4x.
+        item.audioTimePitchAlgorithm = .spectral
         applyQuality(to: item)
         observe(item)
         player.replaceCurrentItem(with: item)
@@ -521,7 +634,8 @@ final class PlayerManager {
     }
 
     private var nextAutoplayVideo: VideoItem? {
-        guard settings.autoplay, let related = watchInfo?.related.videos else { return nil }
+        guard settings.autoplay, let all = watchInfo?.related.videos else { return nil }
+        let related = all.filter { !HiddenContentStore.shared.isHidden($0) }
         let recent = Set(library.history.prefix(50).map(\.id)).union(queue.map(\.id))
         return related.first { !recent.contains($0.id) && !$0.isLive && !$0.isShort } ?? related.first { !$0.isShort }
     }
@@ -648,7 +762,9 @@ final class PlayerManager {
     func setSleepTimer(minutes: Int?) {
         sleepTask?.cancel()
         sleepTimerEnd = nil
+        sleepRemaining = nil
         sleepAtEndOfVideo = false
+        player.volume = 1
         guard let minutes else {
             showToast("Đã tắt hẹn giờ")
             return
@@ -658,15 +774,138 @@ final class PlayerManager {
             showToast("Sẽ dừng khi hết video này")
             return
         }
-        sleepTimerEnd = Date().addingTimeInterval(Double(minutes) * 60)
-        showToast("Sẽ dừng phát sau \(minutes) phút")
+        startSleepCountdown(until: Date().addingTimeInterval(Double(minutes) * 60))
+        showToast(minutes >= 60 && minutes % 60 == 0
+            ? "Video sẽ dừng sau \(minutes / 60) giờ"
+            : "Video sẽ dừng sau \(minutes) phút")
+    }
+
+    /// Adds time to a running timer (or starts one).
+    func extendSleepTimer(minutes: Int) {
+        let base = max(sleepTimerEnd ?? Date(), Date())
+        sleepTask?.cancel()
+        sleepAtEndOfVideo = false
+        player.volume = 1
+        startSleepCountdown(until: base.addingTimeInterval(Double(minutes) * 60))
+        showToast("Đã thêm \(minutes) phút")
+    }
+
+    var sleepTimerLabel: String? {
+        if sleepAtEndOfVideo { return "Hết video" }
+        guard let remaining = sleepRemaining else { return nil }
+        return formatTime(Double(remaining))
+    }
+
+    private func startSleepCountdown(until end: Date) {
+        sleepTimerEnd = end
+        sleepRemaining = max(Int(end.timeIntervalSinceNow.rounded(.up)), 0)
         sleepTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
-            guard let self, !Task.isCancelled else { return }
-            self.sleepTimerEnd = nil
-            self.pause()
-            self.showToast("Đã hết giờ hẹn – tạm dừng phát")
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, !Task.isCancelled else { return }
+                let remaining = end.timeIntervalSinceNow
+                self.sleepRemaining = max(Int(remaining.rounded(.up)), 0)
+                // Fade the sound out over the last 10 seconds, like a sleep timer should.
+                if remaining > 0, remaining <= 10 { self.player.volume = Float(remaining / 10) }
+                if remaining <= 0 {
+                    self.sleepTimerEnd = nil
+                    self.sleepRemaining = nil
+                    self.pause()
+                    self.player.volume = 1
+                    self.showToast("Đã hết giờ hẹn — đã dừng phát")
+                    return
+                }
+            }
         }
+    }
+
+    // MARK: - Digital wellbeing
+
+    private func startWellbeingLoop() {
+        wellbeingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                self?.wellbeingTick()
+            }
+        }
+    }
+
+    private static func nightKey(_ date: Date) -> String {
+        WatchTimeStore.dayKey(date.addingTimeInterval(-12 * 3600))
+    }
+
+    private func wellbeingTick() {
+        let now = Date()
+        guard isPlaying else {
+            // A long pause counts as a break.
+            if now.timeIntervalSince(lastPlayingAt) > 15 * 60 { continuousWatch = 0 }
+            return
+        }
+        lastPlayingAt = now
+        WatchTimeStore.shared.add(seconds: 1, at: now)
+        continuousWatch += 1
+        guard reminder == nil, !isPiPActive, UIApplication.shared.applicationState == .active else { return }
+        let breakMinutes = settings.breakReminderMinutes
+        if breakMinutes > 0, continuousWatch >= Double(breakMinutes * 60) {
+            continuousWatch = 0
+            pause()
+            reminder = .takeBreak
+            return
+        }
+        if settings.bedtimeReminder, settings.isBedtime(now), now >= bedtimeSnoozedUntil,
+           bedtimeDismissedNight != Self.nightKey(now) {
+            pause()
+            reminder = .bedtime
+        }
+    }
+
+    /// `snoozeMinutes`: remind again later (bedtime); otherwise not again tonight.
+    func dismissReminder(_ kind: Reminder, snoozeMinutes: Int? = nil) {
+        if kind == .bedtime {
+            if let snoozeMinutes {
+                bedtimeSnoozedUntil = Date().addingTimeInterval(Double(snoozeMinutes) * 60)
+            } else {
+                bedtimeDismissedNight = Self.nightKey(Date())
+            }
+        }
+        reminder = nil
+    }
+
+    // MARK: - Stats for nerds
+
+    var playbackMethod: String {
+        if isCasting { return "Chromecast" }
+        if usesWebPlayer { return "Trình phát web" }
+        if isLocalPlayback { return "Tệp đã tải xuống" }
+        switch fallbackStage {
+        case -1: return "Chỉ âm thanh (AAC \(audioBitrate / 1000) kbps)"
+        case 0: return isAudioOnly ? "HLS 144p (chỉ âm thanh)" : "HLS"
+        case 1: return "MP4 ghép sẵn"
+        default: return "Hình + tiếng ghép trên máy"
+        }
+    }
+
+    var statsLines: [(String, String)] {
+        var lines: [(String, String)] = [
+            ("Video", currentVideo?.id ?? "–"),
+            ("Cách phát", playbackMethod),
+        ]
+        if let item = player.currentItem {
+            let size = item.presentationSize
+            if size.width > 0 { lines.append(("Độ phân giải", "\(Int(size.width))×\(Int(size.height))")) }
+            if let event = item.accessLog()?.events.last {
+                if event.indicatedBitrate > 0 { lines.append(("Bitrate luồng", "\(Int(event.indicatedBitrate / 1000)) kbps")) }
+                if event.observedBitrate > 0 { lines.append(("Tốc độ mạng", "\(Int(event.observedBitrate / 1000)) kbps")) }
+                if event.numberOfDroppedVideoFrames > 0 { lines.append(("Khung hình bị bỏ", "\(event.numberOfDroppedVideoFrames)")) }
+                lines.append(("Đã tải", ByteCountFormatter.string(fromByteCount: event.numberOfBytesTransferred, countStyle: .file)))
+            }
+        }
+        lines.append(("Bộ đệm", String(format: "%.1f giây", max(bufferedTime - currentTime, 0))))
+        lines.append(("Chất lượng", quality.title))
+        lines.append(("Tốc độ phát", String(format: "%gx", rate)))
+        lines.append(("Mạng", NetworkMonitor.shared.isExpensive ? "Dữ liệu di động" : "Wi-Fi"))
+        if settings.savesData { lines.append(("Tiết kiệm dữ liệu", "Đang bật")) }
+        return lines
     }
 
     /// Touch and hold the video to watch at 2x until released.
@@ -741,7 +980,7 @@ final class PlayerManager {
     }
 
     private func saveProgress(completed: Bool = false) {
-        guard let video = currentVideo, currentTime > 0 || completed else { return }
+        guard let video = currentVideo, currentTime > 0 || completed, !settings.isIncognito else { return }
         lastHistorySave = Date()
         library.updatePosition(videoId: video.id, position: completed ? duration : currentTime, duration: duration)
     }
@@ -972,12 +1211,12 @@ final class PlayerManager {
         }
         center.skipForwardCommand.preferredIntervals = [10]
         center.skipForwardCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.skip(by: 10) }
+            Task { @MainActor in self?.skip(by: Double(AppSettings.shared.doubleTapSeconds)) }
             return .success
         }
         center.skipBackwardCommand.preferredIntervals = [10]
         center.skipBackwardCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.skip(by: -10) }
+            Task { @MainActor in self?.skip(by: -Double(AppSettings.shared.doubleTapSeconds)) }
             return .success
         }
     }
@@ -987,7 +1226,7 @@ final class PlayerManager {
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: video.title,
             MPMediaItemPropertyArtist: video.channelName ?? "",
-            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
+            MPNowPlayingInfoPropertyMediaType: (isAudioOnly ? MPNowPlayingInfoMediaType.audio : .video).rawValue,
             MPNowPlayingInfoPropertyIsLiveStream: video.isLive,
         ]
         if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }

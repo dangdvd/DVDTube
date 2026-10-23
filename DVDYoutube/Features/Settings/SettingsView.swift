@@ -86,11 +86,49 @@ struct SettingsView: View {
                 Toggle("Tự động bật hình trong hình (PiP)", isOn: $settings.autoPictureInPicture)
                     .onChange(of: settings.autoPictureInPicture) { _, _ in player.updateAutoPiP() }
                 Toggle("Tiếp tục từ vị trí đã xem", isOn: $settings.resumePlayback)
+                Picker("Chạm hai lần để tua", selection: $settings.doubleTapSeconds) {
+                    ForEach(AppSettings.doubleTapOptions, id: \.self) { Text("\($0) giây").tag($0) }
+                }
                 Toggle("Dự phòng bằng trình phát web khi YouTube chặn", isOn: $settings.webPlayerFallback)
             } header: {
                 Text("Phát video")
             } footer: {
                 Text("Phát trong nền và PiP là các tính năng của YouTube Premium, ở đây được bật miễn phí.")
+            }
+
+            Section {
+                Toggle("Tiết kiệm dữ liệu khi dùng 4G/5G", isOn: $settings.dataSaver)
+                Toggle("Tự động chỉ phát âm thanh khi dùng 4G/5G", isOn: $settings.audioOnlyOnCellular)
+                Toggle("Luôn chỉ phát âm thanh", isOn: Binding(
+                    get: { settings.audioOnlyMode },
+                    set: { player.setAudioOnly($0) }
+                ))
+            } header: {
+                Text("Tiết kiệm dữ liệu")
+            } footer: {
+                Text("Tiết kiệm dữ liệu: khi dùng dữ liệu di động, video tối đa 360p, chế độ chỉ âm thanh dùng luồng nhỏ nhất (~0,4 MB/phút), ảnh thu nhỏ cỡ nhỏ và không tải trước Shorts. Chỉ âm thanh không tải hình nên tiết kiệm nhiều nhất; bật/tắt nhanh bằng nút tai nghe trên trình phát.")
+            }
+
+            Section {
+                Picker("Nhắc tôi nghỉ giải lao", selection: $settings.breakReminderMinutes) {
+                    ForEach(AppSettings.breakReminderOptions, id: \.self) { minutes in
+                        Text(minutes == 0 ? "Tắt" : "Sau mỗi \(sleepDurationTitle(minutes))").tag(minutes)
+                    }
+                }
+                Toggle("Nhắc tôi khi đến giờ đi ngủ", isOn: $settings.bedtimeReminder)
+                if settings.bedtimeReminder {
+                    DatePicker("Bắt đầu", selection: minutesBinding($settings.bedtimeStart), displayedComponents: .hourAndMinute)
+                    DatePicker("Kết thúc", selection: minutesBinding($settings.bedtimeEnd), displayedComponents: .hourAndMinute)
+                }
+                NavigationLink {
+                    WatchTimeView()
+                } label: {
+                    Label("Thời gian xem của bạn", systemImage: "chart.bar")
+                }
+            } header: {
+                Text("Sức khỏe số")
+            } footer: {
+                Text("Khi đến lúc, video tạm dừng và hiện lời nhắc, giống ứng dụng YouTube.")
             }
 
             Section {
@@ -125,6 +163,15 @@ struct SettingsView: View {
                 Picker("Ngôn ngữ phụ đề", selection: $settings.captionLanguage) {
                     ForEach(AppSettings.languages, id: \.code) { Text($0.name).tag($0.code) }
                 }
+                Picker("Cỡ chữ phụ đề", selection: $settings.captionSize) {
+                    ForEach(CaptionSize.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Nền phụ đề", selection: $settings.captionBackground) {
+                    Text("Không có").tag(0.0)
+                    Text("Mờ").tag(0.5)
+                    Text("Đậm").tag(0.75)
+                    Text("Đen").tag(1.0)
+                }
             }
 
             Section {
@@ -152,12 +199,22 @@ struct SettingsView: View {
                 Picker("Chất lượng tải xuống", selection: $settings.downloadQuality) {
                     ForEach(VideoQuality.allCases.filter { $0 != .auto }) { Text($0.title).tag($0) }
                 }
+                Toggle("Chỉ tải xuống qua Wi-Fi", isOn: $settings.downloadOnWifiOnly)
                 LabeledContent("Dung lượng đã dùng",
                                value: ByteCountFormatter.string(fromByteCount: downloads.totalSize, countStyle: .file))
             }
 
             Section("Quyền riêng tư") {
+                Toggle(isOn: $settings.isIncognito) {
+                    Label("Chế độ ẩn danh", systemImage: "eyeglasses")
+                }
                 Toggle("Lưu nhật ký xem", isOn: $settings.saveHistory)
+                NavigationLink {
+                    HiddenContentView()
+                } label: {
+                    LabeledContent("Nội dung đã ẩn",
+                                   value: "\(HiddenContentStore.shared.videos.count + HiddenContentStore.shared.channels.count)")
+                }
                 Button("Xóa nhật ký xem", role: .destructive) { confirmClearHistory = true }
                 Button("Xóa lịch sử tìm kiếm", role: .destructive) { library.clearSearchHistory() }
             }
@@ -239,6 +296,20 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    /// A time of day stored as minutes after midnight, for `DatePicker`.
+    func minutesBinding(_ minutes: Binding<Int>) -> Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(bySettingHour: minutes.wrappedValue / 60, minute: minutes.wrappedValue % 60,
+                                      second: 0, of: Date()) ?? Date()
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                minutes.wrappedValue = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+            }
+        )
+    }
+
     func setNewVideoNotifications(_ enabled: Bool) async {
         guard enabled else {
             UserDefaults.standard.set(false, forKey: NewVideoNotifier.enabledKey)

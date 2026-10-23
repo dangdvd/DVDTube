@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Observation
 
@@ -28,6 +29,21 @@ enum VideoQuality: Int, CaseIterable, Identifiable, Codable {
         case .p144: return 250_000
         }
     }
+}
+
+/// Caption text size, like the official app's caption options.
+enum CaptionSize: Int, CaseIterable, Identifiable {
+    case small, normal, large, extraLarge
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .small: return "Nhỏ"
+        case .normal: return "Bình thường"
+        case .large: return "Lớn"
+        case .extraLarge: return "Rất lớn"
+        }
+    }
+    var scale: CGFloat { [0.8, 1.0, 1.3, 1.6][rawValue] }
 }
 
 enum AppTheme: String, CaseIterable, Identifiable {
@@ -69,6 +85,35 @@ final class AppSettings {
     var remoteConfigURL: String { didSet { defaults.set(remoteConfigURL, forKey: SettingsKey.remoteConfigURL) } }
     var webPlayerFallback: Bool { didSet { defaults.set(webPlayerFallback, forKey: "settings.webFallback") } }
 
+    // Data saving
+    /// Play only the audio stream (no picture), remembered between launches.
+    var audioOnlyMode: Bool { didSet { defaults.set(audioOnlyMode, forKey: "settings.audioOnly") } }
+    /// Switch to audio only automatically on mobile data.
+    var audioOnlyOnCellular: Bool { didSet { defaults.set(audioOnlyOnCellular, forKey: "settings.audioOnlyCellular") } }
+    /// On mobile data: video up to 360p, the smallest audio stream, small thumbnails, no prefetching.
+    var dataSaver: Bool { didSet { defaults.set(dataSaver, forKey: "settings.dataSaver") } }
+    var downloadOnWifiOnly: Bool { didSet { defaults.set(downloadOnWifiOnly, forKey: "settings.downloadWifiOnly") } }
+
+    // Player
+    var doubleTapSeconds: Int { didSet { defaults.set(doubleTapSeconds, forKey: "settings.doubleTapSeconds") } }
+    var captionSize: CaptionSize { didSet { defaults.set(captionSize.rawValue, forKey: "settings.captionSize") } }
+    /// Opacity of the box behind captions (0 = none).
+    var captionBackground: Double { didSet { defaults.set(captionBackground, forKey: "settings.captionBackground") } }
+
+    // Digital wellbeing
+    /// Minutes of watching before "Take a break" (0 = off).
+    var breakReminderMinutes: Int { didSet { defaults.set(breakReminderMinutes, forKey: "settings.breakReminder") } }
+    var bedtimeReminder: Bool { didSet { defaults.set(bedtimeReminder, forKey: "settings.bedtimeReminder") } }
+    /// Minutes after midnight.
+    var bedtimeStart: Int { didSet { defaults.set(bedtimeStart, forKey: "settings.bedtimeStart") } }
+    var bedtimeEnd: Int { didSet { defaults.set(bedtimeEnd, forKey: "settings.bedtimeEnd") } }
+
+    /// Incognito: nothing is added to the watch or search history (until the app restarts).
+    var isIncognito = false
+
+    /// Mobile data with data saver on.
+    var savesData: Bool { dataSaver && NetworkMonitor.shared.isExpensive }
+
     private init() {
         let d = UserDefaults.standard
         d.register(defaults: [
@@ -89,6 +134,17 @@ final class AppSettings {
             "settings.resume": true,
             "settings.theme": AppTheme.system.rawValue,
             "settings.webFallback": true,
+            "settings.audioOnly": false,
+            "settings.audioOnlyCellular": false,
+            "settings.dataSaver": false,
+            "settings.downloadWifiOnly": false,
+            "settings.doubleTapSeconds": 10,
+            "settings.captionSize": CaptionSize.normal.rawValue,
+            "settings.captionBackground": 0.75,
+            "settings.breakReminder": 0,
+            "settings.bedtimeReminder": false,
+            "settings.bedtimeStart": 23 * 60,
+            "settings.bedtimeEnd": 7 * 60,
         ])
         language = d.string(forKey: SettingsKey.language) ?? "vi"
         region = d.string(forKey: SettingsKey.region) ?? "VN"
@@ -108,6 +164,27 @@ final class AppSettings {
         theme = AppTheme(rawValue: d.string(forKey: "settings.theme") ?? "") ?? .system
         remoteConfigURL = d.string(forKey: SettingsKey.remoteConfigURL) ?? ""
         webPlayerFallback = d.bool(forKey: "settings.webFallback")
+        audioOnlyMode = d.bool(forKey: "settings.audioOnly")
+        audioOnlyOnCellular = d.bool(forKey: "settings.audioOnlyCellular")
+        dataSaver = d.bool(forKey: "settings.dataSaver")
+        downloadOnWifiOnly = d.bool(forKey: "settings.downloadWifiOnly")
+        doubleTapSeconds = max(d.integer(forKey: "settings.doubleTapSeconds"), 5)
+        captionSize = CaptionSize(rawValue: d.integer(forKey: "settings.captionSize")) ?? .normal
+        captionBackground = d.double(forKey: "settings.captionBackground")
+        breakReminderMinutes = d.integer(forKey: "settings.breakReminder")
+        bedtimeReminder = d.bool(forKey: "settings.bedtimeReminder")
+        bedtimeStart = d.integer(forKey: "settings.bedtimeStart")
+        bedtimeEnd = d.integer(forKey: "settings.bedtimeEnd")
+    }
+
+    /// Whether `date` falls in the bedtime window (which may cross midnight).
+    func isBedtime(_ date: Date = Date()) -> Bool {
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let minute = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        if bedtimeStart == bedtimeEnd { return false }
+        return bedtimeStart < bedtimeEnd
+            ? minute >= bedtimeStart && minute < bedtimeEnd
+            : minute >= bedtimeStart || minute < bedtimeEnd
     }
 
     static let regions: [(code: String, name: String)] = [
@@ -121,5 +198,8 @@ final class AppSettings {
         ("fr", "Français"), ("de", "Deutsch"), ("th", "ไทย"), ("zh-Hans", "中文"),
     ]
 
-    static let speeds: [Double] = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+    static let speeds: [Double] = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0, 4.0]
+    static let doubleTapOptions = [5, 10, 15, 20, 30, 60]
+    static let breakReminderOptions = [0, 15, 30, 45, 60, 90, 120, 180]
+    static let sleepTimerOptions = [5, 10, 15, 20, 30, 45, 60, 90, 120]
 }

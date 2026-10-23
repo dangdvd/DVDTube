@@ -14,6 +14,7 @@ struct WatchDetailsView: View {
     @State private var showQueue = false
     @State private var showTranscript = false
     @State private var showLiveChat = false
+    @State private var showSleepTimer = false
     @State private var relatedMore: [FeedItem] = []
     @State private var relatedToken: String?
     @State private var loadingMore = false
@@ -78,6 +79,10 @@ struct WatchDetailsView: View {
         }
         .sheet(isPresented: $showQueue) {
             QueueSheet()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showSleepTimer) {
+            NavigationStack { SleepTimerView() }
                 .presentationDetents([.medium, .large])
         }
     }
@@ -155,6 +160,15 @@ struct WatchDetailsView: View {
                     pillLabel("arrowshape.turn.up.right", "Chia sẻ")
                 }
                 .buttonStyle(.plain)
+                if !player.isCasting, !player.isLocalPlayback {
+                    pill(player.isAudioOnly ? "headphones.circle.fill" : "headphones",
+                         player.isAudioOnly ? "Bật hình" : "Chỉ âm thanh") {
+                        player.setAudioOnly(!player.isAudioOnly)
+                    }
+                }
+                pill("moon.zzz", player.sleepTimerLabel.map { "Hẹn giờ \($0)" } ?? "Hẹn giờ tắt") {
+                    showSleepTimer = true
+                }
                 pill(LibraryActions.isInWatchLater(video.id) ? "clock.fill" : "clock", "Xem sau") {
                     LibraryActions.toggleWatchLater(video)
                 }
@@ -355,7 +369,7 @@ struct WatchDetailsView: View {
     private var related: some View {
         if let info = player.watchInfo {
             let items = info.related.items + relatedMore
-            FeedList(items: items, isLoadingMore: loadingMore) {
+            FeedList(items: items, isLoadingMore: loadingMore, hidesDismissed: true) {
                 Task { await loadMoreRelated() }
             }
         } else if let error = player.watchInfoError {

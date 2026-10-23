@@ -44,6 +44,7 @@ struct RootView: View {
             ToastOverlay()
         }
         .animation(.spring(response: 0.38, dampingFraction: 0.88), value: player.currentVideo == nil)
+        .wellbeingReminders()
         .task { DebugHooks.apply() }
         .sheet(item: $router.playlistSheetVideo) { video in
             SaveToPlaylistSheet(video: video)

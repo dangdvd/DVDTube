@@ -39,6 +39,16 @@ actor ImageLoader {
     }
 }
 
+/// Data saver on mobile data: video thumbnails in the small 320×180 size instead of HD.
+@MainActor
+func dataSavingThumbnail(_ url: URL) -> URL {
+    guard AppSettings.shared.savesData, url.host?.hasSuffix("ytimg.com") == true else { return url }
+    let parts = url.path.split(separator: "/")
+    guard parts.count >= 3, parts[0] == "vi" || parts[0] == "vi_webp", let file = parts.last,
+          file.hasPrefix("hq") || file.hasPrefix("maxres") || file.hasPrefix("sd") else { return url }
+    return URL(string: "https://i.ytimg.com/vi/\(parts[1])/mqdefault.jpg") ?? url
+}
+
 struct RemoteImage: View {
     let url: URL?
     var contentMode: ContentMode = .fill
@@ -58,10 +68,11 @@ struct RemoteImage: View {
             }
             .clipped()
             .task(id: url) {
-                guard let url else {
+                guard let original = url else {
                     image = nil
                     return
                 }
+                let url = dataSavingThumbnail(original)
                 if let cached = ImageLoader.shared.cached(url) {
                     image = cached
                     return
