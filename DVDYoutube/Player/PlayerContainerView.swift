@@ -37,7 +37,7 @@ struct PlayerContainerView: View {
             HStack(spacing: 0) {
                 PlayerSurface(mode: fullscreen ? .fullscreen : (expanded ? .inline : .mini), insets: insets)
                     .frame(width: videoWidth, height: videoHeight)
-                    .gesture(collapseGesture, including: expanded && !fullscreen ? .all : .subviews)
+                    .gesture(swipeGesture(fullscreen: fullscreen), including: expanded ? .all : .subviews)
                 if !expanded {
                     MiniPlayerBar()
                 }
@@ -62,16 +62,29 @@ struct PlayerContainerView: View {
         .persistentSystemOverlays(fullscreen ? .hidden : .automatic)
     }
 
-    private var collapseGesture: some Gesture {
+    /// Same gestures as the official app: on the portrait watch page swipe up for
+    /// fullscreen and down for the mini player; in fullscreen swipe down to exit.
+    private func swipeGesture(fullscreen: Bool) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .onChanged { value in
+                guard !fullscreen, abs(value.translation.height) > abs(value.translation.width) else { return }
                 if value.translation.height > 0 { dragOffset = value.translation.height }
             }
             .onEnded { value in
-                let shouldCollapse = value.translation.height > 120 || value.predictedEndTranslation.height > 300
+                let dy = value.translation.height
+                let predicted = value.predictedEndTranslation.height
+                let isVertical = abs(dy) > abs(value.translation.width)
+                let swipedUp = isVertical && (dy < -50 || predicted < -200)
+                let swipedDown = isVertical && (dy > (fullscreen ? 50 : 120) || predicted > (fullscreen ? 200 : 300))
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) {
-                    if shouldCollapse { player.isExpanded = false }
                     dragOffset = 0
+                    if fullscreen {
+                        if swipedDown { OrientationController.rotate(toLandscape: false) }
+                    } else if swipedUp {
+                        OrientationController.rotate(toLandscape: true)
+                    } else if swipedDown {
+                        player.isExpanded = false
+                    }
                 }
             }
     }
