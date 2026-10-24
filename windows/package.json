@@ -12,7 +12,10 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "start": "electron-vite preview",
-    "test": "node --test out-test/",
+    "test": "node scripts/run-tests.mjs",
+    "test:mux": "node scripts/run-tests.mjs mp4mux",
+    "icons": "python3 scripts/make-icons.py",
+    "smoke": "electron-vite build && electron . --smoke=out/smoke",
     "dist:win": "electron-vite build && electron-builder --win --publish never"
   },
   "dependencies": {

@@ -479,6 +479,8 @@ export type DownloadState =
 export interface DownloadEvent {
   videoId: string
   status: DownloadState
+  /** The video being downloaded (optional; lets the UI show downloads it did not start itself). */
+  video?: VideoItem | null
 }
 
 // MARK: Search filters (mirrors core/services/SearchFilters.kt)

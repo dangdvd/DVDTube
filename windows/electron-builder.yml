@@ -7,8 +7,12 @@ directories:
 files:
   - out/**/*
   - package.json
-asarUnpack:
-  - resources/**
+# Icons and thumbar glyphs, read at runtime from process.resourcesPath/resources.
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - "**/*"
 extraMetadata:
   main: out/main/index.js
 win:
