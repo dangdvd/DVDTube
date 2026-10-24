@@ -24,6 +24,11 @@ final class CastProxy: @unchecked Sendable {
     private struct Route {
         let url: URL
         let kind: Kind
+        /// Sent to the TV instead of a type sniffed from the data (DASH audio vs video).
+        var contentType: String? = nil
+        /// File size, when known: byte ranges then go to googlevideo as a bounded `range=`
+        /// parameter, which it serves at full speed.
+        var totalLength: Int64? = nil
     }
 
     private let queue = DispatchQueue(label: "com.dangdvd.dvdtube.castproxy")
@@ -33,6 +38,8 @@ final class CastProxy: @unchecked Sendable {
     private var host: String?
     private var routes: [Int: Route] = [:]
     private var ids: [URL: Int] = [:]
+    /// Documents made on the phone (the DASH manifest), by id.
+    private var documents: [Int: Data] = [:]
     private var nextId = 1
     private var served = 0
     private let session: URLSession = {
@@ -51,13 +58,16 @@ final class CastProxy: @unchecked Sendable {
 
     /// Starts the relay (once) and registers the master playlist. `host` is this phone's
     /// address on the network shared with the TV.
-    func prepare(hls: URL, host: String) async throws -> Prepared {
+    func prepare(hls: URL, host: String, reset: Bool = true) async throws -> Prepared {
         let port = try await start()
         lock.lock()
         self.host = host
-        routes = [:]
-        ids = [:]
-        served = 0
+        if reset {
+            routes = [:]
+            ids = [:]
+            documents = [:]
+            served = 0
+        }
         lock.unlock()
 
         let formats = await probeFormats(master: hls)
@@ -67,6 +77,81 @@ final class CastProxy: @unchecked Sendable {
         return Prepared(url: url, isFMP4: formats.videoFMP4, audioFormat: formats.audio)
     }
 
+    /// A DASH manifest for the TV made from the MP4 streams (H.264 picture ≤ 1080p in several
+    /// sizes + AAC sound), served by the relay. Receivers play separate picture and sound
+    /// reliably in DASH, which is how YouTube itself casts. Nil when the streams don't allow it.
+    func prepareDASH(info: PlayerInfo, audioLanguage: String?, host: String) async throws -> URL? {
+        guard !info.isLive else { return nil }
+        var byHeight: [Int: StreamFormat] = [:]
+        for format in info.adaptiveFormats where format.isVideo && format.isH264 && format.mimeType.hasPrefix("video/mp4")
+            && format.initRange != nil && format.indexRange != nil {
+            let height = format.height ?? 0
+            guard height > 0, height <= 1080 else { continue }
+            if let existing = byHeight[height], existing.bitrate >= format.bitrate { continue }
+            byHeight[height] = format
+        }
+        let videos = byHeight.values.sorted { ($0.height ?? 0) < ($1.height ?? 0) }
+        guard !videos.isEmpty,
+              let audio = info.preferredAudio(language: audioLanguage),
+              audio.mimeType.hasPrefix("audio/mp4"), audio.initRange != nil, audio.indexRange != nil else { return nil }
+
+        let port = try await start()
+        lock.lock()
+        self.host = host
+        routes = [:]
+        ids = [:]
+        documents = [:]
+        served = 0
+        lock.unlock()
+
+        let duration = Double(videos.last?.approxDurationMs ?? audio.approxDurationMs ?? Int64((info.lengthSeconds ?? 0) * 1000)) / 1000
+        guard duration > 0 else { return nil }
+        func codecs(_ format: StreamFormat) -> String {
+            guard let range = format.mimeType.range(of: "codecs=\"") else { return "" }
+            let rest = format.mimeType[range.upperBound...]
+            return String(rest.prefix { $0 != "\"" })
+        }
+        func representation(_ format: StreamFormat, id: String, type: String, extra: String) -> String {
+            let url = proxied(format.url, kind: .resource, contentType: type, totalLength: format.contentLength)
+            let index = format.indexRange!, initialization = format.initRange!
+            return """
+                  <Representation id="\(id)" bandwidth="\(max(format.bitrate, 1))" codecs="\(codecs(format))"\(extra)>
+                    <BaseURL>\(url)</BaseURL>
+                    <SegmentBase indexRange="\(index.lowerBound)-\(index.upperBound)">
+                      <Initialization range="\(initialization.lowerBound)-\(initialization.upperBound)"/>
+                    </SegmentBase>
+                  </Representation>
+            """
+        }
+        let videoXML = videos.map { format in
+            representation(format, id: "v\(format.itag)", type: "video/mp4",
+                           extra: " width=\"\(format.width ?? 0)\" height=\"\(format.height ?? 0)\" frameRate=\"\(format.fps ?? 30)\"")
+        }.joined(separator: "\n")
+        let audioXML = representation(audio, id: "a\(audio.itag)", type: "audio/mp4",
+                                      extra: " audioSamplingRate=\"\(audio.audioSampleRate ?? 44_100)\"")
+        let mpd = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" type="static" mediaPresentationDuration="PT\(String(format: "%.3f", duration))S" minBufferTime="PT2S">
+          <Period>
+            <AdaptationSet contentType="video" mimeType="video/mp4" subsegmentAlignment="true" subsegmentStartsWithSAP="1">
+        \(videoXML)
+            </AdaptationSet>
+            <AdaptationSet contentType="audio" mimeType="audio/mp4" subsegmentAlignment="true" subsegmentStartsWithSAP="1">
+        \(audioXML)
+            </AdaptationSet>
+          </Period>
+        </MPD>
+        """
+        lock.lock()
+        let id = nextId
+        nextId += 1
+        documents[id] = Data(mpd.utf8)
+        lock.unlock()
+        let heights = videos.compactMap(\.height).map(String.init).joined(separator: "/")
+        Log.debug("cast relay: DASH ready on port \(port), video \(heights)p + audio itag \(audio.itag)")
+        return URL(string: "http://\(Self.urlHost(host)):\(port)/d/\(id).mpd")
+    }
+
     func stop() {
         lock.lock()
         let listener = listener
@@ -74,6 +159,7 @@ final class CastProxy: @unchecked Sendable {
         port = nil
         routes = [:]
         ids = [:]
+        documents = [:]
         lock.unlock()
         listener?.cancel()
     }
@@ -113,7 +199,7 @@ final class CastProxy: @unchecked Sendable {
     // MARK: Routes
 
     /// Path on the relay for an upstream URL (the same URL always gets the same path).
-    private func register(_ url: URL, kind: Kind) -> String {
+    private func register(_ url: URL, kind: Kind, contentType: String? = nil, totalLength: Int64? = nil) -> String {
         lock.lock()
         defer { lock.unlock() }
         let id: Int
@@ -123,7 +209,7 @@ final class CastProxy: @unchecked Sendable {
             id = nextId
             nextId += 1
             ids[url] = id
-            routes[id] = Route(url: url, kind: kind)
+            routes[id] = Route(url: url, kind: kind, contentType: contentType, totalLength: totalLength)
         }
         return kind == .playlist ? "/p/\(id).m3u8" : "/r/\(id)"
     }
@@ -174,6 +260,9 @@ final class CastProxy: @unchecked Sendable {
                 "Access-Control-Max-Age": "86400",
             ], body: Data(), on: connection)
         }
+        if method == "GET" || method == "HEAD", path.hasPrefix("/d/") {
+            return serveDocument(path, includeBody: method == "GET", on: connection)
+        }
         guard method == "GET" || method == "HEAD", let route = route(for: path) else {
             return send(status: 404, headers: [:], body: Data(), on: connection)
         }
@@ -186,7 +275,8 @@ final class CastProxy: @unchecked Sendable {
     private func serve(_ route: Route, range: String?, includeBody: Bool, on connection: NWConnection) async {
         let request = URLRequest(url: route.url)
         guard route.kind == .playlist else {
-            await serveSegment(route.url, range: range, includeBody: includeBody, on: connection)
+            await serveSegment(route.url, contentType: route.contentType, totalLength: route.totalLength, range: range,
+                               includeBody: includeBody, on: connection)
             return
         }
         do {
@@ -209,11 +299,22 @@ final class CastProxy: @unchecked Sendable {
 
     /// A segment, fetched whole (one retry if it fails or comes back empty) and sent with its
     /// real length and type: some receivers stall on bodies without a length.
-    private func serveSegment(_ url: URL, range: String?, includeBody: Bool, on connection: NWConnection) async {
+    private func serveSegment(_ url: URL, contentType: String?, totalLength: Int64?, range: String?, includeBody: Bool,
+                              on connection: NWConnection) async {
+        // A byte range of a file of known size: ask googlevideo with `range=` and answer 206 here.
+        var target = url
+        var forwardedRange = range
+        var bounded: ClosedRange<Int64>?
+        if let range, let totalLength, let wanted = Self.byteRange(range, total: totalLength),
+           let ranged = URL(string: url.absoluteString + (url.query == nil ? "?" : "&") + "range=\(wanted.lowerBound)-\(wanted.upperBound)") {
+            target = ranged
+            forwardedRange = nil
+            bounded = wanted
+        }
         var lastStatus = 502
         for attempt in 0..<2 {
-            var request = URLRequest(url: url)
-            if let range, attempt == 0 { request.setValue(range, forHTTPHeaderField: "Range") }
+            var request = URLRequest(url: target)
+            if let forwardedRange { request.setValue(forwardedRange, forHTTPHeaderField: "Range") }
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
             do {
                 let (data, response) = try await session.data(for: request)
@@ -223,11 +324,17 @@ final class CastProxy: @unchecked Sendable {
                     Log.debug("cast relay: segment upstream -> \(http.statusCode), \(data.count) bytes\(attempt == 0 ? ", retrying" : "")")
                     continue
                 }
-                let type = Self.mediaType(of: data) ?? http.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream"
+                let type = contentType ?? Self.mediaType(of: data) ?? http.value(forHTTPHeaderField: "Content-Type")
+                    ?? "application/octet-stream"
                 var headers = ["Content-Type": type, "Accept-Ranges": "bytes"]
+                var status = http.statusCode
                 if let contentRange = http.value(forHTTPHeaderField: "Content-Range") { headers["Content-Range"] = contentRange }
-                noteSegment(status: http.statusCode, bytes: data.count, type: type)
-                send(status: http.statusCode, headers: headers, body: includeBody ? data : Data(), contentLength: data.count, on: connection)
+                if let bounded, let totalLength, status == 200 {
+                    status = 206
+                    headers["Content-Range"] = "bytes \(bounded.lowerBound)-\(bounded.lowerBound + Int64(data.count) - 1)/\(totalLength)"
+                }
+                noteSegment(status: status, bytes: data.count, type: type)
+                send(status: status, headers: headers, body: includeBody ? data : Data(), contentLength: data.count, on: connection)
                 return
             } catch {
                 Log.debug("cast relay: segment upstream failed: \(error.localizedDescription)")
@@ -235,6 +342,26 @@ final class CastProxy: @unchecked Sendable {
         }
         noteSegment(status: lastStatus == 200 ? 502 : lastStatus, bytes: 0, type: "-")
         send(status: lastStatus == 200 ? 502 : lastStatus, headers: [:], body: Data(), on: connection)
+    }
+
+    private func serveDocument(_ path: String, includeBody: Bool, on connection: NWConnection) {
+        let name = path.split(separator: "/").last.map(String.init) ?? ""
+        lock.lock()
+        let document = Int(name.prefix { $0.isNumber }).flatMap { documents[$0] }
+        lock.unlock()
+        guard let document else { return send(status: 404, headers: [:], body: Data(), on: connection) }
+        note(isPlaylist: true, status: 200, bytes: document.count)
+        send(status: 200, headers: ["Content-Type": "application/dash+xml", "Cache-Control": "no-cache"],
+             body: includeBody ? document : Data(), contentLength: document.count, on: connection)
+    }
+
+    /// `bytes=a-b` / `bytes=a-` within a file of `total` bytes.
+    private static func byteRange(_ header: String, total: Int64) -> ClosedRange<Int64>? {
+        guard header.hasPrefix("bytes="), !header.contains(",") else { return nil }
+        let parts = header.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2, let start = Int64(parts[0]), start < total else { return nil }
+        let end = Int64(parts[1]).map { min($0, total - 1) } ?? total - 1
+        return end >= start ? start...end : nil
     }
 
     /// The container of a segment from its first bytes.
@@ -370,8 +497,8 @@ final class CastProxy: @unchecked Sendable {
         return line.replacingCharacters(in: start.upperBound..<end, with: proxied(url, kind: attributeKind))
     }
 
-    private func proxied(_ url: URL, kind: Kind) -> String {
-        let path = register(url, kind: kind)
+    private func proxied(_ url: URL, kind: Kind, contentType: String? = nil, totalLength: Int64? = nil) -> String {
+        let path = register(url, kind: kind, contentType: contentType, totalLength: totalLength)
         lock.lock()
         let host = host ?? "127.0.0.1"
         let port = port ?? 0

@@ -533,8 +533,21 @@ enum PlayerParser {
             qualityLabel: f["qualityLabel"].string,
             audioTrackName: f.at("audioTrack", "displayName").string,
             audioTrackId: f.at("audioTrack", "id").string,
-            isDefaultAudio: f.at("audioTrack", "audioIsDefault").bool ?? true
+            isDefaultAudio: f.at("audioTrack", "audioIsDefault").bool ?? true,
+            initRange: byteRange(f["initRange"]),
+            indexRange: byteRange(f["indexRange"]),
+            approxDurationMs: f["approxDurationMs"].string.flatMap { Int64($0) },
+            audioSampleRate: f["audioSampleRate"].string.flatMap { Int($0) },
+            audioChannels: f["audioChannels"].int
         )
+    }
+
+    /// `{"start": "0", "end": "740"}` → 0...740.
+    private static func byteRange(_ node: JNode) -> ClosedRange<Int64>? {
+        guard let start = node["start"].string.flatMap({ Int64($0) }) ?? node["start"].int.map(Int64.init),
+              let end = node["end"].string.flatMap({ Int64($0) }) ?? node["end"].int.map(Int64.init),
+              end >= start else { return nil }
+        return start...end
     }
 
     /// YouTube refuses to serve the streams until a (skipped) pre-roll would have finished.

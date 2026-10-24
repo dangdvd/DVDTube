@@ -335,6 +335,12 @@ struct StreamFormat: Hashable {
     /// e.g. "en.4" / "vi.3": language code, then a variant number.
     var audioTrackId: String?
     var isDefaultAudio: Bool
+    /// Byte ranges of the MP4 header and segment index (for a DASH manifest).
+    var initRange: ClosedRange<Int64>? = nil
+    var indexRange: ClosedRange<Int64>? = nil
+    var approxDurationMs: Int64? = nil
+    var audioSampleRate: Int? = nil
+    var audioChannels: Int? = nil
 
     var isVideo: Bool { mimeType.hasPrefix("video/") }
     var isAudio: Bool { mimeType.hasPrefix("audio/") }
