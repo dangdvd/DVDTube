@@ -37,6 +37,7 @@ sealed class Route {
     class Diagnostics : Route()
     class WatchTime : Route()
     class HiddenContent : Route()
+    class Equalizer : Route()
 }
 
 /**

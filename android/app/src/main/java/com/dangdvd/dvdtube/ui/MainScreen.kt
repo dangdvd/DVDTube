@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -47,6 +48,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.storage.AccountStore
 import com.dangdvd.dvdtube.core.storage.DownloadManager
 import com.dangdvd.dvdtube.player.PlayerController
@@ -57,6 +59,8 @@ import com.dangdvd.dvdtube.ui.account.NotificationsScreen
 import com.dangdvd.dvdtube.ui.account.SignInDialog
 import com.dangdvd.dvdtube.ui.components.SaveToPlaylistSheet
 import com.dangdvd.dvdtube.ui.player.MainWebPlayer
+import com.dangdvd.dvdtube.ui.player.AmbientGlow
+import com.dangdvd.dvdtube.ui.player.EqualizerScreen
 import com.dangdvd.dvdtube.ui.player.MiniPlayer
 import com.dangdvd.dvdtube.ui.player.PictureInPictureContent
 import com.dangdvd.dvdtube.ui.player.PlayerBox
@@ -176,11 +180,16 @@ private fun ExpandedPlayer() {
             PlayerBox(Modifier.fillMaxSize().displayCutoutPadding(), fullscreen = true)
         }
     } else {
+        val ambient = AppSettings.ambientMode && isDarkTheme()
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).then(blocker)) {
             Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
                 PlayerBox(Modifier.fillMaxWidth().aspectRatio(16f / 9f), fullscreen = false)
             }
-            WatchDetails(Modifier.weight(1f).navigationBarsPadding())
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                // Ambient mode: the video's colours glow into the page below the player.
+                if (ambient) AmbientGlow(Modifier.fillMaxWidth().height(110.dp))
+                WatchDetails(Modifier.fillMaxSize().navigationBarsPadding())
+            }
         }
     }
 }
@@ -214,6 +223,7 @@ private fun RouteScreen(route: Route) {
         is Route.Diagnostics -> DiagnosticsScreen()
         is Route.WatchTime -> WatchTimeScreen()
         is Route.HiddenContent -> HiddenContentScreen()
+        is Route.Equalizer -> EqualizerScreen()
     }
 }
 

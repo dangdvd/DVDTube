@@ -5,6 +5,7 @@ import com.dangdvd.dvdtube.core.AccountIdentity
 import com.dangdvd.dvdtube.core.AccountNotification
 import com.dangdvd.dvdtube.core.AccountPlaylistOption
 import com.dangdvd.dvdtube.core.AccountProfile
+import com.dangdvd.dvdtube.core.ChannelAbout
 import com.dangdvd.dvdtube.core.ChannelItem
 import com.dangdvd.dvdtube.core.ChannelPage
 import com.dangdvd.dvdtube.core.ChannelTab
@@ -16,15 +17,18 @@ import com.dangdvd.dvdtube.core.FeedPage
 import com.dangdvd.dvdtube.core.Log
 import com.dangdvd.dvdtube.core.PlayerInfo
 import com.dangdvd.dvdtube.core.PlaylistPage
+import com.dangdvd.dvdtube.core.PostsPage
 import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.WatchInfo
 import com.dangdvd.dvdtube.core.innertube.APIConfig
+import com.dangdvd.dvdtube.core.innertube.AboutParser
 import com.dangdvd.dvdtube.core.innertube.AccountParser
 import com.dangdvd.dvdtube.core.innertube.ChannelParser
 import com.dangdvd.dvdtube.core.innertube.CommentsParser
 import com.dangdvd.dvdtube.core.innertube.InnerTube
 import com.dangdvd.dvdtube.core.innertube.ItemParser
 import com.dangdvd.dvdtube.core.innertube.PlaylistParser
+import com.dangdvd.dvdtube.core.innertube.PostsParser
 import com.dangdvd.dvdtube.core.innertube.WatchParser
 
 enum class SearchFilter(val title: String, val params: String?) {
@@ -52,6 +56,10 @@ object YouTubeService {
 
     suspend fun search(query: String, filter: SearchFilter = SearchFilter.ALL): FeedPage =
         ItemParser.page(api.search(query, filter.params)).copy(kind = ContinuationKind.SEARCH)
+
+    /** Search with the filter sheet's choices (upload date, type, duration, features, sort). */
+    suspend fun search(query: String, filters: SearchFilters): FeedPage =
+        ItemParser.page(api.search(query, filters.params())).copy(kind = ContinuationKind.SEARCH)
 
     suspend fun searchMore(token: String): FeedPage =
         ItemParser.page(api.searchContinuation(token)).copy(kind = ContinuationKind.SEARCH)
@@ -118,6 +126,42 @@ object YouTubeService {
 
     suspend fun channelTab(id: String, tab: ChannelTab, params: String?): FeedPage =
         ChannelParser.parse(api.browse(id, params ?: tab.defaultParams), id, tab).initialPage
+
+    /** The "Posts" (community) tab. */
+    suspend fun channelPosts(id: String, params: String?): PostsPage =
+        PostsParser.page(api.browse(id, params ?: ChannelTab.POSTS.defaultParams))
+
+    suspend fun channelPostsMore(token: String): PostsPage = PostsParser.page(api.browseContinuation(token))
+
+    /** The "About" panel: from the header's continuation, else from the about tab. */
+    suspend fun channelAbout(id: String, aboutToken: String?, params: String?): ChannelAbout? {
+        if (aboutToken != null) {
+            runCatching { AboutParser.parse(api.browseContinuation(aboutToken)) }.getOrNull()?.let { return it }
+        }
+        val json = api.browse(id, params ?: ChannelTab.ABOUT.defaultParams)
+        AboutParser.parse(json)?.let { return it }
+        val token = ChannelParser.aboutToken(json["header"]) ?: return null
+        return AboutParser.parse(api.browseContinuation(token))
+    }
+
+    /** Videos of one channel matching [query]. */
+    suspend fun channelSearch(id: String, query: String): FeedPage =
+        ItemParser.page(api.browseSearch(id, ChannelTab.SEARCH_PARAMS, query))
+
+    /** Every video of a playlist (all pages, at most [limit]). */
+    suspend fun playlistVideos(id: String, limit: Int = 200): List<VideoItem> {
+        var page = playlist(id).page
+        val videos = page.videos.toMutableList()
+        var pages = 0
+        while (videos.size < limit && pages < 20) {
+            val token = page.continuation ?: break
+            page = browseMore(token)
+            if (page.videos.isEmpty()) break
+            videos += page.videos.filter { video -> videos.none { it.id == video.id } }
+            pages++
+        }
+        return videos.take(limit)
+    }
 
     suspend fun playlist(id: String): PlaylistPage {
         val browseId = if (id.startsWith("VL")) id else "VL$id"

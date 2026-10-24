@@ -7,7 +7,14 @@ import java.net.URI
  * 234 ≈ 128 kbps AAC in small segments, so audio-only playback starts right away.
  */
 object HlsAudio {
-    data class Rendition(val url: String, val itag: Int?, val isDefault: Boolean)
+    data class Rendition(
+        val url: String,
+        val itag: Int?,
+        val isDefault: Boolean,
+        /** `NAME` (e.g. "English (United States) original") and `LANGUAGE` of the rendition. */
+        val name: String? = null,
+        val language: String? = null,
+    )
 
     fun renditions(text: String, base: String): List<Rendition> =
         text.lineSequence().map { it.trim() }.mapNotNull { line ->
@@ -15,14 +22,17 @@ object HlsAudio {
             val uri = attribute("URI", line) ?: return@mapNotNull null
             val url = runCatching { URI(base).resolve(uri).toString() }.getOrNull() ?: return@mapNotNull null
             val itag = Regex("/itag/(\\d+)").find(url)?.groupValues?.get(1)?.toIntOrNull()
-            Rendition(url, itag, attribute("DEFAULT", line) == "YES")
+            Rendition(url, itag, attribute("DEFAULT", line) == "YES", attribute("NAME", line), attribute("LANGUAGE", line))
         }.toList()
 
-    /** The original-language rendition: the small one with data saver, otherwise the best one. */
-    fun pick(text: String, base: String, preferSmall: Boolean): Rendition? {
+    /**
+     * The rendition in [matches] (an audio language the user picked) or else the original
+     * language: the small one with data saver, otherwise the best one.
+     */
+    fun pick(text: String, base: String, preferSmall: Boolean, matches: ((Rendition) -> Boolean)? = null): Rendition? {
         val all = renditions(text, base)
         if (all.isEmpty()) return null
-        val main = all.filter { it.isDefault }.ifEmpty { all }
+        val main = matches?.let { test -> all.filter(test) }?.ifEmpty { null } ?: all.filter { it.isDefault }.ifEmpty { all }
         main.firstOrNull { it.itag == if (preferSmall) 233 else 234 }?.let { return it }
         val sorted = main.sortedBy { it.itag ?: 0 }
         return if (preferSmall) sorted.first() else sorted.last()

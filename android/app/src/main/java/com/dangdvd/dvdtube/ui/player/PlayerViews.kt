@@ -1,14 +1,26 @@
 package com.dangdvd.dvdtube.ui.player
 
+import android.app.Activity
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
+import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings as SystemSettings
 import android.view.ContextThemeWrapper
+import android.view.PixelCopy
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -35,7 +47,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.HeadsetOff
 import androidx.compose.material.icons.filled.Headphones
@@ -45,6 +59,7 @@ import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -66,6 +81,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -75,15 +91,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -105,6 +128,7 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.dangdvd.dvdtube.cast.CastController
 import com.dangdvd.dvdtube.core.AppSettings
+import com.dangdvd.dvdtube.core.HeatMarker
 import com.dangdvd.dvdtube.core.Storyboard
 import com.dangdvd.dvdtube.core.formatTime
 import com.dangdvd.dvdtube.player.PlayerController
@@ -112,7 +136,10 @@ import com.dangdvd.dvdtube.ui.Brand
 import com.dangdvd.dvdtube.ui.components.RemoteImage
 import com.google.android.gms.cast.framework.CastButtonFactory
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** The web player used for regular videos (the Shorts feed has its own). */
 val MainWebPlayer = WebPlayerHost { event ->
@@ -135,6 +162,62 @@ private object VideoViewHolder {
             subtitleView?.visibility = View.GONE
             player = PlayerController.exo
         }.also { view = it }
+    }
+
+    /** The surface the video is drawn on (a SurfaceView), while the view exists. */
+    val surfaceView: SurfaceView? get() = view?.videoSurfaceView as? SurfaceView
+}
+
+/** A tiny copy of the video frame on screen (for ambient mode), or null when it can't be read. */
+suspend fun captureVideoFrame(width: Int = 32, height: Int = 18): Bitmap? {
+    val surface = VideoViewHolder.surfaceView ?: return null
+    if (!surface.holder.surface.isValid || surface.width == 0 || surface.height == 0) return null
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    return suspendCancellableCoroutine { continuation ->
+        try {
+            PixelCopy.request(surface, bitmap, { result ->
+                if (continuation.isActive) continuation.resume(if (result == PixelCopy.SUCCESS) bitmap else null)
+            }, Handler(Looper.getMainLooper()))
+        } catch (error: IllegalArgumentException) {
+            if (continuation.isActive) continuation.resume(null)
+        }
+    }
+}
+
+/**
+ * Ambient mode: the colours of the video glow softly below the player (dark theme only).
+ * A frame is sampled every 2 seconds; the thumbnail stands in when frames can't be read.
+ */
+@Composable
+fun AmbientGlow(modifier: Modifier) {
+    val video = PlayerController.currentVideo ?: return
+    val native = !PlayerController.isAudioOnly && !PlayerController.usesWebPlayer && !PlayerController.isCasting
+    var frame by remember(video.id) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(video.id, native) {
+        if (!native) {
+            frame = null
+            return@LaunchedEffect
+        }
+        while (true) {
+            if (PlayerController.isPlaying || frame == null) captureVideoFrame()?.let { frame = it.asImageBitmap() }
+            delay(2000)
+        }
+    }
+    val fade = Modifier.drawWithContent {
+        drawContent()
+        drawRect(Brush.verticalGradient(listOf(Color.Black, Color.Transparent)), blendMode = BlendMode.DstIn)
+    }
+    Box(modifier.alpha(0.55f).then(fade)) {
+        Crossfade(targetState = frame, animationSpec = tween(1000), label = "ambient") { image ->
+            if (image != null) {
+                Image(
+                    image, null, contentScale = ContentScale.Crop, filterQuality = FilterQuality.Low,
+                    modifier = Modifier.fillMaxSize().blur(32.dp),
+                )
+            } else {
+                RemoteImage(video.displayThumbnail, Modifier.fillMaxSize().blur(32.dp))
+            }
+        }
     }
 }
 
@@ -187,7 +270,9 @@ private fun AudioOnlyBackdrop(compact: Boolean) {
                     Spacer(Modifier.width(6.dp))
                     Text("Chỉ phát âm thanh", color = Color.White, style = MaterialTheme.typography.labelLarge)
                 }
-                TextButton(onClick = { PlayerController.switchAudioOnly(false) }) { Text("Bật hình", color = Color.White) }
+                if (!PlayerController.isLocalPlayback) {
+                    TextButton(onClick = { PlayerController.switchAudioOnly(false) }) { Text("Bật hình", color = Color.White) }
+                }
             }
         }
     }
@@ -237,6 +322,20 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
     val locked = PlayerController.isScreenLocked
     LaunchedEffect(locked) { if (locked) controlsVisible = false }
     val web = PlayerController.usesWebPlayer
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
+    /** Brightness / volume being changed by a swipe in fullscreen: (is volume, level 0…1). */
+    var gestureHud by remember { mutableStateOf<Pair<Boolean, Float>?>(null) }
+    if (fullscreen) {
+        // The brightness picked by swiping only lasts while in fullscreen.
+        DisposableEffect(activity) {
+            onDispose {
+                val window = activity?.window ?: return@onDispose
+                window.attributes = window.attributes.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+            }
+        }
+    }
 
     LaunchedEffect(controlsVisible, playing, lastInteraction) {
         if (controlsVisible && playing) {
@@ -276,7 +375,22 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
             .pointerInput(fullscreen) {
                 val threshold = 56.dp.toPx()
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    // Fullscreen: the left side sets the brightness, the right side the volume.
+                    val side = when {
+                        !fullscreen || !AppSettings.swipeGestures || PlayerController.isScreenLocked -> 0
+                        down.position.x < size.width * 0.35f -> -1
+                        down.position.x > size.width * 0.65f -> 1
+                        else -> 0
+                    }
+                    val startLevel = when (side) {
+                        -1 -> currentBrightness(activity)
+                        1 -> audioManager?.let { manager ->
+                            manager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() /
+                                manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                        } ?: 0f
+                        else -> 0f
+                    }
                     var dx = 0f
                     var dy = 0f
                     var zoom = 1f
@@ -299,7 +413,16 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
                             dy += pan.y
                             if (!dragging && abs(dy) > viewConfiguration.touchSlop && abs(dy) > abs(dx)) dragging = true
                             if (dragging) event.changes.forEach { it.consume() }
+                            if (dragging && side != 0) {
+                                val level = (startLevel - dy / (size.height * 0.8f)).coerceIn(0f, 1f)
+                                if (side < 0) setBrightness(activity, level) else setVolume(audioManager, level)
+                                gestureHud = (side > 0) to level
+                            }
                         }
+                    }
+                    if (side != 0 && gestureHud != null) {
+                        gestureHud = null
+                        return@awaitEachGesture
                     }
                     if (ignored) return@awaitEachGesture
                     if (pinching) {
@@ -361,12 +484,48 @@ fun PlayerBox(modifier: Modifier, fullscreen: Boolean) {
                 Icon(Icons.Default.FastForward, null, tint = Color.White, modifier = Modifier.size(18.dp))
             }
         }
+        gestureHud?.let { (volume, level) -> GestureHud(volume, level, Modifier.align(Alignment.Center)) }
         UpNextOverlay(Modifier.align(Alignment.Center))
         if (PlayerController.showsStats) StatsOverlay(Modifier.align(Alignment.TopStart).padding(if (fullscreen) 24.dp else 8.dp))
         if (locked) LockOverlay()
     }
     if (settingsOpen) PlayerSettingsSheet(onDismiss = { settingsOpen = false })
     if (sleepOpen) SleepTimerSheet(onDismiss = { sleepOpen = false })
+}
+
+private fun currentBrightness(activity: Activity?): Float {
+    val host = activity ?: return 0.5f
+    val own = host.window.attributes.screenBrightness
+    if (own >= 0f) return own
+    return runCatching { SystemSettings.System.getInt(host.contentResolver, SystemSettings.System.SCREEN_BRIGHTNESS) / 255f }.getOrDefault(0.5f)
+}
+
+private fun setBrightness(activity: Activity?, level: Float) {
+    val window = activity?.window ?: return
+    window.attributes = window.attributes.apply { screenBrightness = level.coerceIn(0.01f, 1f) }
+}
+
+private fun setVolume(manager: AudioManager?, level: Float) {
+    manager ?: return
+    val max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+    runCatching { manager.setStreamVolume(AudioManager.STREAM_MUSIC, (level * max).roundToInt().coerceIn(0, max), 0) }
+}
+
+/** Shown while swiping for brightness or volume. */
+@Composable
+private fun GestureHud(volume: Boolean, level: Float, modifier: Modifier) {
+    Row(
+        modifier.background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(if (volume) Icons.AutoMirrored.Filled.VolumeUp else Icons.Default.Brightness6, if (volume) "Âm lượng" else "Độ sáng",
+            tint = Color.White)
+        Spacer(Modifier.width(10.dp))
+        LinearProgressIndicator(progress = { level }, modifier = Modifier.width(120.dp), color = Color.White,
+            trackColor = Color.White.copy(alpha = 0.3f))
+        Spacer(Modifier.width(10.dp))
+        Text("${(level * 100).roundToInt()}%", color = Color.White, style = MaterialTheme.typography.labelLarge)
+    }
 }
 
 /** "Lock screen": every touch is ignored except the unlock button. */
@@ -560,6 +719,19 @@ private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onSleepT
                     Text("  •  $it", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelMedium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 }
+                if (!isLive && PlayerController.jumpAheadTarget != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Row(
+                        Modifier.background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(50))
+                            .clickable { PlayerController.jumpAhead(); onInteract() }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.FlashOn, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Tua tới đoạn hay", color = Color.White, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    }
+                }
                 Spacer(Modifier.weight(1f))
                 if (fullscreen) {
                     IconButton(onClick = { PlayerController.rotateFullscreen(false, view.display?.rotation ?: 0); onInteract() }) {
@@ -574,10 +746,42 @@ private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onSleepT
                 }
             }
             if (!isLive) {
+                val heatmap = PlayerController.heatmap
+                if (heatmap.isNotEmpty() && PlayerController.duration > 0) {
+                    HeatmapGraph(heatmap, PlayerController.duration, scrub != null,
+                        Modifier.fillMaxWidth().height(if (fullscreen) 36.dp else 20.dp))
+                }
                 SeekBar(onScrub = { scrub = it; onInteract() })
             }
             Spacer(Modifier.height(if (fullscreen) 16.dp else 2.dp))
         }
+    }
+}
+
+/** YouTube's "Most replayed" graph, drawn just above the progress bar. */
+@Composable
+private fun HeatmapGraph(markers: List<HeatMarker>, duration: Double, strong: Boolean, modifier: Modifier) {
+    Canvas(modifier) {
+        if (markers.isEmpty() || duration <= 0) return@Canvas
+        val points = markers.map { marker ->
+            val x = ((marker.start + marker.duration / 2) / duration).toFloat().coerceIn(0f, 1f) * size.width
+            Offset(x, size.height * (1f - marker.intensity.toFloat().coerceIn(0f, 1f)))
+        }
+        val path = Path().apply {
+            moveTo(0f, size.height)
+            lineTo(0f, points.first().y)
+            lineTo(points.first().x, points.first().y)
+            for (index in 1 until points.size) {
+                val previous = points[index - 1]
+                val point = points[index]
+                val midX = (previous.x + point.x) / 2
+                cubicTo(midX, previous.y, midX, point.y, point.x, point.y)
+            }
+            lineTo(size.width, points.last().y)
+            lineTo(size.width, size.height)
+            close()
+        }
+        drawPath(path, Color.White.copy(alpha = if (strong) 0.55f else 0.35f))
     }
 }
 

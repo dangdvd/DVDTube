@@ -23,6 +23,10 @@ import java.io.File
 /** App-wide coroutine scope on the main thread. */
 object AppScope : CoroutineScope by MainScope()
 
+/** Where a video was left off, for videos kept out of the history. */
+@Serializable
+data class ResumePoint(val position: Double, val duration: Double)
+
 @Serializable
 private data class LibraryData(
     val subscriptions: List<ChannelItem> = emptyList(),
@@ -31,6 +35,7 @@ private data class LibraryData(
     val liked: List<VideoItem> = emptyList(),
     val playlists: List<LocalPlaylist> = emptyList(),
     val searchHistory: List<String> = emptyList(),
+    val resumePoints: Map<String, ResumePoint> = emptyMap(),
 )
 
 /**
@@ -54,6 +59,8 @@ object LibraryStore {
         private set
     var searchHistory by mutableStateOf(listOf<String>())
         private set
+    /** Resume positions of videos watched while the watch history was paused. */
+    private var resumePoints = mapOf<String, ResumePoint>()
     /** Dislikes are kept for this session only (like the official app, they are private). */
     var disliked by mutableStateOf(setOf<String>())
         private set
@@ -67,11 +74,12 @@ object LibraryStore {
         liked = stored.liked
         playlists = stored.playlists
         searchHistory = stored.searchHistory
+        resumePoints = stored.resumePoints
     }
 
     private fun scheduleSave() {
         saveJob?.cancel()
-        val snapshot = LibraryData(subscriptions, history, watchLater, liked, playlists, searchHistory)
+        val snapshot = LibraryData(subscriptions, history, watchLater, liked, playlists, searchHistory, resumePoints)
         saveJob = AppScope.launch {
             delay(500)
             withContext(Dispatchers.IO) {
@@ -142,7 +150,15 @@ object LibraryStore {
 
     fun updatePosition(videoId: String, position: Double, duration: Double) {
         val index = history.indexOfFirst { it.video.id == videoId }
-        if (index < 0) return
+        if (index < 0) {
+            // Not in the history (paused): still remember where it was left off.
+            if (AppSettings.saveHistory) return
+            val previous = resumePoints[videoId]
+            resumePoints = (resumePoints - videoId).entries.toList().takeLast(199).associate { it.key to it.value } +
+                (videoId to ResumePoint(position, if (duration > 0) duration else previous?.duration ?: 0.0))
+            scheduleSave()
+            return
+        }
         val entry = history[index]
         history = history.toMutableList().also {
             it[index] = entry.copy(position = position, duration = if (duration > 0) duration else entry.duration)
@@ -151,10 +167,12 @@ object LibraryStore {
     }
 
     fun resumePosition(videoId: String): Double? {
-        val entry = history.firstOrNull { it.video.id == videoId } ?: return null
-        if (entry.position <= 10) return null
-        if (entry.duration > 0 && entry.position >= entry.duration - 10) return null
-        return entry.position
+        val entry = history.firstOrNull { it.video.id == videoId }
+        val position = entry?.position ?: resumePoints[videoId]?.position ?: return null
+        val duration = entry?.duration ?: resumePoints[videoId]?.duration ?: 0.0
+        if (position <= 10) return null
+        if (duration > 0 && position >= duration - 10) return null
+        return position
     }
 
     fun removeFromHistory(videoId: String) {
@@ -238,7 +256,7 @@ object LibraryStore {
 
     fun addSearch(query: String) {
         val trimmed = query.trim()
-        if (trimmed.isEmpty() || AppSettings.isIncognito) return
+        if (trimmed.isEmpty() || AppSettings.isIncognito || AppSettings.pauseSearchHistory) return
         searchHistory = (listOf(trimmed) + searchHistory.filter { !it.equals(trimmed, ignoreCase = true) }).take(50)
         scheduleSave()
     }

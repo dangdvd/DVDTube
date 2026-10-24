@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -51,10 +52,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.LiveChatInfo
 import com.dangdvd.dvdtube.core.VideoItem
+import com.dangdvd.dvdtube.core.VideoQuality
 import com.dangdvd.dvdtube.core.WatchInfo
 import com.dangdvd.dvdtube.core.formatTime
+import com.dangdvd.dvdtube.core.services.NumberText
+import com.dangdvd.dvdtube.core.services.ReturnYouTubeDislike
 import com.dangdvd.dvdtube.core.storage.HiddenContentStore
 import com.dangdvd.dvdtube.ui.player.SleepTimerSheet
 import com.dangdvd.dvdtube.core.storage.AccountStore
@@ -210,8 +215,19 @@ private fun Header(video: VideoItem, info: WatchInfo?, open: (WatchSheet) -> Uni
                         Text(info?.likeCountText ?: "Thích", style = MaterialTheme.typography.labelLarge)
                     }
                     Box(Modifier.width(1.dp).height(20.dp).background(MaterialTheme.colorScheme.outlineVariant))
-                    Box(Modifier.clickable { LibraryActions.toggleDislike(item, info?.likeStatus) }.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    // Return YouTube Dislike's estimate (YouTube hides the real count).
+                    val dislikes by produceState<Long?>(null, video.id, AppSettings.showDislikes) {
+                        value = if (AppSettings.showDislikes && !video.isLive) ReturnYouTubeDislike.dislikes(video.id) else null
+                    }
+                    Row(
+                        Modifier.clickable { LibraryActions.toggleDislike(item, info?.likeStatus) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Icon(if (disliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown, "Không thích", Modifier.size(18.dp))
+                        dislikes?.let {
+                            Spacer(Modifier.width(6.dp))
+                            Text(NumberText.compact(it), style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
             }
@@ -260,10 +276,33 @@ private fun Header(video: VideoItem, info: WatchInfo?, open: (WatchSheet) -> Uni
                         downloaded -> "Đã tải"
                         state is DownloadState.Downloading -> "${(state.progress * 100).toInt()}%"
                         state is DownloadState.Preparing || state is DownloadState.Merging -> "Đang tải…"
+                        state is DownloadState.Queued -> "Đang chờ…"
                         else -> "Tải xuống"
                     }
-                    ActionChip(if (downloaded) Icons.Default.DownloadDone else Icons.Default.Download, label) {
-                        if (!downloaded && state == null) DownloadManager.download(item)
+                    var downloadMenu by remember { mutableStateOf(false) }
+                    Box {
+                        ActionChip(if (downloaded) Icons.Default.DownloadDone else Icons.Default.Download, label) {
+                            if (!downloaded && (state == null || state is DownloadState.Failed)) downloadMenu = true
+                        }
+                        DropdownMenu(expanded = downloadMenu, onDismissRequest = { downloadMenu = false }) {
+                            listOf(VideoQuality.P1080, VideoQuality.P720, VideoQuality.P480, VideoQuality.P360).forEach { quality ->
+                                DropdownMenuItem(
+                                    text = { Text("Video ${quality.title}" + if (quality == AppSettings.downloadQuality) " (mặc định)" else "") },
+                                    onClick = {
+                                        downloadMenu = false
+                                        DownloadManager.download(item, quality = quality)
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Chỉ âm thanh (m4a)") },
+                                leadingIcon = { Icon(Icons.Default.Headphones, null) },
+                                onClick = {
+                                    downloadMenu = false
+                                    DownloadManager.download(item, audioOnly = true)
+                                },
+                            )
+                        }
                     }
                 }
             }

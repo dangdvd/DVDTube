@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
@@ -211,6 +212,13 @@ fun VideoMenu(video: VideoItem, extra: (@Composable (close: () -> Unit) -> Unit)
                     enabled = !downloaded,
                     onClick = { open = false; DownloadManager.download(video) },
                 )
+                if (!downloaded) {
+                    DropdownMenuItem(
+                        text = { Text("Tải âm thanh (m4a)") },
+                        leadingIcon = { Icon(Icons.Default.Headphones, null) },
+                        onClick = { open = false; DownloadManager.download(video, audioOnly = true) },
+                    )
+                }
             }
             DropdownMenuItem(
                 text = { Text("Chia sẻ") },
@@ -402,6 +410,7 @@ fun DownloadStatus(videoId: String) {
     when (val state = DownloadManager.states[videoId]) {
         is DownloadState.Downloading -> LinearProgressIndicator(progress = { state.progress.toFloat() }, Modifier.width(80.dp))
         DownloadState.Preparing, DownloadState.Merging -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        DownloadState.Queued -> Text("Đang chờ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         is DownloadState.Failed -> Text("Lỗi", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
         null -> if (DownloadManager.isDownloaded(videoId)) Icon(Icons.Default.CheckCircle, null, tint = Brand, modifier = Modifier.size(18.dp))
     }

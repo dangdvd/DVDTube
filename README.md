@@ -15,7 +15,7 @@ hình trong hình (PiP), tải video xem offline.
 | SponsorBlock | Tự bỏ qua đoạn nhà tài trợ, tự quảng cáo, nhắc đăng ký… do người làm video lồng vào (tùy chọn). |
 | Phát trong nền | Tắt màn hình hoặc chuyển app vẫn nghe tiếp; điều khiển trên màn hình khóa / Control Center. |
 | Hình trong hình | Tự bật PiP khi vuốt về màn hình chính, hoặc bấm nút PiP. |
-| Tải xuống | Tải video (đến 1080p) thành tệp `.mp4`, xem offline, xem cả trong app **Tệp**. |
+| Tải xuống | Tải video (đến 1080p) thành tệp `.mp4` hoặc **chỉ âm thanh** (`.m4a`) để nghe offline, **tải cả danh sách phát** bằng một lần bấm; xem cả trong app **Tệp**. |
 | Trang chủ | Gợi ý dựa trên nhật ký xem + video mới của kênh đăng ký + Shorts; chip Âm nhạc, Trò chơi, Trực tiếp, Podcast, Tin tức, Thể thao, Học tập, Phim. |
 | Shorts | Vuốt dọc toàn màn hình, tự lặp, tải trước video kế tiếp, thích / bình luận / chia sẻ. |
 | Kênh đăng ký | Đăng ký không cần tài khoản; nhập/xuất từ Google Takeout (`subscriptions.csv`). |
@@ -32,6 +32,15 @@ hình trong hình (PiP), tải video xem offline.
 | Chromecast | Nút 📺 trên trình phát: tìm Chromecast / Google TV trong mạng Wi-Fi và phát luồng không quảng cáo trên TV; điện thoại thành điều khiển (phát/tạm dừng/tua/âm lượng, tự phát video tiếp theo). |
 | Thư viện | Nhật ký xem (tiếp tục từ chỗ đã dừng), Xem sau, Video đã thích, danh sách phát riêng. |
 | Tìm kiếm | Gợi ý khi gõ, **tìm bằng giọng nói** (nút micro), lịch sử, bộ lọc (Video, Shorts, Kênh, Danh sách phát, Trực tiếp, Mới tải lên), dán link YouTube để mở thẳng. |
+| Bộ chỉnh âm (EQ) | EQ 10 băng tần (31 Hz → 16 kHz, ±12 dB) với các thiết lập sẵn: Pop, Rock, EDM, Dance, Trap, Hip-hop, R&B, Cổ điển, Jazz, Acoustic, Bolero – Trữ tình, K-pop, Electronic, Metal, Lofi, Latin, Piano, Giọng hát, Lời nói – Podcast, Tăng bass, Tăng treble, Loudness, Loa điện thoại; chỉnh tay từng băng (lưu thành *Tùy chỉnh*), tiền khuếch đại tự động chống rè. Mở trong ⚙ trình phát hoặc *Cài đặt › Âm thanh*. Trên iPhone, khi bật EQ ứng dụng phát luồng MP4 thay cho HLS (video trực tiếp không áp dụng EQ). |
+| Âm thanh | Chọn **bản âm thanh** (ngôn ngữ lồng tiếng) cho video có nhiều ngôn ngữ, **âm lượng ổn định** (cân bằng độ to giữa các video). |
+| Phát lại nhiều nhất | Biểu đồ "phát lại nhiều nhất" trên thanh tua và nút **Tua tới đoạn hay**. |
+| Chế độ môi trường | Ở giao diện tối, màu của khung hình đang phát toả nhẹ ra quanh trình phát như app gốc. |
+| Vuốt chỉnh độ sáng / âm lượng | Khi toàn màn hình: vuốt dọc ở mép trái để chỉnh độ sáng, mép phải để chỉnh âm lượng (tắt được trong Cài đặt). |
+| Kênh | Tab **Bài đăng** (cộng đồng: chữ, ảnh, video, bình chọn), tab **Giới thiệu** (mô tả, liên kết, ngày tham gia, số lượt xem) và **tìm kiếm trong kênh**. |
+| Bộ lọc tìm kiếm | Ngày tải lên, loại, thời lượng, tính năng (Trực tiếp, 4K, HD, Phụ đề, 360°, HDR…), sắp xếp theo lượt xem / ngày tải lên / xếp hạng. |
+| Bình luận & đánh giá | Thích / không thích bình luận khi đã đăng nhập; hiện **số lượt không thích** của video (dữ liệu Return YouTube Dislike, tắt được). |
+| Nhật ký | Tạm dừng nhật ký xem, tạm dừng / xóa nhật ký tìm kiếm. |
 | Thông báo | Chuông thông báo của tài khoản YouTube (có số chưa đọc); tùy chọn báo trên màn hình khóa khi kênh đăng ký có video mới (*Cài đặt › Thông báo*). |
 
 ## Đăng nhập tài khoản Google (tùy chọn)
@@ -103,6 +112,17 @@ hình khóa, hình trong hình (tự bật khi về màn hình chính), xoay nga
 (qua Google Cast có sẵn trong Google Play services), đăng nhập Google, nhiều tài khoản/kênh thương
 hiệu, tải video lên, live chat, thông báo video mới (WorkManager, khoảng mỗi giờ), mở link YouTube
 được chia sẻ từ ứng dụng khác.
+
+### Android Auto (nghe trong xe)
+
+Cắm điện thoại vào xe (hoặc kết nối Android Auto không dây): DVDTube hiện trong mục ứng dụng nghe
+nhạc của Android Auto với các mục *Tiếp tục xem*, *Xem sau*, *Video đã thích*, *Danh sách phát*,
+*Kênh đăng ký – video mới*, *Đã tải xuống*; chọn video để nghe âm thanh qua loa xe.
+
+Vì DVDTube không cài từ Google Play, cần bật một lần: mở ứng dụng **Android Auto** trên điện thoại →
+*Cài đặt* → chạm 10 lần vào *Phiên bản* để bật chế độ nhà phát triển → menu ⋮ → *Cài đặt cho nhà phát
+triển* → bật **Nguồn không xác định** (Unknown sources). Sau đó vào *Tùy chỉnh trình chạy* của
+Android Auto nếu DVDTube chưa hiện.
 
 ## Cách hoạt động
 

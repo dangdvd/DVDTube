@@ -274,7 +274,9 @@ object AccountStore {
 
     /** Called once playback has really started; adds the video to the YouTube history. */
     fun reportWatched(videoId: String, duration: Double) {
-        if (!isSignedIn || !AppSettings.syncWatchHistory || AppSettings.isIncognito || !reportedWatched.add(videoId)) return
+        if (!isSignedIn || !AppSettings.syncWatchHistory || !AppSettings.saveHistory || AppSettings.isIncognito ||
+            !reportedWatched.add(videoId)
+        ) return
         AppScope.launch(Dispatchers.IO) { InnerTube.markWatched(videoId, duration) }
     }
 

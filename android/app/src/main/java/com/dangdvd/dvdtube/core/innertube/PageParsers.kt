@@ -6,16 +6,22 @@ import com.dangdvd.dvdtube.core.AccountNotification
 import com.dangdvd.dvdtube.core.AccountPlaylistOption
 import com.dangdvd.dvdtube.core.AccountProfile
 import com.dangdvd.dvdtube.core.CaptionTrack
+import com.dangdvd.dvdtube.core.ChannelAbout
 import com.dangdvd.dvdtube.core.ChannelItem
+import com.dangdvd.dvdtube.core.ChannelLink
 import com.dangdvd.dvdtube.core.ChannelPage
 import com.dangdvd.dvdtube.core.ChannelTab
 import com.dangdvd.dvdtube.core.Chapter
 import com.dangdvd.dvdtube.core.Comment
 import com.dangdvd.dvdtube.core.CommentSortOption
 import com.dangdvd.dvdtube.core.CommentsPage
+import com.dangdvd.dvdtube.core.CommunityPost
 import com.dangdvd.dvdtube.core.ContinuationKind
+import com.dangdvd.dvdtube.core.HeatMarker
 import com.dangdvd.dvdtube.core.JNode
 import com.dangdvd.dvdtube.core.PlayerInfo
+import com.dangdvd.dvdtube.core.PostAttachment
+import com.dangdvd.dvdtube.core.PostsPage
 import com.dangdvd.dvdtube.core.PlaylistItem
 import com.dangdvd.dvdtube.core.PlaylistPage
 import com.dangdvd.dvdtube.core.Storyboard
@@ -66,6 +72,19 @@ object WatchParser {
             }
         }
 
+        // "Most replayed": an entity in the framework updates.
+        val heatmap = json.at("frameworkUpdates", "entityBatchUpdate", "mutations").array
+            .map { it.at("payload", "macroMarkersListEntity", "markersList") }
+            .firstOrNull { it["markerType"].string == "MARKER_TYPE_HEATMAP" }
+            ?.get("markers")?.array
+            ?.mapNotNull { marker ->
+                val start = marker["startMillis"].double ?: return@mapNotNull null
+                val length = marker["durationMillis"].double ?: return@mapNotNull null
+                HeatMarker(start / 1000, length / 1000, marker["intensityScoreNormalized"].double ?: 0.0)
+            }
+            ?.sortedBy { it.start }
+            .orEmpty()
+
         val related = ItemParser.page(watch["secondaryResults"])
         return WatchInfo(
             videoId = videoId,
@@ -84,6 +103,7 @@ object WatchParser {
             likeStatus = primary["videoActions"].findFirst("likeStatusEntity")["likeStatus"].string,
             isSubscribed = secondary.findFirst("subscribeButtonRenderer")["subscribed"].bool,
             liveChat = LiveChatParser.info(watch),
+            heatmap = heatmap,
         )
     }
 }
@@ -192,7 +212,11 @@ object CommentsParser {
             val properties = payload["properties"]
             val author = payload["author"]
             val toolbar = payload["toolbar"]
-            val heartState = viewModel["toolbarStateKey"].string?.let { toolbarStates[it] }?.get("heartState")?.string
+            val state = viewModel["toolbarStateKey"].string?.let { toolbarStates[it] }
+            val heartState = state?.get("heartState")?.string
+            val surface = viewModel["toolbarSurfaceKey"].string?.let { toolbarSurfaces[it] }
+            fun action(command: String): String? =
+                surface?.get(command)?.findFirst("performCommentActionEndpoint")?.get("action")?.string
             return Comment(
                 id = properties["commentId"].string ?: viewModel["commentId"].string ?: key,
                 authorName = author["displayName"].string ?: "",
@@ -206,7 +230,17 @@ object CommentsParser {
                 isPinned = viewModel["pinnedText"].exists,
                 isCreator = author["isCreator"].bool ?: false,
                 isHearted = heartState == "TOOLBAR_HEART_STATE_HEARTED",
-                replyParams = viewModel["toolbarSurfaceKey"].string?.let { toolbarSurfaces[it] }?.findFirst("createReplyParams")?.string,
+                replyParams = surface?.findFirst("createReplyParams")?.string,
+                likeToken = action("likeCommand"),
+                unlikeToken = action("unlikeCommand"),
+                dislikeToken = action("dislikeCommand"),
+                undislikeToken = action("undislikeCommand"),
+                likeState = when (state?.get("likeState")?.string) {
+                    "TOOLBAR_LIKE_STATE_LIKED" -> "LIKED"
+                    "TOOLBAR_LIKE_STATE_DISLIKED" -> "DISLIKED"
+                    else -> "INDIFFERENT"
+                },
+                likeCountLikedText = nonEmpty(toolbar["likeCountLiked"].string),
             )
         }
 
@@ -272,7 +306,7 @@ object ChannelParser {
             val url = renderer.findFirst("webCommandMetadata")["url"].string ?: ""
             val params = renderer.at("endpoint", "browseEndpoint", "params").string
             for (candidate in ChannelTab.entries) {
-                if (url.endsWith("/" + candidate.urlSuffix) && params != null) tabParams[candidate] = params
+                if (params != null && candidate.urlSuffixes.any { url.endsWith("/$it") }) tabParams[candidate] = params
             }
             if (renderer["selected"].bool == true) selectedContent = renderer["content"]
         }
@@ -285,7 +319,86 @@ object ChannelParser {
             tabParams = tabParams,
             initialTab = tab,
             initialPage = ItemParser.page(selectedContent),
+            aboutToken = aboutToken(header),
         )
+    }
+
+    /** The description in the header opens the "About" panel through a continuation. */
+    fun aboutToken(header: JNode): String? =
+        header.findAll("showEngagementPanelEndpoint").firstNotNullOfOrNull { it.findFirst("continuationCommand")["token"].string }
+}
+
+/** Posts on a channel's "Posts" (community) tab. */
+object PostsParser {
+    fun page(json: JNode): PostsPage {
+        val seen = HashSet<String>()
+        val posts = json.findAll("backstagePostRenderer").mapNotNull(::post).filter { seen.add(it.id) }
+        return PostsPage(posts, ItemParser.continuation(json))
+    }
+
+    private fun post(r: JNode): CommunityPost? {
+        val id = r["postId"].string ?: return null
+        val attachment = r["backstageAttachment"]
+        val parsed: PostAttachment? = when {
+            attachment["backstageImageRenderer"].exists ->
+                attachment.at("backstageImageRenderer", "image").bestImageUrl?.let { PostAttachment.Images(listOf(it)) }
+            attachment["postMultiImageRenderer"].exists -> attachment.at("postMultiImageRenderer", "images").array
+                .mapNotNull { it.at("backstageImageRenderer", "image").bestImageUrl }
+                .takeIf { it.isNotEmpty() }?.let { PostAttachment.Images(it) }
+            attachment["videoRenderer"].exists -> ItemParser.video(attachment["videoRenderer"])?.let { PostAttachment.Video(it) }
+            attachment["pollRenderer"].exists -> {
+                val poll = attachment["pollRenderer"]
+                PostAttachment.Poll(poll["choices"].array.mapNotNull { it["text"].text }, poll["totalVotes"].text)
+            }
+            else -> null
+        }
+        return CommunityPost(
+            id = id,
+            authorName = r["authorText"].text ?: "",
+            authorAvatar = r["authorThumbnail"].bestImageUrl,
+            text = r["contentText"].text ?: "",
+            publishedText = r["publishedTimeText"].text,
+            likeCountText = r["voteCount"].text?.trim()?.takeIf { it.isNotEmpty() },
+            commentCountText = r.at("actionButtons", "commentActionButtonsRenderer", "replyButton", "buttonRenderer", "text").text
+                ?.trim()?.takeIf { it.isNotEmpty() },
+            attachment = parsed,
+        )
+    }
+}
+
+/** The channel's "About" panel (`aboutChannelViewModel`). */
+object AboutParser {
+    fun parse(json: JNode): ChannelAbout? {
+        val about = json.findFirst("aboutChannelViewModel")
+        if (!about.exists) return null
+        val links = about["links"].array.mapNotNull { entry ->
+            val link = entry["channelExternalLinkViewModel"]
+            val title = link["title"].text ?: return@mapNotNull null
+            val display = link["link"].text
+            val target = link.at("link", "commandRuns")[0].at("onTap", "innertubeCommand", "urlEndpoint", "url").string
+                ?: display?.let { if (it.startsWith("http")) it else "https://$it" }
+                ?: return@mapNotNull null
+            ChannelLink(title, display, redirectTarget(target))
+        }
+        return ChannelAbout(
+            description = about["description"].text,
+            country = about["country"].text,
+            subscriberCountText = about["subscriberCountText"].text,
+            viewCountText = about["viewCountText"].text,
+            videoCountText = about["videoCountText"].text,
+            joinedDateText = about["joinedDateText"].text,
+            channelUrl = about["canonicalChannelUrl"].text,
+            links = links,
+        )
+    }
+
+    /** `youtube.com/redirect?q=<target>` → the target itself. */
+    private fun redirectTarget(url: String): String {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return url
+        if (uri.host?.endsWith("youtube.com") == true && uri.path == "/redirect") {
+            uri.getQueryParameter("q")?.let { return it }
+        }
+        return url
     }
 }
 
@@ -353,6 +466,7 @@ object PlayerParser {
             captions = captions,
             availableAt = System.currentTimeMillis() + (prerollAdSeconds(json) * 1000).toLong(),
             storyboard = json.at("storyboards", "playerStoryboardSpecRenderer", "spec").string?.let(Storyboard::parse),
+            loudnessDb = json.at("playerConfig", "audioConfig", "loudnessDb").double,
         )
     }
 
@@ -373,6 +487,7 @@ object PlayerParser {
             qualityLabel = f["qualityLabel"].string,
             audioTrackName = f.at("audioTrack", "displayName").string,
             isDefaultAudio = f.at("audioTrack", "audioIsDefault").bool ?: true,
+            audioLanguage = f.at("audioTrack", "id").string?.substringBefore('.')?.takeIf { it.isNotEmpty() },
         )
     }
 

@@ -170,3 +170,27 @@ object NumberText {
     fun relative(epochMs: Long): String =
         DateUtils.getRelativeTimeSpanString(epochMs, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
 }
+
+/** Dislike counts estimated by Return YouTube Dislike (only the video id is sent). */
+object ReturnYouTubeDislike {
+    private val cache = HashMap<String, Long>()
+
+    suspend fun dislikes(videoId: String): Long? {
+        synchronized(cache) { cache[videoId] }?.let { return it }
+        val count = withContext(Dispatchers.IO) {
+            runCatching {
+                val url = "https://returnyoutubedislikeapi.com/votes".toHttpUrl().newBuilder()
+                    .addQueryParameter("videoId", videoId).build()
+                InnerTube.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    JNode.parse(response.body?.string() ?: "{}")["dislikes"].long
+                }
+            }.getOrNull()
+        } ?: return null
+        synchronized(cache) {
+            if (cache.size > 200) cache.clear()
+            cache[videoId] = count
+        }
+        return count
+    }
+}

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -430,7 +431,8 @@ fun DownloadsScreen() {
             }
             items(active.keys.toList(), key = { "active-$it" }) { id ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(id, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Text(DownloadManager.activeTitles[id] ?: id, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     DownloadStatus(id)
                     IconButton(onClick = { DownloadManager.cancel(id) }) { Icon(Icons.Default.Close, "Hủy") }
                 }
@@ -438,16 +440,22 @@ fun DownloadsScreen() {
             items(downloads, key = { it.video.id }) { download ->
                 VideoRow(download.video, downloads.map { it.video }, trailing = {
                     VideoMenu(download.video) { close ->
-                        DropdownMenuItem(text = { Text("Lưu vào thư viện ảnh") }, onClick = { close(); DownloadManager.exportToGallery(download.video.id) })
+                        DropdownMenuItem(text = { Text(if (download.isAudioOnly) "Lưu vào thư mục Nhạc" else "Lưu vào thư viện ảnh") },
+                            onClick = { close(); DownloadManager.exportToGallery(download.video.id) })
                         DropdownMenuItem(text = { Text("Xóa bản tải xuống") }, leadingIcon = { Icon(Icons.Default.Delete, null) },
                             onClick = { close(); DownloadManager.delete(download.video.id) })
                     }
                 })
-                Text(
-                    listOfNotNull(download.qualityLabel, android.text.format.Formatter.formatShortFileSize(LocalContext.current, download.fileSize)).joinToString(" • "),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 190.dp, bottom = 6.dp),
-                )
+                Row(Modifier.padding(start = 190.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (download.isAudioOnly) {
+                        Icon(Icons.Default.Headphones, "Chỉ âm thanh", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        listOfNotNull(download.qualityLabel, android.text.format.Formatter.formatShortFileSize(LocalContext.current, download.fileSize)).joinToString(" • "),
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
