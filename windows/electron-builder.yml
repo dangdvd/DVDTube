@@ -1,0 +1,35 @@
+appId: com.dangdvd.dvdtube
+productName: DVDTube
+copyright: DVDTube
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - package.json
+asarUnpack:
+  - resources/**
+extraMetadata:
+  main: out/main/index.js
+win:
+  icon: build/icon.ico
+  executableName: DVDTube
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  artifactName: DVDTube-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: DVDTube
+  artifactName: DVDTube-Setup.${ext}
+  deleteAppDataOnUninstall: false
+protocols:
+  - name: DVDTube
+    schemes: [dvdtube]
+publish: null

@@ -1,0 +1,84 @@
+/* Design tokens shared by every module. Dark is the default; light via [data-theme="light"]. */
+:root {
+  --bg: #0f0f0f;
+  --bg-elevated: #212121;
+  --bg-hover: #272727;
+  --bg-active: #3f3f3f;
+  --surface: #181818;
+  --text: #f1f1f1;
+  --text-secondary: #aaaaaa;
+  --text-tertiary: #717171;
+  --border: #303030;
+  --brand: #ff0033;
+  --brand-hover: #e6002e;
+  --accent: #3ea6ff;
+  --chip: #272727;
+  --chip-active-bg: #f1f1f1;
+  --chip-active-text: #0f0f0f;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow: 0 4px 32px rgba(0, 0, 0, 0.6);
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+  --topbar-height: 56px;
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 72px;
+  --font: 'Segoe UI Variable Text', 'Segoe UI', Roboto, Arial, sans-serif;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f2f2f2;
+  --bg-active: #e5e5e5;
+  --surface: #f9f9f9;
+  --text: #0f0f0f;
+  --text-secondary: #606060;
+  --text-tertiary: #909090;
+  --border: #e5e5e5;
+  --chip: #f2f2f2;
+  --chip-active-bg: #0f0f0f;
+  --chip-active-text: #ffffff;
+  --shadow: 0 4px 32px rgba(0, 0, 0, 0.15);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-active);
+  border-radius: 8px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

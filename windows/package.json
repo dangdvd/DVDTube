@@ -1,0 +1,38 @@
+{
+  "name": "dvdtube-desktop",
+  "productName": "DVDTube",
+  "version": "1.0.0",
+  "description": "DVDTube cho Windows: xem YouTube không quảng cáo",
+  "author": "dangdvd",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "start": "electron-vite preview",
+    "test": "node --test out-test/",
+    "dist:win": "electron-vite build && electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "43.7.7",
+    "electron-builder": "26.0.20",
+    "electron-vite": "5.0.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-router-dom": "6.30.6",
+    "shaka-player": "4.16.51",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "zustand": "5.0.15"
+  }
+}
