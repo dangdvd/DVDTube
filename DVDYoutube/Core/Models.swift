@@ -128,6 +128,16 @@ struct WatchInfo {
     var isSubscribed: Bool?
     /// Live streams and their replays.
     var liveChat: LiveChatInfo?
+    /// "Most replayed": how much each part of the video gets rewatched.
+    var heatMarkers: [HeatMarker] = []
+}
+
+/// One slice of YouTube's "Most replayed" graph.
+struct HeatMarker: Hashable {
+    var start: Double
+    var duration: Double
+    /// 0…1, relative to the most replayed part.
+    var intensity: Double
 }
 
 /// An account playlist in the "Save to…" sheet.
@@ -188,6 +198,15 @@ struct Comment: Identifiable, Hashable {
     var isHearted: Bool
     /// Present when signed in: lets the account reply to this comment.
     var replyParams: String?
+    /// Count shown once the account has liked the comment.
+    var likeCountLikedText: String?
+    /// "LIKED", "DISLIKED" or nil, as YouTube reports it for the signed-in account.
+    var likeState: String?
+    /// `perform_comment_action` tokens (signed in only).
+    var likeToken: String?
+    var unlikeToken: String?
+    var dislikeToken: String?
+    var undislikeToken: String?
 }
 
 struct CommentsPage {
@@ -199,7 +218,7 @@ struct CommentsPage {
 }
 
 enum ChannelTab: String, CaseIterable, Identifiable {
-    case videos, shorts, streams, playlists
+    case videos, shorts, streams, playlists, posts, about
 
     var id: String { rawValue }
 
@@ -209,6 +228,16 @@ enum ChannelTab: String, CaseIterable, Identifiable {
         case .shorts: return "Shorts"
         case .streams: return "Trực tiếp"
         case .playlists: return "Danh sách phát"
+        case .posts: return "Bài đăng"
+        case .about: return "Giới thiệu"
+        }
+    }
+
+    /// The end of the tab's URL on youtube.com (the posts tab used to be "community").
+    var urlSuffixes: [String] {
+        switch self {
+        case .posts: return ["/posts", "/community"]
+        default: return ["/" + rawValue]
         }
     }
 
@@ -219,8 +248,52 @@ enum ChannelTab: String, CaseIterable, Identifiable {
         case .shorts: return "EgZzaG9ydHPyBgUKA5oBAA%3D%3D"
         case .streams: return "EgdzdHJlYW1z8gYECgJ6AA%3D%3D"
         case .playlists: return "EglwbGF5bGlzdHPyBgoKCEIGCgIQaCIA"
+        case .posts: return "Egljb21tdW5pdHnyBgQKAkoA"
+        case .about: return "EgVhYm91dPIGBAoCEgA%3D"
         }
     }
+
+    /// Browse parameters of a channel's search tab (sent with a `query`).
+    static let searchParams = "EgZzZWFyY2jyBgQKAloA"
+}
+
+/// A post on a channel's "Posts" (community) tab.
+struct ChannelPost: Identifiable, Hashable {
+    var id: String
+    var authorName: String
+    var authorAvatar: URL?
+    var text: String
+    var publishedText: String?
+    var likeCountText: String?
+    var commentCountText: String?
+    var images: [URL]
+    var video: VideoItem?
+    var pollChoices: [String]
+    var pollVotesText: String?
+}
+
+struct ChannelPostsPage {
+    var posts: [ChannelPost]
+    var continuation: String?
+}
+
+/// The channel's "About" panel.
+struct ChannelAbout: Hashable {
+    struct Link: Hashable, Identifiable {
+        var title: String
+        var displayText: String
+        var url: URL
+        var id: String { url.absoluteString + title }
+    }
+
+    var description: String?
+    var links: [Link]
+    var country: String?
+    var subscriberCountText: String?
+    var viewCountText: String?
+    var videoCountText: String?
+    var joinedDateText: String?
+    var canonicalURL: String?
 }
 
 struct ChannelPage {
@@ -230,6 +303,8 @@ struct ChannelPage {
     var tabParams: [ChannelTab: String]
     var initialTab: ChannelTab
     var initialPage: FeedPage
+    /// Continuation that loads the "About" panel from the header's description.
+    var aboutToken: String?
 }
 
 struct PlaylistPage {
@@ -257,12 +332,27 @@ struct StreamFormat: Hashable {
     var contentLength: Int64?
     var qualityLabel: String?
     var audioTrackName: String?
+    /// e.g. "en.4" / "vi.3": language code, then a variant number.
+    var audioTrackId: String?
     var isDefaultAudio: Bool
 
     var isVideo: Bool { mimeType.hasPrefix("video/") }
     var isAudio: Bool { mimeType.hasPrefix("audio/") }
     var isH264: Bool { mimeType.contains("avc1") }
     var isAAC: Bool { mimeType.contains("mp4a") }
+
+    /// Language of a dubbed audio track ("en", "vi"…), from `audioTrackId`.
+    var audioLanguage: String? {
+        audioTrackId?.split(separator: ".").first.map(String.init)
+    }
+}
+
+/// One audio language of a video with dubbed tracks.
+struct AudioTrackOption: Identifiable, Hashable {
+    /// The language tag ("en", "vi-VN"…), or the name when there is none.
+    var id: String
+    var name: String
+    var isOriginal: Bool
 }
 
 /// Result of the player endpoint: what can actually be played.
@@ -285,10 +375,34 @@ struct PlayerInfo {
     var availableAt: Date
     var expiresAt: Date?
     var storyboard: Storyboard?
+    /// How much louder than YouTube's reference level the audio is (dB), for stable volume.
+    var loudnessDb: Double?
 
-    var bestAudio: StreamFormat? {
-        adaptiveFormats.filter { $0.isAudio && $0.isAAC && $0.isDefaultAudio }.max { $0.bitrate < $1.bitrate }
-            ?? adaptiveFormats.filter { $0.isAudio && $0.isAAC }.max { $0.bitrate < $1.bitrate }
+    var bestAudio: StreamFormat? { preferredAudio(language: nil) }
+
+    /// The AAC stream in `language` (a dubbed track), else the original one.
+    func preferredAudio(language: String?, smallest: Bool = false) -> StreamFormat? {
+        let aac = adaptiveFormats.filter { $0.isAudio && $0.isAAC }
+        var candidates = aac.filter(\.isDefaultAudio)
+        if let language, !language.isEmpty {
+            let matching = aac.filter { AudioLanguage.matches($0.audioLanguage, language) }
+            if !matching.isEmpty { candidates = matching }
+        }
+        if candidates.isEmpty { candidates = aac }
+        return smallest ? candidates.min { $0.bitrate < $1.bitrate } : candidates.max { $0.bitrate < $1.bitrate }
+    }
+
+    /// The audio languages of a video with dubbed tracks (empty when there is just one).
+    var audioTracks: [AudioTrackOption] {
+        var seen = Set<String>()
+        var tracks: [AudioTrackOption] = []
+        for format in adaptiveFormats where format.isAudio {
+            guard let name = format.audioTrackName else { continue }
+            let id = format.audioLanguage ?? name
+            guard seen.insert(id).inserted else { continue }
+            tracks.append(AudioTrackOption(id: id, name: name, isOriginal: format.isDefaultAudio))
+        }
+        return tracks.count > 1 ? tracks.sorted { $0.isOriginal && !$1.isOriginal } : []
     }
 
     func bestVideo(maxHeight: Int) -> StreamFormat? {
@@ -357,6 +471,17 @@ struct Storyboard: Hashable {
         guard let url = URL(string: urlString) else { return nil }
         let rect = CGRect(x: (position % columns) * width, y: (position / columns) * height, width: width, height: height)
         return (url, rect)
+    }
+}
+
+/// Compares language tags loosely: "en" matches "en-US", "vi-VN" matches "vi".
+enum AudioLanguage {
+    static func matches(_ a: String?, _ b: String?) -> Bool {
+        guard let a = a?.lowercased(), let b = b?.lowercased(), !a.isEmpty, !b.isEmpty else { return false }
+        if a == b { return true }
+        let baseA = a.split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? a
+        let baseB = b.split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? b
+        return baseA == baseB
     }
 }
 

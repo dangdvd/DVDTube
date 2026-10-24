@@ -144,6 +144,25 @@ enum CaptionLoader {
     }
 }
 
+/// Dislike counts from Return YouTube Dislike (YouTube hides them). Only the video id is sent.
+enum ReturnDislike {
+    @MainActor private static var cache: [String: Int] = [:]
+
+    @MainActor
+    static func dislikes(videoId: String) async -> Int? {
+        if let cached = cache[videoId] { return cached }
+        guard let url = URL(string: "https://returnyoutubedislikeapi.com/votes?videoId=\(videoId)") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let count = (try? JNode(data: data))?["dislikes"].int else { return nil }
+        if cache.count > 200 { cache.removeAll() }
+        cache[videoId] = count
+        return count
+    }
+}
+
 /// Vietnamese-friendly number/date formatting for values we compute ourselves.
 enum NumberText {
     static func compact(_ value: Int) -> String {

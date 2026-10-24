@@ -8,6 +8,7 @@ struct WatchDetailsView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(DownloadManager.self) private var downloads
     @Environment(Router.self) private var router
+    @Environment(AppSettings.self) private var settings
 
     @State private var showDescription = false
     @State private var showComments = false
@@ -18,6 +19,8 @@ struct WatchDetailsView: View {
     @State private var relatedMore: [FeedItem] = []
     @State private var relatedToken: String?
     @State private var loadingMore = false
+    /// Dislike count from Return YouTube Dislike.
+    @State private var dislikeCount: Int?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -51,6 +54,12 @@ struct WatchDetailsView: View {
             }
             .onChange(of: player.watchInfo?.videoId) { _, _ in
                 relatedToken = player.watchInfo?.related.continuation
+            }
+            .task(id: player.currentVideo?.id) {
+                dislikeCount = nil
+                guard settings.showDislikes, let id = player.currentVideo?.id else { return }
+                let count = await ReturnDislike.dislikes(videoId: id)
+                if player.currentVideo?.id == id { dislikeCount = count }
             }
         }
         .sheet(isPresented: $showDescription) {
@@ -210,10 +219,15 @@ struct WatchDetailsView: View {
             Button {
                 LibraryActions.toggleDislike(video, reported: reported)
             } label: {
-                Image(systemName: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                    .padding(.leading, 10)
-                    .padding(.trailing, 14)
-                    .padding(.vertical, 8)
+                HStack(spacing: 6) {
+                    Image(systemName: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                    if settings.showDislikes, let dislikeCount {
+                        Text(NumberText.compact(dislikeCount + (disliked ? 1 : 0)))
+                    }
+                }
+                .padding(.leading, 10)
+                .padding(.trailing, 14)
+                .padding(.vertical, 8)
             }
         }
         .font(.subheadline.weight(.medium))
@@ -226,6 +240,8 @@ struct WatchDetailsView: View {
         switch downloads.states[video.id] {
         case .downloading(let progress):
             pill("arrow.down.circle", "\(Int(progress * 100))%") { downloads.cancel(video.id) }
+        case .queued:
+            pill("clock.arrow.circlepath", "Đang chờ") { downloads.cancel(video.id) }
         case .preparing, .merging:
             pill("hourglass", "Đang xử lý") { downloads.cancel(video.id) }
         case .failed:
@@ -237,7 +253,23 @@ struct WatchDetailsView: View {
             if downloads.isDownloaded(video.id) {
                 pill("checkmark.circle.fill", "Đã tải") { router.open(.downloads) }
             } else {
-                pill("arrow.down.to.line", "Tải xuống") { downloads.download(video) }
+                Menu {
+                    Section("Video") {
+                        ForEach([VideoQuality.p1080, .p720, .p480, .p360]) { quality in
+                            Button(quality.title + (quality == settings.downloadQuality ? " (mặc định)" : "")) {
+                                downloads.download(video, quality: quality)
+                            }
+                        }
+                    }
+                    Button {
+                        downloads.download(video, audioOnly: true)
+                    } label: {
+                        Label("Chỉ âm thanh (m4a)", systemImage: "headphones")
+                    }
+                } label: {
+                    pillLabel("arrow.down.to.line", "Tải xuống")
+                }
+                .buttonStyle(.plain)
             }
         }
     }

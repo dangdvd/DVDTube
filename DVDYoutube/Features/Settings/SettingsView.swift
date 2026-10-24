@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Environment(Router.self) private var router
 
     @State private var confirmClearHistory = false
+    @State private var confirmClearSearches = false
     @State private var notifyNewVideos = NewVideoNotifier.isEnabled
     @State private var checkingNewVideos = false
     @State private var notificationsDenied = false
@@ -90,10 +91,32 @@ struct SettingsView: View {
                     ForEach(AppSettings.doubleTapOptions, id: \.self) { Text("\($0) giây").tag($0) }
                 }
                 Toggle("Dự phòng bằng trình phát web khi YouTube chặn", isOn: $settings.webPlayerFallback)
+                Toggle("Chế độ môi trường", isOn: $settings.ambientMode)
+                Toggle("Vuốt để chỉnh độ sáng và âm lượng", isOn: $settings.swipeControls)
+                Toggle("Hiện số lượt không thích", isOn: $settings.showDislikes)
             } header: {
                 Text("Phát video")
             } footer: {
-                Text("Phát trong nền và PiP là các tính năng của YouTube Premium, ở đây được bật miễn phí.")
+                Text("Phát trong nền và PiP là các tính năng của YouTube Premium, ở đây được bật miễn phí. Chế độ môi trường: khi dùng giao diện tối, màu của video toả nhẹ quanh trình phát. Vuốt để chỉnh: khi xem toàn màn hình, vuốt lên/xuống ở mép trái để chỉnh độ sáng, mép phải để chỉnh âm lượng. Số lượt không thích lấy từ returnyoutubedislike.com (chỉ gửi mã video).")
+            }
+
+            Section {
+                NavigationLink {
+                    EqualizerView()
+                } label: {
+                    LabeledContent("Bộ chỉnh âm (EQ)", value: settings.eqPresetName)
+                }
+                Toggle("Âm lượng ổn định", isOn: Binding(
+                    get: { settings.stableVolume },
+                    set: {
+                        settings.stableVolume = $0
+                        player.updateNormalization()
+                    }
+                ))
+            } header: {
+                Text("Âm thanh")
+            } footer: {
+                Text("EQ có sẵn cài đặt cho Pop, Rock, EDM, Dance, Trap, Cổ điển, Jazz… hoặc tự chỉnh 10 dải tần. Âm lượng ổn định giảm tiếng các video quá to về cùng mức với các video khác.")
             }
 
             Section {
@@ -204,19 +227,30 @@ struct SettingsView: View {
                                value: ByteCountFormatter.string(fromByteCount: downloads.totalSize, countStyle: .file))
             }
 
+            Section {
+                Toggle("Tạm dừng nhật ký xem", isOn: Binding(
+                    get: { !settings.saveHistory },
+                    set: { settings.saveHistory = !$0 }
+                ))
+                Toggle("Tạm dừng nhật ký tìm kiếm", isOn: $settings.pauseSearchHistory)
+                Button("Xóa nhật ký xem", role: .destructive) { confirmClearHistory = true }
+                Button("Xóa nhật ký tìm kiếm", role: .destructive) { confirmClearSearches = true }
+            } header: {
+                Text("Nhật ký")
+            } footer: {
+                Text("Khi tạm dừng nhật ký xem, video mới xem không được thêm vào nhật ký trên máy hay nhật ký YouTube của tài khoản; vị trí xem dở của video đã có trong nhật ký vẫn được cập nhật. Khi tạm dừng nhật ký tìm kiếm, nội dung bạn tìm không được lưu.")
+            }
+
             Section("Quyền riêng tư") {
                 Toggle(isOn: $settings.isIncognito) {
                     Label("Chế độ ẩn danh", systemImage: "eyeglasses")
                 }
-                Toggle("Lưu nhật ký xem", isOn: $settings.saveHistory)
                 NavigationLink {
                     HiddenContentView()
                 } label: {
                     LabeledContent("Nội dung đã ẩn",
                                    value: "\(HiddenContentStore.shared.videos.count + HiddenContentStore.shared.channels.count)")
                 }
-                Button("Xóa nhật ký xem", role: .destructive) { confirmClearHistory = true }
-                Button("Xóa lịch sử tìm kiếm", role: .destructive) { library.clearSearchHistory() }
             }
 
             Section {
@@ -291,6 +325,9 @@ struct SettingsView: View {
         }
         .confirmationDialog("Xóa toàn bộ nhật ký xem?", isPresented: $confirmClearHistory, titleVisibility: .visible) {
             Button("Xóa", role: .destructive) { library.clearHistory() }
+        }
+        .confirmationDialog("Xóa toàn bộ nhật ký tìm kiếm?", isPresented: $confirmClearSearches, titleVisibility: .visible) {
+            Button("Xóa", role: .destructive) { library.clearSearchHistory() }
         }
     }
 }

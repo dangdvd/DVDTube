@@ -414,10 +414,11 @@ struct DownloadsView: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(id).font(.caption.monospaced()).foregroundStyle(.secondary)
                                 switch state {
+                                case .queued: Text("Đang chờ tải…").font(.subheadline)
                                 case .preparing: Text("Đang chuẩn bị…").font(.subheadline)
                                 case .downloading(let progress):
                                     ProgressView(value: progress) { Text("\(Int(progress * 100))%").font(.caption) }
-                                case .merging: Text("Đang ghép âm thanh và hình ảnh…").font(.subheadline)
+                                case .merging: Text("Đang xử lý tệp…").font(.subheadline)
                                 case .failed(let message): Text(message).font(.caption).foregroundStyle(.red)
                                 }
                             }
@@ -435,7 +436,7 @@ struct DownloadsView: View {
                     VideoRow(
                         video: entry.video,
                         queue: downloads.downloads.map(\.video),
-                        subtitle: [entry.video.channelName, entry.qualityLabel,
+                        subtitle: [entry.isAudio == true ? "🎧 Chỉ âm thanh" : nil, entry.video.channelName, entry.qualityLabel,
                                    ByteCountFormatter.string(fromByteCount: entry.fileSize, countStyle: .file)]
                             .compactMap { $0 }.joined(separator: " • ")
                     )

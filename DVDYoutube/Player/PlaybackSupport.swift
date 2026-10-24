@@ -122,6 +122,8 @@ enum HLSAudio {
         let url: URL
         let itag: Int?
         let isDefault: Bool
+        var language: String?
+        var name: String?
     }
 
     static func renditions(in text: String, base: URL) -> [Rendition] {
@@ -133,15 +135,18 @@ enum HLSAudio {
             let text = url.absoluteString
             let itag = text.range(of: #"/itag/\d+"#, options: .regularExpression)
                 .flatMap { Int(text[$0].split(separator: "/").last ?? "") }
-            return Rendition(url: url, itag: itag, isDefault: attribute("DEFAULT", in: line) == "YES")
+            return Rendition(url: url, itag: itag, isDefault: attribute("DEFAULT", in: line) == "YES",
+                             language: attribute("LANGUAGE", in: line), name: attribute("NAME", in: line))
         }
     }
 
-    /// The original-language rendition: the small one with data saver, otherwise the best one.
-    static func pick(from text: String, base: URL, preferSmall: Bool) -> Rendition? {
+    /// The rendition in `language` (a dubbed track) or the original one: the small one with
+    /// data saver, otherwise the best one.
+    static func pick(from text: String, base: URL, preferSmall: Bool, language: String? = nil) -> Rendition? {
         let all = renditions(in: text, base: base)
         guard !all.isEmpty else { return nil }
-        let main = all.contains(where: \.isDefault) ? all.filter(\.isDefault) : all
+        let inLanguage = all.filter { AudioLanguage.matches($0.language, language) }
+        let main = !inLanguage.isEmpty ? inLanguage : (all.contains(where: \.isDefault) ? all.filter(\.isDefault) : all)
         if let exact = main.first(where: { $0.itag == (preferSmall ? 233 : 234) }) { return exact }
         let sorted = main.sorted { ($0.itag ?? 0) < ($1.itag ?? 0) }
         return preferSmall ? sorted.first : sorted.last

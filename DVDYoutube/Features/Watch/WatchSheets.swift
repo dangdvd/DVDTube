@@ -368,7 +368,28 @@ struct CommentRow: View {
     var onReply: (() -> Void)?
 
     @State private var expanded = false
+    /// The account's like/dislike after tapping (nil = as YouTube reported it).
+    @State private var userChoice: LikeChoice?
     @Environment(Router.self) private var router
+    @Environment(AccountStore.self) private var account
+
+    private enum LikeChoice { case none, liked, disliked }
+
+    private var likeChoice: LikeChoice {
+        if let userChoice { return userChoice }
+        switch comment.likeState {
+        case "LIKED": return .liked
+        case "DISLIKED": return .disliked
+        default: return .none
+        }
+    }
+
+    private var likeCountLabel: String? {
+        guard likeChoice == .liked else { return comment.likeCountText }
+        if let liked = comment.likeCountLikedText { return liked }
+        guard let text = comment.likeCountText else { return "1" }
+        return Int(text).map { String($0 + 1) } ?? text
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -397,7 +418,23 @@ struct CommentRow: View {
                     .lineLimit(expanded ? nil : 5)
                     .onTapGesture { expanded.toggle() }
                 HStack(spacing: 16) {
-                    Label(comment.likeCountText ?? "", systemImage: "hand.thumbsup")
+                    Button {
+                        toggle(.liked)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: likeChoice == .liked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                            if let count = likeCountLabel { Text(count) }
+                        }
+                        .foregroundStyle(likeChoice == .liked ? Color.primary : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        toggle(.disliked)
+                    } label: {
+                        Image(systemName: likeChoice == .disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                            .foregroundStyle(likeChoice == .disliked ? Color.primary : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
                     if comment.isHearted {
                         Image(systemName: "heart.fill").foregroundStyle(.red)
                     }
@@ -412,6 +449,37 @@ struct CommentRow: View {
                 .padding(.top, 2)
             }
             Spacer(minLength: 0)
+        }
+    }
+}
+
+extension CommentRow {
+    /// Likes / dislikes the comment on the account (optimistic; undone if YouTube refuses).
+    private func toggle(_ target: LikeChoice) {
+        guard account.isSignedIn else {
+            PlayerManager.shared.showToast("Đăng nhập tài khoản Google để thích bình luận")
+            return
+        }
+        let previous = likeChoice
+        let next: LikeChoice = previous == target ? .none : target
+        let token: String?
+        switch next {
+        case .liked: token = comment.likeToken
+        case .disliked: token = comment.dislikeToken
+        case .none: token = previous == .liked ? comment.unlikeToken : comment.undislikeToken
+        }
+        guard let token else {
+            PlayerManager.shared.showToast("Không thể thực hiện với bình luận này")
+            return
+        }
+        userChoice = next
+        Task {
+            do {
+                try await InnerTube.shared.performCommentAction(token)
+            } catch {
+                userChoice = previous
+                PlayerManager.shared.showToast("Không thực hiện được: \(error.localizedDescription)")
+            }
         }
     }
 }

@@ -195,9 +195,10 @@ final class InnerTube {
         return try await web("search", body: body)
     }
 
-    func browse(browseId: String, params: String? = nil) async throws -> JNode {
+    func browse(browseId: String, params: String? = nil, query: String? = nil) async throws -> JNode {
         var body: [String: Any] = ["browseId": browseId]
         if let params { body["params"] = params }
+        if let query { body["query"] = query }
         return try await web("browse", body: body)
     }
 
@@ -424,6 +425,11 @@ final class InnerTube {
 
     func createComment(_ text: String, params: String) async throws -> JNode {
         try await web("comment/create_comment", body: ["commentText": text, "createCommentParams": params])
+    }
+
+    /// Like / unlike / dislike a comment with a token from the comment's toolbar.
+    func performCommentAction(_ token: String) async throws {
+        _ = try await web("comment/perform_comment_action", body: ["actions": [token]])
     }
 
     func createReply(_ text: String, params: String) async throws -> JNode {
