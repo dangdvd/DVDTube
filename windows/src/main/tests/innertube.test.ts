@@ -126,6 +126,26 @@ describe('innertube client', () => {
     assert.equal(calls[0].url.host, 'www.youtube.com', 'recent bot check: signed-in request first')
   })
 
+  it('tries the Android VR client after a bot check when signed out', async () => {
+    signedIn = false
+    calls.length = 0
+    handler = (call) => {
+      if (call.url.pathname.endsWith('/visitor_id')) return { json: { responseContext: { visitorData: 'VR_VISITOR' } } }
+      if (call.url.host === 'youtubei.googleapis.com') {
+        return { json: { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Đăng nhập để xác nhận bạn không phải là bot' } } }
+      }
+      return { json: playable('abcdefghijk') }
+    }
+    const info = await innertube.player('abcdefghijk')
+    assert.equal(info.client, 'ANDROID_VR')
+    const vr = calls[calls.length - 1]
+    assert.equal(vr.url.origin + vr.url.pathname, 'https://www.youtube.com/youtubei/v1/player')
+    assert.equal(vr.transport, 'anon')
+    assert.equal(context(vr).clientName, 'ANDROID_VR')
+    assert.equal(context(vr).androidSdkVersion, 32)
+    assert.match(vr.headers['User-Agent'], /^com\.google\.android\.apps\.youtube\.vr\.oculus\//)
+  })
+
   it('browses as the account unless incognito', async () => {
     signedIn = true
     coreState.incognito = false

@@ -8,10 +8,12 @@
 // An explicit `Origin` header would switch `ses.fetch` into CORS mode (and drop the cookies), so
 // Origin / Referer travel as private `X-Dvd-*` headers and are restored by a webRequest hook.
 
+import { Agent, request as httpsRequest } from 'node:https'
+import { brotliDecompress, gunzip, inflate } from 'node:zlib'
 import { app, session, type Session } from 'electron'
 import { resolvedUserAgent, APIConfig } from './core/clients'
 import type { CookieMap } from './core/auth'
-import { chromeUserAgent, setFetcher, type Fetcher } from './core/http'
+import { chromeUserAgent, setFetcher, type Fetcher, type FetchInit } from './core/http'
 
 export const YT_PARTITION = 'persist:yt'
 export const ANON_PARTITION = 'yt-anon'
@@ -54,7 +56,63 @@ function restoreInjectedHeaders(ses: Session): void {
   })
 }
 
+// MARK: App clients
+
+const appAgent = new Agent({ keepAlive: true, maxSockets: 6 })
+
+/**
+ * Requests made as one of YouTube's apps (VISIONOS…, i.e. a non-browser user agent) go out like the
+ * phone apps send them: plain HTTPS with exactly the client's headers. Chromium would add browser
+ * headers (sec-fetch-*, client hints) that contradict the app's user agent, and YouTube answers
+ * such player requests with its bot check.
+ */
+function isAppRequest(init: FetchInit): boolean {
+  const ua = Object.entries(init.headers ?? {}).find(([key]) => key.toLowerCase() === 'user-agent')?.[1]
+  return !!ua && !ua.startsWith('Mozilla/')
+}
+
+function decode(encoding: string, raw: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const done = (error: Error | null, data: Buffer) => (error ? reject(error) : resolve(data))
+    if (encoding === 'gzip') gunzip(raw, done)
+    else if (encoding === 'deflate') inflate(raw, done)
+    else if (encoding === 'br') brotliDecompress(raw, done)
+    else resolve(raw)
+  })
+}
+
+function nodeFetch(url: string, init: FetchInit): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const body = init.body == null ? null : Buffer.from(init.body)
+    const headers: Record<string, string> = { 'Accept-Encoding': 'gzip', ...init.headers }
+    if (body) headers['Content-Length'] = String(body.length)
+    const req = httpsRequest(url, { method: init.method ?? 'GET', headers, agent: appAgent }, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
+      res.on('error', reject)
+      res.on('end', () => {
+        const encoding = String(res.headers['content-encoding'] ?? '').toLowerCase()
+        decode(encoding, Buffer.concat(chunks)).then((data) => {
+          const out = new Headers()
+          for (const [key, value] of Object.entries(res.headers)) {
+            if (value == null || key === 'content-encoding' || key === 'content-length') continue
+            out.set(key, Array.isArray(value) ? value.join(', ') : String(value))
+          }
+          const status = res.statusCode ?? 502
+          const noBody = status === 204 || status === 205 || status === 304
+          resolve(new Response(noBody ? null : new Uint8Array(data), { status, headers: out }))
+        }, reject)
+      })
+    })
+    req.on('error', reject)
+    init.signal?.addEventListener('abort', () => req.destroy(new Error('aborted')), { once: true })
+    if (body) req.write(body)
+    req.end()
+  })
+}
+
 const fetcher: Fetcher = (transport, url, init) => {
+  if (transport !== 'auth' && isAppRequest(init)) return nodeFetch(url, init)
   const ses = transport === 'auth' ? ytSession() : anonSession()
   const headers: Record<string, string> = {}
   for (const [key, value] of Object.entries(init.headers ?? {})) {

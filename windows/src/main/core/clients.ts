@@ -18,6 +18,8 @@ export interface ClientProfile {
   osVersion?: string | null
   platform?: string | null
   clientScreen?: string | null
+  /** Android clients report their SDK level in the context. */
+  androidSdkVersion?: number | null
   /** Send `X-YouTube-Client-Name/Version` + `Origin` headers. */
   sendClientHeaders: boolean
   extraHeaders?: Record<string, string> | null
@@ -57,6 +59,24 @@ export const VISIONOS: ClientProfile = {
   clientScreen: 'WATCH',
   sendClientHeaders: false,
   extraHeaders: { 'X-Goog-Api-Format-Version': '2' },
+}
+
+/**
+ * Fallback after the configured player clients: the Quest (Android VR) app's client also returns
+ * direct stream URLs without PO tokens or signature deciphering.
+ */
+export const ANDROID_VR: ClientProfile = {
+  name: 'ANDROID_VR',
+  id: 28,
+  version: '1.62.27',
+  host: 'www.youtube.com',
+  userAgent: 'com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
+  deviceMake: 'Oculus',
+  deviceModel: 'Quest 3',
+  osName: 'Android',
+  osVersion: '12L',
+  androidSdkVersion: 32,
+  sendClientHeaders: true,
 }
 
 export const CHARTS: ClientProfile = {
@@ -105,6 +125,7 @@ export function parseProfile(value: unknown): ClientProfile | null {
     osVersion: str('osVersion'),
     platform: str('platform'),
     clientScreen: str('clientScreen'),
+    androidSdkVersion: typeof v.androidSdkVersion === 'number' ? v.androidSdkVersion : null,
     sendClientHeaders: typeof v.sendClientHeaders === 'boolean' ? v.sendClientHeaders : true,
     extraHeaders,
   }
@@ -166,6 +187,11 @@ export const APIConfig = {
     const list = remote()?.playerClients
     return list && list.length > 0 ? list : [VISIONOS]
   },
+  /** Tried after the configured clients (and the signed-in request) failed. */
+  get fallbackPlayerProfiles(): ClientProfile[] {
+    const configured = this.playerProfiles
+    return [ANDROID_VR].filter((f) => !configured.some((p) => p.name === f.name))
+  },
   get remoteConfigUrl(): string {
     return coreState.remoteConfigUrl.trim() || DEFAULT_REMOTE_CONFIG_URL
   },
@@ -174,7 +200,7 @@ export const APIConfig = {
   },
   /** Every profile streams may come from (for matching a googlevideo URL's `c=` parameter). */
   allProfiles(): ClientProfile[] {
-    return [...this.playerProfiles, this.webProfile, VISIONOS, WEB]
+    return [...this.playerProfiles, ...this.fallbackPlayerProfiles, this.webProfile, VISIONOS, WEB]
   },
 }
 

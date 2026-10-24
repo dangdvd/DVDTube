@@ -73,6 +73,7 @@ function context(profile: ClientProfile, visitorData: string | null | undefined)
   if (profile.deviceModel) client.deviceModel = profile.deviceModel
   if (profile.osName) client.osName = profile.osName
   if (profile.osVersion) client.osVersion = profile.osVersion
+  if (profile.androidSdkVersion) client.androidSdkVersion = profile.androidSdkVersion
   if (profile.name === 'WEB') client.originalUrl = 'https://www.youtube.com'
   if (visitorData) client.visitorData = visitorData
   return {
@@ -185,27 +186,33 @@ export async function player(videoId: string): Promise<PlayerInfo> {
     }
   }
   let lastError: unknown = Errors.noStreams()
-  for (const profile of APIConfig.playerProfiles) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const visitor = await visitorData(profile, attempt > 0)
-        const json = await post(
-          'player',
-          profile,
-          { videoId, cpn: randomToken(16), contentCheckOk: true, racyCheckOk: true },
-          { query: { t: randomToken(12), id: videoId }, visitorData: visitor },
-        )
-        return parsePlayer(json, videoId, profile.name)
-      } catch (error) {
-        debug(`player(${videoId}) via ${profile.name} failed: ${describeError(error)}`)
-        lastError = error
-        // A bad visitor id shows up as an unplayable response; retry once with a fresh one.
-        // Never retry a bot check: hammering the endpoint makes it stick.
-        if (error instanceof CoreError && error.kind === 'unplayable' && attempt === 0) continue
-        break
+  const anonymous = async (profiles: ClientProfile[]): Promise<PlayerInfo | null> => {
+    for (const profile of profiles) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const visitor = await visitorData(profile, attempt > 0)
+          const json = await post(
+            'player',
+            profile,
+            { videoId, cpn: randomToken(16), contentCheckOk: true, racyCheckOk: true },
+            { query: { t: randomToken(12), id: videoId }, visitorData: visitor },
+          )
+          return parsePlayer(json, videoId, profile.name)
+        } catch (error) {
+          debug(`player(${videoId}) via ${profile.name} failed: ${describeError(error)}`)
+          // Keep the first client's reason (e.g. the bot check) for the error shown to the user.
+          if (lastError instanceof CoreError && lastError.kind === 'noStreams') lastError = error
+          // A bad visitor id shows up as an unplayable response; retry once with a fresh one.
+          // Never retry a bot check: hammering the endpoint makes it stick.
+          if (error instanceof CoreError && error.kind === 'unplayable' && attempt === 0) continue
+          break
+        }
       }
     }
+    return null
   }
+  const first = await anonymous(APIConfig.playerProfiles)
+  if (first) return first
   if (lastError instanceof CoreError && lastError.kind === 'loginRequired') BotCheck.note()
   // "Sign in to confirm you're not a bot" (or a video that needs an account): ask as the
   // signed-in account through the web client, whose HLS stream needs no PO token.
@@ -216,6 +223,8 @@ export async function player(videoId: string): Promise<PlayerInfo> {
       debug(`player(${videoId}) via signed-in WEB failed: ${describeError(error)}`)
     }
   }
+  const fallback = await anonymous(APIConfig.fallbackPlayerProfiles)
+  if (fallback) return fallback
   throw lastError
 }
 

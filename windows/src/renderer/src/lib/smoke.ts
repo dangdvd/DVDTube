@@ -91,8 +91,8 @@ export async function runSmoke(navigate: NavigateFunction): Promise<void> {
       detail = error instanceof Error ? error.message : String(error)
     }
     allOk &&= ok
-    // Let the page settle so the screenshot shows the finished state.
-    await sleep(600)
+    // Let the page settle (and thumbnails load) so the screenshot shows the finished state.
+    await sleep(1500)
     await api.smokeStep({ name, ok, detail, screenshot: true }).catch(() => {})
   }
 
