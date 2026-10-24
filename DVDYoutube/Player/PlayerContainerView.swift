@@ -12,13 +12,6 @@ struct PlayerContainerView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.colorScheme) private var colorScheme
     @State private var dragOffset: CGFloat = 0
-    /// Fullscreen swipe on the left (brightness) or right (volume) edge.
-    @State private var swipeTarget: SwipeTarget?
-    @State private var swipeStartValue: Double = 0
-    @State private var swipeControl: SwipeControl?
-    @State private var hideHUDTask: Task<Void, Never>?
-
-    private enum SwipeTarget { case brightness, volume }
 
     var body: some View {
         GeometryReader { outer in
@@ -53,13 +46,6 @@ struct PlayerContainerView: View {
                 PlayerSurface(mode: fullscreen ? .fullscreen : (expanded ? .inline : .mini),
                               insets: Self.rotate(insets, quarterTurns: turns))
                     .frame(width: surfaceWidth, height: surfaceHeight)
-                    .overlay(alignment: .top) {
-                        if fullscreen, let swipeControl {
-                            SwipeControlHUD(control: swipeControl)
-                                .padding(.top, max(Self.rotate(insets, quarterTurns: turns).top, 16) + 24)
-                                .transition(.opacity)
-                        }
-                    }
                     .gesture(swipeGesture(fullscreen: fullscreen, width: surfaceWidth, height: surfaceHeight),
                              including: expanded && !player.isScreenLocked ? .all : .subviews)
                     .rotationEffect(.degrees(Double(turns) * 90))
@@ -128,44 +114,14 @@ struct PlayerContainerView: View {
     private func swipeGesture(fullscreen: Bool, width: CGFloat, height: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .onChanged { value in
-                if fullscreen, settings.swipeControls, !player.usesWebPlayer, !player.isScreenLocked {
-                    if swipeTarget == nil, abs(value.translation.height) > abs(value.translation.width) {
-                        let fraction = value.startLocation.x / max(width, 1)
-                        if fraction < 0.35 {
-                            swipeTarget = .brightness
-                            swipeStartValue = ScreenBrightness.value
-                        } else if fraction > 0.65 {
-                            swipeTarget = .volume
-                            swipeStartValue = SystemVolume.shared.value
-                        }
-                    }
-                    if let target = swipeTarget {
-                        let level = min(max(swipeStartValue - Double(value.translation.height / max(height * 0.7, 1)), 0), 1)
-                        hideHUDTask?.cancel()
-                        switch target {
-                        case .brightness:
-                            ScreenBrightness.set(level)
-                            swipeControl = .brightness(level)
-                        case .volume:
-                            SystemVolume.shared.set(level)
-                            swipeControl = .volume(level)
-                        }
-                        return
-                    }
-                }
                 guard !fullscreen, abs(value.translation.height) > abs(value.translation.width) else { return }
                 if value.translation.height > 0 { dragOffset = value.translation.height }
             }
             .onEnded { value in
-                if swipeTarget != nil {
-                    swipeTarget = nil
-                    hideHUDTask?.cancel()
-                    hideHUDTask = Task {
-                        try? await Task.sleep(nanoseconds: 700_000_000)
-                        guard !Task.isCancelled else { return }
-                        withAnimation { swipeControl = nil }
-                    }
-                    return
+                // Side swipes in fullscreen set brightness / volume (handled in the player).
+                if fullscreen, settings.swipeControls, !player.usesWebPlayer {
+                    let fraction = value.startLocation.x / max(width, 1)
+                    if fraction < 0.35 || fraction > 0.65 { return }
                 }
                 let dy = value.translation.height
                 let predicted = value.predictedEndTranslation.height

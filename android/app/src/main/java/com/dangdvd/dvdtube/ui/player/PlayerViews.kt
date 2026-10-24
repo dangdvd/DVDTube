@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.HeadsetOff
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
@@ -741,6 +742,9 @@ private fun PlayerControls(fullscreen: Boolean, onSettings: () -> Unit, onSleepT
                     }
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = { PlayerController.isScreenLocked = true }) {
+                    Icon(Icons.Default.Lock, "Khóa màn hình", tint = Color.White)
+                }
                 if (fullscreen) {
                     IconButton(onClick = { PlayerController.rotateFullscreen(false, view.display?.rotation ?: 0); onInteract() }) {
                         Icon(Icons.Default.RotateLeft, "Xoay ngược chiều kim đồng hồ", tint = Color.White)

@@ -18,6 +18,13 @@ struct PlayerSurface: View {
     @State private var showSleepTimer = false
     @State private var scrubTime: Double?
     @State private var showUnlock = false
+    /// Fullscreen swipe on the left (brightness) or right (volume) edge, shown live.
+    @State private var swipeTarget: SwipeTarget?
+    @State private var swipeStartValue: Double = 0
+    @State private var swipeHUD: SwipeControl?
+    @State private var swipeHideTask: Task<Void, Never>?
+
+    private enum SwipeTarget { case brightness, volume, none }
 
     private struct SkipFeedback: Equatable {
         var forward: Bool
@@ -84,6 +91,15 @@ struct PlayerSurface: View {
             if mode != .mini {
                 if player.showsStats { StatsOverlay().padding(mode == .fullscreen ? 24 : 8) }
                 if player.isScreenLocked { lockOverlay }
+                if mode == .fullscreen, let swipeHUD {
+                    VStack {
+                        SwipeControlHUD(control: swipeHUD)
+                            .padding(.top, max(insets.top, 16) + 24)
+                        Spacer()
+                    }
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
             }
         }
         .background(Color.black)
@@ -180,9 +196,17 @@ struct PlayerSurface: View {
     // MARK: Gestures
 
     private var gestureLayer: some View {
-        HStack(spacing: 0) {
-            tapRegion(forward: false)
-            tapRegion(forward: true)
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                tapRegion(forward: false)
+                tapRegion(forward: true)
+            }
+            // Fullscreen: a vertical swipe on the left edge sets the brightness, on the right edge
+            // the volume. Simultaneous with the taps, so the bar follows the finger as it moves.
+            .simultaneousGesture(
+                swipeControlGesture(size: geo.size),
+                including: mode == .fullscreen && AppSettings.shared.swipeControls && !player.isScreenLocked ? .all : .subviews
+            )
         }
         // Touch and hold: 2x speed until the finger is lifted.
         .simultaneousGesture(
@@ -288,6 +312,47 @@ struct PlayerSurface: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    private func swipeControlGesture(size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                if swipeTarget == nil {
+                    let fraction = value.startLocation.x / max(size.width, 1)
+                    if abs(value.translation.height) <= abs(value.translation.width) {
+                        swipeTarget = SwipeTarget.none
+                    } else if fraction < 0.35 {
+                        swipeTarget = .brightness
+                        swipeStartValue = ScreenBrightness.value
+                    } else if fraction > 0.65 {
+                        swipeTarget = .volume
+                        swipeStartValue = SystemVolume.shared.value
+                    } else {
+                        swipeTarget = SwipeTarget.none
+                    }
+                }
+                guard let target = swipeTarget, target != .none else { return }
+                let level = min(max(swipeStartValue - Double(value.translation.height / max(size.height * 0.7, 1)), 0), 1)
+                swipeHideTask?.cancel()
+                if target == .brightness {
+                    ScreenBrightness.set(level)
+                    swipeHUD = .brightness(level)
+                } else {
+                    SystemVolume.shared.set(level)
+                    swipeHUD = .volume(level)
+                }
+            }
+            .onEnded { _ in
+                let wasControlling = swipeTarget == .brightness || swipeTarget == .volume
+                swipeTarget = nil
+                guard wasControlling else { return }
+                swipeHideTask?.cancel()
+                swipeHideTask = Task {
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    guard !Task.isCancelled else { return }
+                    withAnimation { swipeHUD = nil }
+                }
+            }
     }
 
     private func tapRegion(forward: Bool) -> some View {
@@ -501,6 +566,12 @@ struct PlayerSurface: View {
                         Image(systemName: "pip.enter").controlIcon(size: 17)
                     }
                 }
+                Button {
+                    player.isScreenLocked = true
+                } label: {
+                    Image(systemName: "lock").controlIcon(size: 17)
+                }
+                .accessibilityLabel("Khóa màn hình")
                 if mode == .fullscreen {
                     Button { player.rotateFullscreen(clockwise: false) } label: {
                         Image(systemName: "rotate.left").controlIcon(size: 17)
