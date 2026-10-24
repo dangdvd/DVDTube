@@ -66,13 +66,20 @@ echo "=== app log"
 grep " DVDTube" "$OUT/logcat.txt" | tail -n 150
 
 echo "=== crashes"
+# Only DVDTube's own crashes count: the emulator's system apps (e.g. the Google app's
+# WebView) sometimes crash on their own and land in the same logs.
 CRASH=0
-if grep -q "FATAL EXCEPTION" "$OUT"/*.txt 2>/dev/null; then CRASH=1; fi
-grep -A 40 "FATAL EXCEPTION" "$OUT/logcat.txt" | head -n 120
+if grep -A 3 "FATAL EXCEPTION" "$OUT/logcat.txt" | grep -q "Process: $PACKAGE"; then
+  CRASH=1
+  grep -A 40 "FATAL EXCEPTION" "$OUT/logcat.txt" | head -n 120
+fi
 adb logcat -d -b crash > "$OUT/crash.txt"
-if [ -s "$OUT/crash.txt" ]; then
+if grep -q "$PACKAGE" "$OUT/crash.txt"; then
   CRASH=1
   head -n 120 "$OUT/crash.txt"
+elif [ -s "$OUT/crash.txt" ]; then
+  echo "(crashes of other processes ignored:)"
+  grep -m 5 "Cmdline:\|>>> " "$OUT/crash.txt" || true
 fi
 if [ "$CRASH" = 1 ]; then
   echo "The app crashed"
