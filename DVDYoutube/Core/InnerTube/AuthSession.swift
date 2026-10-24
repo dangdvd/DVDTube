@@ -48,6 +48,13 @@ final class AuthSession: @unchecked Sendable {
         }
     }
 
+    /// The session cookies, for "Đăng nhập trên TV" (sent only to the user's own TV, encrypted).
+    var cookieSnapshot: [String: String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return cookies
+    }
+
     var isAuthenticated: Bool {
         lock.lock()
         defer { lock.unlock() }

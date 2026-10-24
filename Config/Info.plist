@@ -40,7 +40,12 @@
 		<string>_googlecast._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Tìm Chromecast và Google TV trong mạng Wi-Fi để truyền video lên TV.</string>
+	<string>Tìm Chromecast và Google TV trong mạng Wi-Fi để truyền video lên TV, và gửi đăng nhập tới DVDTube trên Android TV khi bạn quét mã QR.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Dùng micro để tìm kiếm bằng giọng nói.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
