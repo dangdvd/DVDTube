@@ -57,6 +57,7 @@ import com.dangdvd.dvdtube.ui.account.AccountFeedScreen
 import com.dangdvd.dvdtube.ui.account.AccountSwitcherSheet
 import com.dangdvd.dvdtube.ui.account.NotificationsScreen
 import com.dangdvd.dvdtube.ui.account.SignInDialog
+import com.dangdvd.dvdtube.ui.account.TvLoginDialog
 import com.dangdvd.dvdtube.ui.components.SaveToPlaylistSheet
 import com.dangdvd.dvdtube.ui.player.MainWebPlayer
 import com.dangdvd.dvdtube.ui.player.AmbientGlow
@@ -167,6 +168,7 @@ fun MainScreen() {
     if (Router.showAccountSwitcher) AccountSwitcherSheet { Router.showAccountSwitcher = false }
     if (Router.showSignIn) SignInDialog(addingAccount = Router.signInAddsAccount) { Router.showSignIn = false }
     if (Router.showUpload) UploadDialog { Router.showUpload = false }
+    Router.tvLoginInvite?.let { invite -> TvLoginDialog(invite) { Router.tvLoginInvite = null } }
     WellbeingReminderDialog()
 }
 

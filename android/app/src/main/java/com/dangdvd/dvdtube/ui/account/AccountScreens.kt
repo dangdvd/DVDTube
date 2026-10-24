@@ -343,9 +343,10 @@ fun SignInDialog(addingAccount: Boolean, onDismiss: () -> Unit) {
     }
 }
 
+/** Google's sign-in page in a WebView (also used by the TV interface, where it is D-pad driven). */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun GoogleLoginWebView(
+internal fun GoogleLoginWebView(
     addingAccount: Boolean,
     onProgress: (Int) -> Unit,
     onWebView: (WebView) -> Unit,

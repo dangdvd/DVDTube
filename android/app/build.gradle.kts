@@ -69,6 +69,8 @@ kotlin {
             "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
             "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
             "-opt-in=androidx.media3.common.util.UnstableApi",
+            "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
+            "-opt-in=androidx.tv.material3.ExperimentalTvMaterial3Api",
         )
     }
 }
@@ -81,6 +83,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    // Android TV interface (focus, D-pad) in the same APK.
+    implementation("androidx.tv:tv-material:1.0.0")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
@@ -99,6 +103,9 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3")
 
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+    // "Sign in on TV": the TV shows a QR code, the phone scans it (no camera permission needed).
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.mediarouter:mediarouter:1.7.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

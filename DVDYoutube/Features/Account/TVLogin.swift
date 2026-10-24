@@ -17,13 +17,27 @@ struct TVLoginRequest: Identifiable {
         guard url.scheme == "dvdtube", url.host == "tv-login",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return nil }
         func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
-        guard let host = value("h"), !host.isEmpty, !host.contains("/"),
+        guard let host = value("h"), Self.isPrivateLANAddress(host),
               let token = value("t").flatMap(Base64URL.decode), token.count >= 16,
               let key = value("k").flatMap(Base64URL.decode), key.count == 32 else { return nil }
         self.host = host
         self.token = token
         self.key = key
         tvName = value("n").flatMap { $0.isEmpty ? nil : $0 } ?? "TV"
+    }
+
+    /// Only a private IPv4 address with a port (10/8, 172.16/12, 192.168/16, 169.254/16): a planted
+    /// QR code must not be able to send the session to a server on the internet.
+    static func isPrivateLANAddress(_ host: String) -> Bool {
+        let parts = host.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, let port = Int(parts[1]), (1...65535).contains(port) else { return false }
+        let octets = parts[0].split(separator: ".", omittingEmptySubsequences: false).compactMap { Int($0) }
+        guard octets.count == 4, octets.allSatisfy({ (0...255).contains($0) }) else { return false }
+        switch (octets[0], octets[1]) {
+        case (10, _), (192, 168), (169, 254): return true
+        case (172, 16...31): return true
+        default: return false
+        }
     }
 }
 
