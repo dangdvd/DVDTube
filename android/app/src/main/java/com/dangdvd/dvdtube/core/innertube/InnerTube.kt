@@ -169,7 +169,19 @@ object InnerTube {
 
     // MARK: Endpoints
 
+    /** When the anonymous player request last met YouTube's bot check. */
+    @Volatile private var botCheckAt = 0L
+    private val botCheckRecent: Boolean get() = System.currentTimeMillis() - botCheckAt < 10 * 60_000
+
     suspend fun player(videoId: String): PlayerInfo {
+        val signedIn = AuthSession.isAuthenticated
+        // Right after a bot check, go straight to the signed-in request (the anonymous one
+        // would only fail again and cost a round trip per video).
+        var triedSignedIn = false
+        if (signedIn && botCheckRecent) {
+            triedSignedIn = true
+            runCatching { signedInPlayer(videoId) }.getOrNull()?.let { return it }
+        }
         var lastError: Exception = InnerTubeException.NoStreams()
         for (profile in APIConfig.playerProfiles) {
             for (attempt in 0..1) {
@@ -199,7 +211,35 @@ object InnerTube {
                 }
             }
         }
+        if (lastError is InnerTubeException.LoginRequired) botCheckAt = System.currentTimeMillis()
+        // "Sign in to confirm you're not a bot" (or a video that needs an account): ask as the
+        // signed-in account through the web client, whose HLS stream needs no PO token.
+        if (signedIn && !triedSignedIn) {
+            try {
+                return signedInPlayer(videoId)
+            } catch (error: Exception) {
+                Log.debug("player($videoId) via signed-in WEB failed: ${error.message}")
+            }
+        }
         throw lastError
+    }
+
+    /**
+     * The player endpoint as the signed-in account (WEB client with Safari's user agent, which is
+     * what makes YouTube include an HLS manifest).
+     */
+    private suspend fun signedInPlayer(videoId: String): PlayerInfo {
+        val json = web(
+            "player",
+            JSONObject()
+                .put("videoId", videoId)
+                .put("contentCheckOk", true)
+                .put("racyCheckOk", true)
+                .put("playbackContext", JSONObject().put("contentPlaybackContext", JSONObject().put("html5Preference", "HTML5_PREF_WANTS"))),
+        )
+        val info = PlayerParser.parse(json, videoId)
+        Log.debug("player($videoId) via signed-in WEB: hls=${info.hlsUrl != null} adaptive=${info.adaptiveFormats.size}")
+        return info
     }
 
     suspend fun search(query: String, params: String?): JNode =
