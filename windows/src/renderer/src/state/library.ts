@@ -23,6 +23,8 @@ interface LibraryData {
   searchHistory: string[]
   notInterested: string[]
   blockedChannels: string[]
+  /** Names of blocked channels (for the list in Settings), by channel id. */
+  blockedChannelNames: Record<string, string>
 }
 
 interface LibraryStore extends LibraryData {
@@ -32,6 +34,8 @@ interface LibraryStore extends LibraryData {
   recordWatch(video: VideoItem, position: number, duration: number): void
   progressFor(videoId: string): Progress | undefined
   removeHistory(videoId: string): void
+  /** Puts back an entry removed with `removeHistory` ("Hoàn tác"). */
+  restoreHistory(entry: HistoryEntry): void
   clearHistory(): void
 
   isWatchLater(videoId: string): boolean
@@ -49,6 +53,8 @@ interface LibraryStore extends LibraryData {
   importSubscriptions(channels: ChannelItem[]): number
 
   createPlaylist(name: string, video?: VideoItem): LocalPlaylist
+  /** Saves a copy of a list of videos (e.g. a YouTube playlist) as a new local playlist. */
+  importPlaylist(name: string, videos: VideoItem[]): LocalPlaylist
   renamePlaylist(id: string, name: string): void
   deletePlaylist(id: string): void
   addToPlaylist(id: string, video: VideoItem): void
@@ -56,7 +62,9 @@ interface LibraryStore extends LibraryData {
   moveInPlaylist(id: string, from: number, to: number): void
 
   markNotInterested(videoId: string): void
-  blockChannel(channelId: string): void
+  unmarkNotInterested(videoId: string): void
+  clearNotInterested(): void
+  blockChannel(channelId: string, name?: string): void
   unblockChannel(channelId: string): void
   /** Hides "not interested" videos and blocked channels from feeds. */
   isHidden(video: VideoItem): boolean
@@ -72,6 +80,7 @@ const EMPTY: LibraryData = {
   searchHistory: [],
   notInterested: [],
   blockedChannels: [],
+  blockedChannelNames: {},
 }
 
 const MAX_HISTORY = 2000
@@ -88,8 +97,9 @@ function data(state: LibraryStore): LibraryData {
     searchHistory,
     notInterested,
     blockedChannels,
+    blockedChannelNames,
   } = state
-  return { history, progress, watchLater, liked, playlists, subscriptions, searchHistory, notInterested, blockedChannels }
+  return { history, progress, watchLater, liked, playlists, subscriptions, searchHistory, notInterested, blockedChannels, blockedChannelNames }
 }
 
 function newId(): string {
@@ -129,6 +139,11 @@ export const useLibrary = create<LibraryStore>((set, get) => {
       const progress = { ...get().progress }
       delete progress[videoId]
       change({ history: get().history.filter((h) => h.video.id !== videoId), progress })
+    },
+    restoreHistory(entry) {
+      const history = [...get().history.filter((h) => h.video.id !== entry.video.id), entry].sort((a, b) => b.watchedAt - a.watchedAt)
+      const progress = { ...get().progress, [entry.video.id]: { position: entry.position, duration: entry.duration, updatedAt: entry.watchedAt } }
+      change({ history, progress })
     },
     clearHistory() {
       change({ history: [], progress: {} })
@@ -187,6 +202,13 @@ export const useLibrary = create<LibraryStore>((set, get) => {
       change({ playlists: [playlist, ...get().playlists] })
       return playlist
     },
+    importPlaylist(name, videos) {
+      const seen = new Set<string>()
+      const unique = videos.filter((v) => !seen.has(v.id) && seen.add(v.id))
+      const playlist: LocalPlaylist = { id: newId(), name: name.trim() || 'Danh sách phát', videos: unique, createdAt: Date.now() }
+      change({ playlists: [playlist, ...get().playlists] })
+      return playlist
+    },
     renamePlaylist(id, name) {
       change({ playlists: get().playlists.map((p) => (p.id === id ? { ...p, name } : p)) })
     },
@@ -218,11 +240,21 @@ export const useLibrary = create<LibraryStore>((set, get) => {
     markNotInterested(videoId) {
       if (!get().notInterested.includes(videoId)) change({ notInterested: [...get().notInterested, videoId] })
     },
-    blockChannel(channelId) {
-      if (!get().blockedChannels.includes(channelId)) change({ blockedChannels: [...get().blockedChannels, channelId] })
+    unmarkNotInterested(videoId) {
+      change({ notInterested: get().notInterested.filter((id) => id !== videoId) })
+    },
+    clearNotInterested() {
+      change({ notInterested: [] })
+    },
+    blockChannel(channelId, name) {
+      const names = name ? { ...get().blockedChannelNames, [channelId]: name } : get().blockedChannelNames
+      if (!get().blockedChannels.includes(channelId)) change({ blockedChannels: [...get().blockedChannels, channelId], blockedChannelNames: names })
+      else if (name) change({ blockedChannelNames: names })
     },
     unblockChannel(channelId) {
-      change({ blockedChannels: get().blockedChannels.filter((id) => id !== channelId) })
+      const names = { ...get().blockedChannelNames }
+      delete names[channelId]
+      change({ blockedChannels: get().blockedChannels.filter((id) => id !== channelId), blockedChannelNames: names })
     },
     isHidden(video) {
       const s = get()

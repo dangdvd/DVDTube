@@ -1,0 +1,615 @@
+/* Thumbnails, video / channel / playlist / Shorts cards, shelves and feed grids. */
+
+.thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--skeleton);
+  transition: border-radius 0.2s var(--ease);
+}
+.thumb--vertical {
+  aspect-ratio: 9 / 16;
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  background: var(--skeleton);
+}
+.thumb-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--badge-bg);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.2px;
+}
+.thumb-badge--live {
+  background: #cc0000;
+  padding: 0 6px 0 4px;
+}
+.thumb-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(120, 120, 120, 0.6);
+}
+.thumb-progress div {
+  height: 100%;
+  background: var(--brand);
+}
+
+/* MARK: Video card */
+
+.vcard {
+  position: relative;
+  min-width: 0;
+}
+.vcard-thumb {
+  display: block;
+  position: relative;
+  flex-shrink: 0;
+}
+.vcard-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-word;
+}
+.vcard-meta {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vcard-channel {
+  color: var(--text-secondary);
+}
+.vcard-channel:hover {
+  color: var(--text);
+}
+.vcard-menu {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.vcard:hover .vcard-menu,
+.vcard-menu:focus-within,
+.vcard-menu .is-open {
+  opacity: 1;
+}
+.vcard-remove {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.vcard:hover .vcard-remove {
+  opacity: 1;
+}
+
+/* Grid: home / channel tiles. The hover background bleeds 8 px around the tile. */
+.vcard--grid {
+  display: flex;
+  flex-direction: column;
+}
+.vcard--grid::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 16px;
+  background: var(--tint);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+  pointer-events: none;
+}
+.vcard--grid:hover::before {
+  opacity: 0.55;
+}
+.vcard--grid .vcard-details {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  position: relative;
+}
+.vcard--grid .vcard-avatar {
+  flex-shrink: 0;
+  padding-top: 0;
+}
+.vcard--grid .vcard-text {
+  flex: 1;
+  min-width: 0;
+}
+.vcard--grid .vcard-title {
+  font-size: 16px;
+  line-height: 22px;
+  margin-bottom: 4px;
+}
+.vcard--grid .vcard-menu {
+  margin: -8px -10px 0 -4px;
+}
+
+/* List: search results, history. */
+.vcard--list {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.vcard--list .vcard-thumb {
+  width: min(360px, 42%);
+  max-width: 500px;
+}
+.vcard--list .vcard-text {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+.vcard-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.vcard--list .vcard-title {
+  flex: 1;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 500;
+}
+.vcard--list .vcard-title-row .vcard-menu {
+  margin-top: -6px;
+}
+.vcard--list .vcard-title-row .vcard-remove {
+  margin-top: -6px;
+}
+.vcard--list .vcard-meta {
+  font-size: 12px;
+  line-height: 18px;
+}
+.vcard-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.vcard-live-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #cc0000;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Compact: watch-page sidebar, queue, playlist rows. */
+.vcard--compact {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 12px;
+  transition: background-color 0.12s;
+}
+.vcard--compact:hover {
+  background: var(--tint);
+}
+.vcard--compact.is-active {
+  background: var(--tint-strong);
+}
+.vcard--compact .vcard-thumb {
+  width: 168px;
+}
+.vcard--compact .thumb {
+  border-radius: 8px;
+}
+.vcard--compact .vcard-text {
+  flex: 1;
+  min-width: 0;
+  padding-top: 0;
+}
+.vcard--compact .vcard-title {
+  font-size: 14px;
+  line-height: 20px;
+  margin-bottom: 4px;
+}
+.vcard--compact .vcard-meta {
+  font-size: 12px;
+  line-height: 18px;
+}
+.vcard--compact .vcard-menu {
+  margin: -4px -4px 0 0;
+}
+.vcard-index {
+  width: 24px;
+  flex-shrink: 0;
+  align-self: center;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.vcard--list .vcard-index {
+  align-self: center;
+}
+
+.vcard--skeleton .vcard-thumb {
+  display: block;
+}
+.vcard--skeleton::before {
+  display: none;
+}
+
+/* MARK: Subscribe */
+
+.subscribe-btn.is-subscribed {
+  padding: 0 12px 0 14px;
+}
+
+/* MARK: Channel card */
+
+.ccard--grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 8px 0;
+}
+.ccard-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.ccard-link .avatar {
+  margin-bottom: 8px;
+}
+.ccard-name {
+  font-size: 18px;
+  font-weight: 500;
+}
+.ccard-meta {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.ccard--list {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+}
+.ccard-avatar-col {
+  width: min(360px, 42%);
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ccard--list .ccard-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* MARK: Playlist card */
+
+.pcard {
+  position: relative;
+  min-width: 0;
+}
+.pcard-thumb {
+  display: block;
+  position: relative;
+  padding-top: 10px;
+}
+.pcard-stack {
+  position: absolute;
+  top: 0;
+  left: 6%;
+  right: 6%;
+  height: 20px;
+  border-radius: 12px 12px 0 0;
+  background: var(--bg-active);
+  opacity: 0.8;
+}
+.pcard-stack::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: -3%;
+  right: -3%;
+  height: 20px;
+  border-radius: 12px 12px 0 0;
+  background: var(--text-tertiary);
+}
+.pcard-image {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--skeleton);
+  border-top: 1px solid var(--bg);
+}
+.pcard-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pcard-count {
+  height: 22px;
+  gap: 4px;
+  padding: 0 6px 0 4px;
+}
+.pcard-hover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pcard-thumb:hover .pcard-hover {
+  opacity: 1;
+}
+.pcard-text {
+  margin-top: 12px;
+}
+.pcard-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.pcard-all {
+  display: inline-block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.pcard-all:hover {
+  color: var(--text);
+}
+.pcard--list {
+  display: flex;
+  gap: 16px;
+}
+.pcard--list .pcard-thumb {
+  width: min(360px, 42%);
+  flex-shrink: 0;
+}
+.pcard--list .pcard-text {
+  margin-top: 10px;
+}
+.pcard--list .pcard-title {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 500;
+}
+
+/* MARK: Shorts card */
+
+.scard {
+  position: relative;
+  min-width: 0;
+}
+.scard-thumb {
+  display: block;
+}
+.scard .thumb {
+  border-radius: 12px;
+}
+.scard-details {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 10px;
+}
+.scard-title {
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+}
+.scard-menu {
+  opacity: 0;
+  margin: -4px -8px 0 0;
+  transition: opacity 0.12s;
+}
+.scard:hover .scard-menu,
+.scard-menu:focus-within {
+  opacity: 1;
+}
+
+/* MARK: Shelves */
+
+.shelf {
+  margin: 4px 0 32px;
+}
+.shelf-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  min-height: 36px;
+}
+.shelf-title {
+  flex: 1;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+.shelf-title-link:hover {
+  color: var(--text-secondary);
+}
+.shelf-action {
+  display: flex;
+  align-items: center;
+}
+.shelf-shorts-icon {
+  color: var(--brand);
+}
+.shelf-scroll .hscroll-track {
+  gap: 16px;
+  padding-bottom: 2px;
+}
+.shelf--shorts .scard {
+  width: 210px;
+  flex-shrink: 0;
+}
+.shelf-video {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 0 0 4px;
+}
+.shelf-video .vcard--grid::before {
+  inset: -6px;
+}
+.shelf-empty {
+  color: var(--text-secondary);
+  padding: 8px 0 12px;
+}
+.shelf-arrow {
+  background: var(--bg-elevated);
+  box-shadow:
+    0 4px 4px rgba(0, 0, 0, 0.3),
+    0 0 4px rgba(0, 0, 0, 0.2);
+}
+:root[data-theme='dark'] .shelf-arrow {
+  background: #212121;
+}
+.shelf-arrow:hover {
+  background: var(--bg-active);
+}
+.shelf-scroll .hscroll-edge {
+  background: none;
+  padding: 0;
+  top: 0;
+  bottom: 30%;
+}
+.shelf-scroll .hscroll-edge--start {
+  left: -20px;
+}
+.shelf-scroll .hscroll-edge--end {
+  right: -20px;
+}
+
+/* MARK: Feeds */
+
+.feed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 40px 16px;
+}
+.feed-fullrow {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding-top: 20px;
+  margin: 0 0 -8px;
+}
+.feed-fullrow .shelf {
+  margin-bottom: 16px;
+}
+.feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.feed-list .feed-fullrow {
+  border: none;
+  padding: 8px 0;
+  margin: 8px 0;
+}
+.shorts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 32px 8px;
+}
+.infinite-sentinel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 72px;
+  padding: 16px 0 32px;
+}
+.feed-more-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px 0 32px;
+  color: var(--text-secondary);
+}
+.feed-section {
+  margin-bottom: 40px;
+}
+.section-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 8px 0 20px;
+}
+
+@media (min-width: 2200px) {
+  .feed-grid {
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  }
+}
+@media (max-width: 1000px) {
+  .vcard--list .vcard-title {
+    font-size: 16px;
+    line-height: 22px;
+  }
+}
+@media (max-width: 700px) {
+  .feed-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}

@@ -24,6 +24,32 @@
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 72px;
   --font: 'Segoe UI Variable Text', 'Segoe UI', Roboto, Arial, sans-serif;
+
+  /* Additions (UI module) */
+  --tint: rgba(255, 255, 255, 0.1);
+  --tint-strong: rgba(255, 255, 255, 0.2);
+  --menu-bg: #282828;
+  --menu-hover: #3e3e3e;
+  --input-bg: #121212;
+  --input-border: #303030;
+  --input-focus: #1c62b9;
+  --search-button: #222222;
+  --skeleton: #272727;
+  --skeleton-shine: #333333;
+  --badge-bg: rgba(0, 0, 0, 0.8);
+  --button-primary-bg: #f1f1f1;
+  --button-primary-text: #0f0f0f;
+  --button-primary-hover: #d9d9d9;
+  --danger: #ff4e45;
+  --success: #2ba640;
+  --warning: #f2a60c;
+  --link: #3ea6ff;
+  --focus-ring: 0 0 0 2px #3ea6ff;
+  --toast-bg: #f1f1f1;
+  --toast-text: #0f0f0f;
+  --scrim: rgba(0, 0, 0, 0.5);
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --content-padding: 24px;
   color-scheme: dark;
 }
 
@@ -41,6 +67,25 @@
   --chip-active-bg: #0f0f0f;
   --chip-active-text: #ffffff;
   --shadow: 0 4px 32px rgba(0, 0, 0, 0.15);
+
+  --tint: rgba(0, 0, 0, 0.05);
+  --tint-strong: rgba(0, 0, 0, 0.1);
+  --menu-bg: #ffffff;
+  --menu-hover: #f2f2f2;
+  --input-bg: #ffffff;
+  --input-border: #d3d3d3;
+  --input-focus: #1c62b9;
+  --search-button: #f8f8f8;
+  --skeleton: #ececec;
+  --skeleton-shine: #f6f6f6;
+  --button-primary-bg: #0f0f0f;
+  --button-primary-text: #ffffff;
+  --button-primary-hover: #272727;
+  --link: #065fd4;
+  --focus-ring: 0 0 0 2px #065fd4;
+  --toast-bg: #212121;
+  --toast-text: #f1f1f1;
+  --scrim: rgba(0, 0, 0, 0.35);
   color-scheme: light;
 }
 
@@ -60,6 +105,11 @@ body,
   -webkit-font-smoothing: antialiased;
 }
 
+body {
+  overflow: hidden;
+  line-height: 1.4;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -68,6 +118,26 @@ a {
 button {
   font-family: inherit;
   color: inherit;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  color: inherit;
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(62, 166, 255, 0.35);
 }
 
 ::-webkit-scrollbar {
@@ -79,6 +149,12 @@ button {
   border-radius: 8px;
   border: 2px solid var(--bg);
 }
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
 ::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
   background: transparent;
 }
