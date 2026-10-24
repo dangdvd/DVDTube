@@ -16,7 +16,8 @@ final class ChunkedResourceLoader: NSObject, AVAssetResourceLoaderDelegate, @unc
     private let queue = DispatchQueue(label: "chunked.resource.loader")
     private let lock = NSLock()
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-    private static let chunkSize: Int64 = 1 << 20
+    private static let firstChunkSize: Int64 = 256 << 10
+    private static let chunkSize: Int64 = 2 << 20
 
     private init(remoteURL: URL, contentLength: Int64?, isAudio: Bool) {
         self.remoteURL = remoteURL
@@ -91,18 +92,26 @@ final class ChunkedResourceLoader: NSObject, AVAssetResourceLoaderDelegate, @unc
             info.isByteRangeAccessSupported = true
         }
         guard let dataRequest = request.dataRequest else { return }
-        var offset = dataRequest.currentOffset != 0 ? dataRequest.currentOffset : dataRequest.requestedOffset
+        let start = dataRequest.currentOffset != 0 ? dataRequest.currentOffset : dataRequest.requestedOffset
         let end: Int64 = dataRequest.requestsAllDataToEndOfResource
             ? length
             : min(dataRequest.requestedOffset + Int64(dataRequest.requestedLength), length)
-        while offset < end {
+        guard start < end else { return }
+        // A small first chunk so playback can start quickly, then bigger ones; the next chunk
+        // downloads while the current one is handed to the player.
+        var chunkStart = start
+        var current = try await fetch(from: chunkStart, to: min(chunkStart + Self.firstChunkSize, end) - 1)
+        while !current.isEmpty {
             try Task.checkCancellation()
-            let chunkEnd = min(offset + Self.chunkSize, end) - 1
-            let data = try await fetch(from: offset, to: chunkEnd)
-            try Task.checkCancellation()
-            guard !data.isEmpty else { break }
-            dataRequest.respond(with: data)
-            offset += Int64(data.count)
+            let nextStart = chunkStart + Int64(current.count)
+            guard nextStart < end else {
+                dataRequest.respond(with: current)
+                break
+            }
+            async let next = fetch(from: nextStart, to: min(nextStart + Self.chunkSize, end) - 1)
+            dataRequest.respond(with: current)
+            current = try await next
+            chunkStart = nextStart
         }
     }
 

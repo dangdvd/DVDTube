@@ -685,10 +685,15 @@ final class PlayerManager {
     /// Picture of one asset + sound of another, as one composition.
     private static func composition(video videoAsset: AVURLAsset, audio audioAsset: AVURLAsset) async throws
         -> (asset: AVMutableComposition, audioTrack: AVMutableCompositionTrack?) {
-        let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
-        let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
-        let videoDuration = try await videoAsset.load(.duration)
-        let audioDuration = try await audioAsset.load(.duration)
+        // Both files are read at the same time: each needs its own round trips before playback.
+        async let videoTracksLoad = videoAsset.loadTracks(withMediaType: .video)
+        async let audioTracksLoad = audioAsset.loadTracks(withMediaType: .audio)
+        async let videoDurationLoad = videoAsset.load(.duration)
+        async let audioDurationLoad = audioAsset.load(.duration)
+        let videoTracks = try await videoTracksLoad
+        let audioTracks = try await audioTracksLoad
+        let videoDuration = try await videoDurationLoad
+        let audioDuration = try await audioDurationLoad
         guard let videoTrack = videoTracks.first, let audioTrack = audioTracks.first else {
             throw InnerTubeError.noStreams
         }
@@ -946,7 +951,6 @@ final class PlayerManager {
             chunkLoaders.forEach { $0.cancelAll() }
             chunkLoaders = []
         }
-        attachAmbientOutput(to: item)
         applyQuality(to: item)
         observe(item)
         player.replaceCurrentItem(with: item)
@@ -1074,6 +1078,8 @@ final class PlayerManager {
             if fallbackStage == 0, !usesEqualizerStream {
                 Task { await applyAudioSelection(to: item) }
             }
+            // Only now: a video output attached before the first frame can delay the start.
+            attachAmbientOutput(to: item)
         case .failed:
             let message = item.error?.localizedDescription ?? "Không phát được video."
             Log.debug("item failed at stage \(fallbackStage): \(item.error.map { String(describing: $0) } ?? "unknown")")

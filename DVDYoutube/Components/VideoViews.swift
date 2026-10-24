@@ -14,8 +14,7 @@ struct ThumbnailView: View {
                 badge.padding(6)
             }
             .overlay(alignment: .bottom) {
-                if showProgress, let progress = library.history.first(where: { $0.id == video.id })?.progress,
-                   progress > 0.02 {
+                if showProgress, let progress = library.watchProgress(video.id), progress > 0.02 {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Rectangle().fill(Color.gray.opacity(0.6))
@@ -142,76 +141,11 @@ struct VideoMenu: View {
     let video: VideoItem
     var extra: AnyView?
 
-    @Environment(PlayerManager.self) private var player
-    @Environment(LibraryStore.self) private var library
-    @Environment(DownloadManager.self) private var downloads
-    @Environment(Router.self) private var router
-
     var body: some View {
+        // The items are their own view: what they read (downloads, the playing video, Watch
+        // Later…) then re-renders only them, not every card of a feed.
         Menu {
-            if player.currentVideo != nil, player.currentVideo?.id != video.id {
-                Button {
-                    player.playAfterCurrent(video)
-                } label: {
-                    Label("Phát tiếp theo", systemImage: "text.line.first.and.arrowtriangle.forward")
-                }
-            }
-            Button {
-                player.addToQueue(video)
-            } label: {
-                Label("Thêm vào hàng đợi", systemImage: "text.badge.plus")
-            }
-            Button {
-                LibraryActions.toggleWatchLater(video)
-            } label: {
-                Label(LibraryActions.isInWatchLater(video.id) ? "Xóa khỏi Xem sau" : "Lưu vào Xem sau", systemImage: "clock")
-            }
-            Button {
-                router.playlistSheetVideo = video
-            } label: {
-                Label("Lưu vào danh sách phát", systemImage: "text.badge.star")
-            }
-            if !video.isLive {
-                Button {
-                    downloads.download(video)
-                } label: {
-                    Label(downloads.isDownloaded(video.id) ? "Đã tải xuống" : "Tải xuống", systemImage: "arrow.down.circle")
-                }
-                .disabled(downloads.isDownloaded(video.id) || downloads.states[video.id] != nil)
-                if !downloads.isDownloaded(video.id), downloads.states[video.id] == nil {
-                    Button {
-                        downloads.download(video, audioOnly: true)
-                    } label: {
-                        Label("Tải chỉ âm thanh (m4a)", systemImage: "headphones")
-                    }
-                }
-            }
-            ShareLink(item: video.shareURL) {
-                Label("Chia sẻ", systemImage: "square.and.arrow.up")
-            }
-            if let channelId = video.channelId {
-                Button {
-                    router.openChannel(id: channelId, name: video.channelName ?? "", avatar: video.channelAvatar)
-                } label: {
-                    Label("Đi tới kênh", systemImage: "person.crop.square")
-                }
-            }
-            if let extra { extra }
-            Divider()
-            Button {
-                HiddenContentStore.shared.hide(video)
-                player.showToast("Đã ẩn video. Bạn sẽ không thấy video này trong đề xuất nữa.")
-            } label: {
-                Label("Không quan tâm", systemImage: "nosign")
-            }
-            if video.channelId != nil {
-                Button {
-                    HiddenContentStore.shared.hideChannel(of: video)
-                    player.showToast("Sẽ không đề xuất kênh \(video.channelName ?? "này") nữa")
-                } label: {
-                    Label("Không đề xuất kênh này", systemImage: "person.crop.circle.badge.minus")
-                }
-            }
+            VideoMenuItems(video: video, extra: extra)
         } label: {
             Image(systemName: "ellipsis")
                 .rotationEffect(.degrees(90))
@@ -219,6 +153,83 @@ struct VideoMenu: View {
                 .foregroundStyle(.primary)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
+        }
+    }
+}
+
+private struct VideoMenuItems: View {
+    let video: VideoItem
+    var extra: AnyView?
+
+    @Environment(PlayerManager.self) private var player
+    @Environment(DownloadManager.self) private var downloads
+    @Environment(Router.self) private var router
+
+    var body: some View {
+        if player.currentVideo != nil, player.currentVideo?.id != video.id {
+            Button {
+                player.playAfterCurrent(video)
+            } label: {
+                Label("Phát tiếp theo", systemImage: "text.line.first.and.arrowtriangle.forward")
+            }
+        }
+        Button {
+            player.addToQueue(video)
+        } label: {
+            Label("Thêm vào hàng đợi", systemImage: "text.badge.plus")
+        }
+        Button {
+            LibraryActions.toggleWatchLater(video)
+        } label: {
+            Label(LibraryActions.isInWatchLater(video.id) ? "Xóa khỏi Xem sau" : "Lưu vào Xem sau", systemImage: "clock")
+        }
+        Button {
+            router.playlistSheetVideo = video
+        } label: {
+            Label("Lưu vào danh sách phát", systemImage: "text.badge.star")
+        }
+        if !video.isLive {
+            let downloaded = downloads.downloads.contains { $0.id == video.id }
+            let busy = downloads.states[video.id] != nil
+            Button {
+                downloads.download(video)
+            } label: {
+                Label(downloaded ? "Đã tải xuống" : "Tải xuống", systemImage: "arrow.down.circle")
+            }
+            .disabled(downloaded || busy)
+            if !downloaded, !busy {
+                Button {
+                    downloads.download(video, audioOnly: true)
+                } label: {
+                    Label("Tải chỉ âm thanh (m4a)", systemImage: "headphones")
+                }
+            }
+        }
+        ShareLink(item: video.shareURL) {
+            Label("Chia sẻ", systemImage: "square.and.arrow.up")
+        }
+        if let channelId = video.channelId {
+            Button {
+                router.openChannel(id: channelId, name: video.channelName ?? "", avatar: video.channelAvatar)
+            } label: {
+                Label("Đi tới kênh", systemImage: "person.crop.square")
+            }
+        }
+        if let extra { extra }
+        Divider()
+        Button {
+            HiddenContentStore.shared.hide(video)
+            player.showToast("Đã ẩn video. Bạn sẽ không thấy video này trong đề xuất nữa.")
+        } label: {
+            Label("Không quan tâm", systemImage: "nosign")
+        }
+        if video.channelId != nil {
+            Button {
+                HiddenContentStore.shared.hideChannel(of: video)
+                player.showToast("Sẽ không đề xuất kênh \(video.channelName ?? "này") nữa")
+            } label: {
+                Label("Không đề xuất kênh này", systemImage: "person.crop.circle.badge.minus")
+            }
         }
     }
 }

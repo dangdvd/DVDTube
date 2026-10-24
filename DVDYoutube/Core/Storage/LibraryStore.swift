@@ -47,6 +47,11 @@ final class LibraryStore {
 
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private let fileURL: URL
+    /// Watch progress by video id for thumbnail bars. Saving the position every few seconds
+    /// updates it without re-rendering every thumbnail on screen; only adding or removing
+    /// history entries does (`historyRevision`).
+    @ObservationIgnored private var progressById: [String: Double] = [:]
+    private(set) var historyRevision = 0
 
     private init() {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -56,6 +61,7 @@ final class LibraryStore {
            let stored = try? JSONDecoder().decode(LibraryData.self, from: data) {
             subscriptions = stored.subscriptions
             history = stored.history
+            rebuildProgress()
             watchLater = stored.watchLater
             liked = stored.liked
             playlists = stored.playlists
@@ -143,6 +149,8 @@ final class LibraryStore {
         }
         history.insert(entry, at: 0)
         if history.count > 1000 { history.removeLast(history.count - 1000) }
+        rebuildProgress()
+        historyRevision += 1
         scheduleSave()
     }
 
@@ -150,6 +158,7 @@ final class LibraryStore {
         guard let index = history.firstIndex(where: { $0.id == videoId }) else { return }
         history[index].position = position
         if duration > 0 { history[index].duration = duration }
+        progressById[videoId] = history[index].progress
         scheduleSave()
     }
 
@@ -162,12 +171,29 @@ final class LibraryStore {
 
     func removeFromHistory(_ videoId: String) {
         history.removeAll { $0.id == videoId }
+        rebuildProgress()
+        historyRevision += 1
         scheduleSave()
     }
 
     func clearHistory() {
         history.removeAll()
+        rebuildProgress()
+        historyRevision += 1
         scheduleSave()
+    }
+
+    /// Fraction watched (0…1) of a video in the history, for thumbnail progress bars.
+    func watchProgress(_ videoId: String) -> Double? {
+        _ = historyRevision
+        return progressById[videoId]
+    }
+
+    private func rebuildProgress() {
+        var map: [String: Double] = [:]
+        map.reserveCapacity(history.count)
+        for entry in history where map[entry.id] == nil { map[entry.id] = entry.progress }
+        progressById = map
     }
 
     // MARK: Watch later & likes
