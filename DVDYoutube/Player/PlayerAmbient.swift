@@ -6,17 +6,30 @@ import UIKit
 
 // MARK: - Ambient mode
 
-/// Shrinks a video frame to a tiny image: scaled up again it is a soft glow of the frame's colours.
+/// Shrinks a video frame to a tiny, already blurred image: scaled up on screen it is a soft glow
+/// of the frame's colours, without any blur work while the page scrolls or animates.
+/// Thread-safe; call it off the main thread.
 enum AmbientSampler {
     private static let context = CIContext(options: [.cacheIntermediates: false])
 
     static func tinyImage(from buffer: CVPixelBuffer) -> UIImage? {
-        let image = CIImage(cvPixelBuffer: buffer)
+        tinyImage(from: CIImage(cvPixelBuffer: buffer))
+    }
+
+    static func tinyImage(from image: UIImage) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        return tinyImage(from: CIImage(cgImage: cgImage))
+    }
+
+    private static func tinyImage(from image: CIImage) -> UIImage? {
         let width = image.extent.width
         guard width > 0 else { return nil }
-        let scale = 32 / width
+        let scale = 48 / width
         let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        guard let cgImage = context.createCGImage(small, from: small.extent) else { return nil }
+        let blurred = small.clampedToExtent()
+            .applyingGaussianBlur(sigma: 2.5)
+            .cropped(to: small.extent)
+        guard let cgImage = context.createCGImage(blurred, from: small.extent) else { return nil }
         return UIImage(cgImage: cgImage)
     }
 }
@@ -33,16 +46,12 @@ struct AmbientGlowView: View {
                 if let image = player.ambientImage {
                     Image(uiImage: image)
                         .resizable()
-                        .interpolation(.medium)
+                        .interpolation(.high)
                         .id(ObjectIdentifier(image))
-                        .transition(.opacity)
-                } else {
-                    RemoteImage(url: player.currentVideo?.displayThumbnail)
                         .transition(.opacity)
                 }
             }
             .frame(width: geo.size.width * 1.35, height: playerHeight * 1.35 + 80)
-            .blur(radius: 36)
             .opacity(0.55)
             .frame(width: geo.size.width, height: playerHeight + 80, alignment: .center)
             .mask(

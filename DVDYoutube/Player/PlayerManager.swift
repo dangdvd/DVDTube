@@ -103,6 +103,8 @@ final class PlayerManager {
     @ObservationIgnored private var ambientOutput: AVPlayerItemVideoOutput?
     @ObservationIgnored private var ambientTask: Task<Void, Never>?
     @ObservationIgnored private var ambientWanted = false
+    @ObservationIgnored private var ambientThumbnailVideoId: String?
+    @ObservationIgnored private let ambientQueue = DispatchQueue(label: "ambient.sampler", qos: .utility)
     /// Touches on the video are ignored until unlocked (YouTube's "Lock screen").
     var isScreenLocked = false
     /// "Stats for nerds" overlay.
@@ -884,6 +886,7 @@ final class PlayerManager {
         ambientTask = nil
         guard on else { return }
         attachAmbientOutput(to: player.currentItem)
+        loadAmbientThumbnail()
         ambientTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.sampleAmbientFrame()
@@ -903,11 +906,37 @@ final class PlayerManager {
     }
 
     private func sampleAmbientFrame() {
+        if ambientImage == nil { loadAmbientThumbnail() }
         guard let item = player.currentItem, let output = ambientOutput, item.outputs.contains(output),
               isPlaying || ambientImage == nil,
-              let buffer = output.copyPixelBuffer(forItemTime: item.currentTime(), itemTimeForDisplay: nil),
-              let image = AmbientSampler.tinyImage(from: buffer) else { return }
-        ambientImage = image
+              let buffer = output.copyPixelBuffer(forItemTime: item.currentTime(), itemTimeForDisplay: nil) else { return }
+        let videoId = currentVideo?.id
+        // Scaling and blurring happen off the main thread so scrolling never waits for them.
+        ambientQueue.async { [weak self] in
+            guard let image = AmbientSampler.tinyImage(from: buffer) else { return }
+            DispatchQueue.main.async {
+                guard let self, self.ambientWanted, self.currentVideo?.id == videoId else { return }
+                self.ambientImage = image
+            }
+        }
+    }
+
+    /// Until a frame is available (or in audio-only mode): the glow of the thumbnail.
+    private func loadAmbientThumbnail() {
+        guard ambientWanted, ambientImage == nil, let video = currentVideo, ambientThumbnailVideoId != video.id,
+              let url = video.displayThumbnail else { return }
+        ambientThumbnailVideoId = video.id
+        let queue = ambientQueue
+        Task { [weak self] in
+            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            let tiny: UIImage? = await withCheckedContinuation { continuation in
+                queue.async {
+                    continuation.resume(returning: UIImage(data: data).flatMap(AmbientSampler.tinyImage(from:)))
+                }
+            }
+            guard let self, let tiny, self.ambientWanted, self.ambientImage == nil, self.currentVideo?.id == video.id else { return }
+            self.ambientImage = tiny
+        }
     }
 
     private func startItem(_ item: AVPlayerItem) {

@@ -418,6 +418,18 @@ object PlaylistParser {
         val countText = header.at("playlistHeaderRenderer", "numVideosText").text
         return PlaylistPage(PlaylistItem(playlistId, title, thumbnail, owner, countText), page)
     }
+
+    /** A mix from the watch page's playlist panel (`/next` with the playlist id). */
+    fun mix(json: JNode, playlistId: String): PlaylistPage {
+        val panel = json.at("contents", "twoColumnWatchNextResults", "playlist", "playlist")
+        // Mixes never end; the panel's continuation is not a playlist page continuation.
+        val page = ItemParser.page(if (panel.exists) panel["contents"] else json.findFirst("playlistPanelRenderer")["contents"])
+            .copy(continuation = null)
+        val title = panel["title"].string ?: panel["title"].text ?: "Danh sách kết hợp"
+        val owner = panel["ownerName"].text ?: panel["longBylineText"].text
+        val count = if (page.videos.isEmpty()) null else "${page.videos.size} video"
+        return PlaylistPage(PlaylistItem(playlistId, title, page.videos.firstOrNull()?.thumbnail, owner, count), page)
+    }
 }
 
 object PlayerParser {

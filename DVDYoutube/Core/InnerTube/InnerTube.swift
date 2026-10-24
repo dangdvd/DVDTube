@@ -214,6 +214,14 @@ final class InnerTube {
         try await web("next", body: ["videoId": videoId, "contentCheckOk": true, "racyCheckOk": true])
     }
 
+    /// A watch page inside a playlist; for mixes ("Danh sách kết hợp") this is the only way to
+    /// get their videos (they have no playlist page).
+    func next(videoId: String?, playlistId: String) async throws -> JNode {
+        var body: [String: Any] = ["playlistId": playlistId, "contentCheckOk": true, "racyCheckOk": true]
+        if let videoId { body["videoId"] = videoId }
+        return try await web("next", body: body)
+    }
+
     func nextContinuation(_ token: String) async throws -> JNode {
         try await web("next", body: ["continuation": token])
     }

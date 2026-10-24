@@ -440,6 +440,23 @@ enum PlaylistParser {
     }
 }
 
+extension PlaylistParser {
+    /// A mix from the watch page's playlist panel (`/next` with the playlist id).
+    static func mix(_ json: JNode, playlistId: String) -> PlaylistPage {
+        let panel = json.at("contents", "twoColumnWatchNextResults", "playlist", "playlist")
+        var page = ItemParser.page(panel.exists ? panel["contents"] : json.findFirst("playlistPanelRenderer")["contents"])
+        // Mixes never end; the panel's continuation is not a playlist page continuation.
+        page.continuation = nil
+        let title = panel["title"].string ?? panel["title"].text ?? "Danh sách kết hợp"
+        let owner = panel["ownerName"].text ?? panel["longBylineText"].text
+        return PlaylistPage(
+            playlist: PlaylistItem(id: playlistId, title: title, thumbnail: page.videos.first?.thumbnail, channelName: owner,
+                                   videoCountText: page.videos.isEmpty ? nil : "\(page.videos.count) video"),
+            page: page
+        )
+    }
+}
+
 enum PlayerParser {
     static func parse(_ json: JNode, videoId: String) throws -> PlayerInfo {
         let playability = json["playabilityStatus"]

@@ -219,6 +219,16 @@ object InnerTube {
     suspend fun next(videoId: String): JNode =
         web("next", JSONObject().put("videoId", videoId).put("contentCheckOk", true).put("racyCheckOk", true))
 
+    /**
+     * A watch page inside a playlist; for mixes ("Danh sách kết hợp") this is the only way to get
+     * their videos (they have no playlist page).
+     */
+    suspend fun next(videoId: String?, playlistId: String): JNode {
+        val body = JSONObject().put("playlistId", playlistId).put("contentCheckOk", true).put("racyCheckOk", true)
+        if (videoId != null) body.put("videoId", videoId)
+        return web("next", body)
+    }
+
     suspend fun nextContinuation(token: String): JNode = web("next", JSONObject().put("continuation", token))
 
     suspend fun resolveUrl(url: String): JNode = web("navigation/resolve_url", JSONObject().put("url", url))
