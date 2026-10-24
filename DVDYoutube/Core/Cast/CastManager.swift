@@ -379,7 +379,11 @@ final class CastManager {
         playerState = status["playerState"].string ?? playerState
 
         switch playerState {
-        case "PLAYING", "BUFFERING", "PAUSED":
+        case "BUFFERING":
+            // Not proof that the stream works (a receiver can buffer forever on a stream it
+            // can't decode): the load timeout keeps running and moves on if it never plays.
+            break
+        case "PLAYING", "PAUSED":
             if loadingVideo != nil, loadRequestId != nil {
                 // The current candidate works.
                 workingKind = candidates.indices.contains(candidateIndex) ? candidates[candidateIndex].kind : workingKind
@@ -447,18 +451,32 @@ final class CastManager {
                     try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
                 }
                 guard !Task.isCancelled, self.loadingVideo?.id == video.id else { return }
-                var relayed: Candidate?
-                if let hls = streams.hlsURL, let host = self.localHost() {
+                var relayed: [Candidate] = []
+                if let host = self.localHost() {
+                    // DASH from the MP4 streams first: receivers handle YouTube's separate
+                    // picture and sound far better in DASH than in HLS with packed audio.
+                    var hasDASH = false
                     do {
-                        let relay = try await CastProxy.shared.prepare(hls: hls, host: host)
-                        relayed = Candidate(
-                            url: relay.url, contentType: "application/x-mpegurl",
-                            segmentFormat: relay.audioFormat,
-                            videoSegmentFormat: relay.isFMP4 ? "fmp4" : "mpeg2_ts",
-                            live: streams.isLive, kind: "relay-hls"
-                        )
+                        if let dash = try await CastProxy.shared.prepareDASH(info: streams, audioLanguage: nil, host: host) {
+                            hasDASH = true
+                            relayed.append(Candidate(url: dash, contentType: "application/dash+xml", segmentFormat: nil,
+                                                     videoSegmentFormat: nil, live: false, kind: "relay-dash"))
+                        }
                     } catch {
-                        Log.debug("cast relay unavailable: \(error.localizedDescription)")
+                        Log.debug("cast relay (DASH) unavailable: \(error.localizedDescription)")
+                    }
+                    if let hls = streams.hlsURL {
+                        do {
+                            let relay = try await CastProxy.shared.prepare(hls: hls, host: host, reset: !hasDASH)
+                            relayed.append(Candidate(
+                                url: relay.url, contentType: "application/x-mpegurl",
+                                segmentFormat: relay.audioFormat,
+                                videoSegmentFormat: relay.isFMP4 ? "fmp4" : "mpeg2_ts",
+                                live: streams.isLive, kind: "relay-hls"
+                            ))
+                        } catch {
+                            Log.debug("cast relay unavailable: \(error.localizedDescription)")
+                        }
                     }
                 }
                 guard !Task.isCancelled, self.loadingVideo?.id == video.id else { return }
@@ -480,8 +498,8 @@ final class CastManager {
 
     /// The stream relayed through the phone first; then the TV fetching YouTube directly
     /// (works when the TV shares the phone's public address and CORS allows it).
-    private func makeCandidates(_ info: PlayerInfo, relayed: Candidate?) -> [Candidate] {
-        var list: [Candidate] = relayed.map { [$0] } ?? []
+    private func makeCandidates(_ info: PlayerInfo, relayed: [Candidate]) -> [Candidate] {
+        var list = relayed
         if let hls = info.hlsURL {
             list.append(Candidate(url: hls, contentType: "application/x-mpegurl", segmentFormat: "fmp4",
                                   videoSegmentFormat: "fmp4", live: info.isLive, kind: "hls-fmp4"))
@@ -526,7 +544,7 @@ final class CastManager {
         loadTimeout?.cancel()
         let attempt = candidateIndex
         loadTimeout = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            try? await Task.sleep(nanoseconds: 25_000_000_000)
             guard let self, !Task.isCancelled, self.loadingVideo != nil, self.candidateIndex == attempt else { return }
             self.tryNextCandidate(reason: "timeout")
         }
