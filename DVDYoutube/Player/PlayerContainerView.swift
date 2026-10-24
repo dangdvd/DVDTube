@@ -103,7 +103,8 @@ struct PlayerContainerView: View {
         .overlay(alignment: .top) {
             if !expanded { Divider() }
         }
-        .shadow(color: .black.opacity(expanded ? 0 : 0.15), radius: 6, y: -2)
+        // No shadow pass at all on the full-screen watch page (it would be redrawn while dragging).
+        .shadow(color: .black.opacity(expanded ? 0 : 0.15), radius: expanded ? 0 : 6, y: expanded ? 0 : -2)
         .offset(y: expanded ? dragOffset : miniY)
         .animation(.spring(response: 0.38, dampingFraction: 0.9), value: expanded)
         .statusBarHidden(fullscreen)

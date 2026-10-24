@@ -223,8 +223,32 @@ final class YouTubeService {
     }
 
     func playlist(_ id: String) async throws -> PlaylistPage {
-        let browseId = id.hasPrefix("VL") ? id : "VL" + id
-        return PlaylistParser.parse(try await api.browse(browseId: browseId), playlistId: id)
+        let plainId = id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
+        if Self.isMix(plainId) { return try await mix(plainId) }
+        let page = PlaylistParser.parse(try await api.browse(browseId: "VL" + plainId), playlistId: id)
+        // Some generated lists have no playlist page either: read them like a mix.
+        if page.page.videos.isEmpty, plainId.hasPrefix("RD"), let mixPage = try? await mix(plainId), !mixPage.page.videos.isEmpty {
+            return mixPage
+        }
+        return page
+    }
+
+    /// Mixes ("Danh sách kết hợp": `RD…` ids, except album lists `RDCLAK…`) only exist on the watch page.
+    static func isMix(_ id: String) -> Bool {
+        id.hasPrefix("RD") && !id.hasPrefix("RDCLAK")
+    }
+
+    private func mix(_ id: String) async throws -> PlaylistPage {
+        // `RD<video id>` and `RDAMVM<video id>` mixes start from that video.
+        let seed: String?
+        if id.count == 13 {
+            seed = String(id.dropFirst(2))
+        } else if id.hasPrefix("RDAMVM"), id.count == 17 {
+            seed = String(id.dropFirst(6))
+        } else {
+            seed = nil
+        }
+        return PlaylistParser.mix(try await api.next(videoId: seed, playlistId: id), playlistId: id)
     }
 
     /// Accepts a `UC…` id, an `@handle` or a channel URL.

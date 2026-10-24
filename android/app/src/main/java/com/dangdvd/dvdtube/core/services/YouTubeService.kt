@@ -164,8 +164,27 @@ object YouTubeService {
     }
 
     suspend fun playlist(id: String): PlaylistPage {
-        val browseId = if (id.startsWith("VL")) id else "VL$id"
-        return PlaylistParser.parse(api.browse(browseId), id)
+        val plainId = id.removePrefix("VL")
+        if (isMix(plainId)) return mix(plainId)
+        val page = PlaylistParser.parse(api.browse("VL$plainId"), id)
+        // Some generated lists have no playlist page either: read them like a mix.
+        if (page.page.videos.isEmpty() && plainId.startsWith("RD")) {
+            runCatching { mix(plainId) }.getOrNull()?.takeIf { it.page.videos.isNotEmpty() }?.let { return it }
+        }
+        return page
+    }
+
+    /** Mixes ("Danh sách kết hợp": `RD…` ids, except album lists `RDCLAK…`) only exist on the watch page. */
+    fun isMix(id: String): Boolean = id.startsWith("RD") && !id.startsWith("RDCLAK")
+
+    private suspend fun mix(id: String): PlaylistPage {
+        // `RD<video id>` and `RDAMVM<video id>` mixes start from that video.
+        val seed = when {
+            id.length == 13 -> id.drop(2)
+            id.startsWith("RDAMVM") && id.length == 17 -> id.drop(6)
+            else -> null
+        }
+        return PlaylistParser.mix(api.next(seed, id), id)
     }
 
     /** Accepts a `UC…` id, an `@handle` or a channel URL. */

@@ -208,14 +208,22 @@ fun AmbientGlow(modifier: Modifier) {
         drawRect(Brush.verticalGradient(listOf(Color.Black, Color.Transparent)), blendMode = BlendMode.DstIn)
     }
     Box(modifier.alpha(0.55f).then(fade)) {
+        // A tiny image scaled up smoothly is already a soft glow: no blur pass per frame, so
+        // scrolling and dragging the page stay smooth.
         Crossfade(targetState = frame, animationSpec = tween(1000), label = "ambient") { image ->
             if (image != null) {
                 Image(
-                    image, null, contentScale = ContentScale.Crop, filterQuality = FilterQuality.Low,
-                    modifier = Modifier.fillMaxSize().blur(32.dp),
+                    image, null, contentScale = ContentScale.Crop, filterQuality = FilterQuality.High,
+                    modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                RemoteImage(video.displayThumbnail, Modifier.fillMaxSize().blur(32.dp))
+                coil.compose.AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(video.displayThumbnail).size(32, 18).build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    filterQuality = FilterQuality.High,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
