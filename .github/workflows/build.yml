@@ -102,9 +102,11 @@ jobs:
           path: DVDTube.apk
           retention-days: 30
 
+  # Publishes a GitHub Release with the IPA and APK: for a pushed v* tag, or for a push whose
+  # commit message contains "[release]" (the tag v1.0.<run number> is then created here).
   release:
     name: Publish release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
     needs: [build, android]
     runs-on: ubuntu-latest
     steps:
@@ -116,11 +118,14 @@ jobs:
       - name: Create release with IPA and APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v1.0.{0}', github.run_number) }}
         run: |
-          gh release create "$GITHUB_REF_NAME" artifacts/DVDTube-unsigned.ipa artifacts/DVDTube.apk \
+          gh release create "$TAG" artifacts/DVDTube-unsigned.ipa artifacts/DVDTube.apk \
             --repo "$GITHUB_REPOSITORY" \
-            --title "DVDTube $GITHUB_REF_NAME" \
-            --notes "IPA chưa ký cho iPhone (cài bằng SideStore, AltStore, Sideloadly…) và APK cho Android — xem README."
+            --target "$GITHUB_SHA" \
+            --latest \
+            --title "DVDTube $TAG" \
+            --notes "IPA chưa ký cho iPhone (cài bằng SideStore, AltStore, Sideloadly…) và APK cho Android điện thoại và Android TV — xem README. Tải thẳng APK bản mới nhất: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/DVDTube.apk"
 
   android-smoke:
     name: Android emulator smoke test

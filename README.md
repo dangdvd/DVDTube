@@ -119,8 +119,10 @@ hiệu, tải video lên, live chat, thông báo video mới (WorkManager, kho�
 Dùng **chính tệp `DVDTube.apk`** ở trên: cài lên TV (Android 8.0 trở lên) là ứng dụng hiện giao diện riêng cho
 TV, điều khiển bằng remote, và có biểu tượng trên màn hình chính của TV.
 
-1. Chép `DVDTube.apk` vào USB rồi mở bằng trình quản lý tệp trên TV, hoặc dùng ứng dụng *Downloader* /
-   *Send Files to TV*; cho phép *Cài ứng dụng không rõ nguồn gốc* khi được hỏi.
+1. Cách nhanh nhất: cài ứng dụng *Downloader* (AFTVnews) từ Google Play trên TV, nhập địa chỉ
+   `https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube.apk` (luôn là bản phát hành mới
+   nhất) rồi bấm *Cài đặt*. Hoặc chép `DVDTube.apk` vào USB và mở bằng trình quản lý tệp trên TV. Cho
+   phép *Cài ứng dụng không rõ nguồn gốc* khi được hỏi.
 2. Menu bên trái: Tìm kiếm (có tìm bằng giọng nói), Trang chủ, Shorts, Kênh đăng ký, Thư viện, Tài khoản, Cài đặt.
 3. Khi xem: **OK** phát/tạm dừng, **◀ ▶** tua 10 giây (giữ để tua nhanh), **▲** hiện nút điều khiển (phụ đề,
    chất lượng, tốc độ, chỉ âm thanh, bản âm thanh, EQ, hẹn giờ tắt, thích, đăng ký…), **▼** video tiếp theo.
