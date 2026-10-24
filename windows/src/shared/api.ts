@@ -86,6 +86,11 @@ export interface SmokeStep {
   name: string
   ok: boolean
   detail?: string
+  /**
+   * The step could not run in this environment (YouTube's bot check on CI machines' IP
+   * addresses); reported, but not counted as a failure.
+   */
+  skipped?: boolean
   /** Take a screenshot of the window named `<name>.png`. */
   screenshot?: boolean
   /** Last step: write the report and quit (exit code 1 when any step failed). */

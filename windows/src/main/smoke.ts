@@ -22,6 +22,7 @@ interface ReportEntry {
   detail?: string
   screenshot?: string
   informational?: boolean
+  skipped?: boolean
   time: string
   elapsedMs: number
 }
@@ -100,15 +101,23 @@ export async function smokeStep(step: SmokeStep): Promise<void> {
   if (!dir || finished) return
   const name = typeof step?.name === 'string' && step.name ? step.name : 'step'
   const shot = step.screenshot ? await screenshot(name) : undefined
-  record({ name, ok: !!step.ok, detail: step.detail ? String(step.detail).slice(0, 2000) : undefined, screenshot: shot })
-  log.info(`smoke: ${name} ${step.ok ? 'ok' : 'FAILED'}${step.detail ? ` — ${String(step.detail).slice(0, 300)}` : ''}`)
+  const skipped = !!step.skipped
+  record({
+    name,
+    ok: !!step.ok,
+    skipped: skipped || undefined,
+    detail: step.detail ? String(step.detail).slice(0, 2000) : undefined,
+    screenshot: shot,
+  })
+  const status = skipped ? 'SKIPPED' : step.ok ? 'ok' : 'FAILED'
+  log.info(`smoke: ${name} ${status}${step.detail ? ` — ${String(step.detail).slice(0, 300)}` : ''}`)
   if (step.finish) await finish()
 }
 
 async function finish(): Promise<void> {
   if (finished) return
   finished = true
-  const failed = report.filter((e) => !e.ok && !e.informational)
+  const failed = report.filter((e) => !e.ok && !e.informational && !e.skipped)
   const code = failed.length === 0 && report.some((e) => !e.informational) ? 0 : 1
   log.info(`smoke: finished, ${report.length} steps, ${failed.length} failed → exit ${code}`)
   writeReport()

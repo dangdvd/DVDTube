@@ -28,6 +28,7 @@ async function waitFor<T>(what: string, check: () => T | null | undefined | fals
       const value = check()
       if (value) return value
     } catch (error) {
+      if (error instanceof SkipStep) throw error
       last = error
     }
     await sleep(250)
@@ -75,25 +76,38 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 let running = false
 
+/** Thrown by a step that cannot run here; reported as skipped, not failed. */
+class SkipStep extends Error {}
+
+/** YouTube's "Sign in to confirm you're not a bot", which it shows to CI machines' IP addresses. */
+function isBotCheck(message: string | null | undefined): boolean {
+  return !!message && /robot|not a bot/i.test(message)
+}
+
+const BOT_CHECK_SKIP = 'YouTube yêu cầu xác nhận không phải robot với địa chỉ IP của máy CI — bước này chỉ chạy được trên mạng thường'
+
 export async function runSmoke(navigate: NavigateFunction): Promise<void> {
   if (running) return
   running = true
   let allOk = true
   let firstVideoId: string | null = null
 
+  let botBlocked = false
   const step = async (name: string, run: () => Promise<string>) => {
     let ok = true
+    let skipped = false
     let detail: string
     try {
       detail = await withTimeout(run(), STEP_TIMEOUT_MS)
     } catch (error) {
       ok = false
+      skipped = error instanceof SkipStep
       detail = error instanceof Error ? error.message : String(error)
     }
-    allOk &&= ok
+    if (!skipped) allOk &&= ok
     // Let the page settle (and thumbnails load) so the screenshot shows the finished state.
     await sleep(1500)
-    await api.smokeStep({ name, ok, detail, screenshot: true }).catch(() => {})
+    await api.smokeStep({ name, ok, skipped, detail, screenshot: true }).catch(() => {})
   }
 
   await sleep(1500)
@@ -128,6 +142,10 @@ export async function runSmoke(navigate: NavigateFunction): Promise<void> {
     await waitFor('trang xem video', () => location.hash.startsWith('#/watch'), 10_000)
     await waitFor('video phát được 5 giây', () => {
       const s = usePlayer.getState()
+      if (s.status === 'error' && isBotCheck(s.error)) {
+        botBlocked = true
+        throw new SkipStep(`${s.error} — ${BOT_CHECK_SKIP}`)
+      }
       if (s.status === 'error') throw new Error(s.error ?? 'Lỗi trình phát')
       return s.status === 'playing' && s.currentTime >= 5
     })
@@ -178,6 +196,10 @@ export async function runSmoke(navigate: NavigateFunction): Promise<void> {
 
   await step('mini-player', async () => {
     navigate(paths.home)
+    if (botBlocked) {
+      await waitFor('trình phát thu nhỏ', () => document.querySelector<HTMLElement>('[data-testid="mini-player"]'), 10_000).catch(() => null)
+      throw new SkipStep(BOT_CHECK_SKIP)
+    }
     await waitFor('trình phát thu nhỏ', () => {
       const s = usePlayer.getState()
       if (s.mode !== 'mini' || !s.current) return null
@@ -192,7 +214,13 @@ export async function runSmoke(navigate: NavigateFunction): Promise<void> {
     navigate(paths.shorts())
     const video = await waitFor('Shorts đang phát', () => {
       const page = document.querySelector('[data-testid="shorts-page"]') ?? document.querySelector('[data-testid="content"]')
+      if (botBlocked && page?.querySelector('video') == null && page?.textContent && isBotCheck(page.textContent)) {
+        throw new SkipStep(BOT_CHECK_SKIP)
+      }
       return page ? playingVideo(page) : null
+    }).catch((error) => {
+      if (botBlocked && !(error instanceof SkipStep)) throw new SkipStep(BOT_CHECK_SKIP)
+      throw error
     })
     return `t=${video.currentTime.toFixed(1)}s`
   })
