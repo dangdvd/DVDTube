@@ -66,8 +66,24 @@ enum WatchParser {
             chapters: chapters,
             likeStatus: primary["videoActions"].findFirst("likeStatusEntity")["likeStatus"].string,
             isSubscribed: secondary.findFirst("subscribeButtonRenderer")["subscribed"].bool,
-            liveChat: LiveChatParser.info(watch)
+            liveChat: LiveChatParser.info(watch),
+            heatMarkers: heatMarkers(json)
         )
+    }
+
+    /// `frameworkUpdates` → `macroMarkersListEntity` of type MARKER_TYPE_HEATMAP.
+    static func heatMarkers(_ json: JNode) -> [HeatMarker] {
+        for mutation in json.at("frameworkUpdates", "entityBatchUpdate", "mutations").array {
+            let list = mutation.at("payload", "macroMarkersListEntity", "markersList")
+            guard list["markerType"].string == "MARKER_TYPE_HEATMAP" else { continue }
+            let markers = list["markers"].array.compactMap { marker -> HeatMarker? in
+                guard let start = marker["startMillis"].double, let length = marker["durationMillis"].double,
+                      let intensity = marker["intensityScoreNormalized"].double else { return nil }
+                return HeatMarker(start: start / 1000, duration: length / 1000, intensity: min(max(intensity, 0), 1))
+            }
+            if !markers.isEmpty { return markers.sorted { $0.start < $1.start } }
+        }
+        return []
     }
 }
 
@@ -196,7 +212,19 @@ enum CommentsParser {
             let properties = payload["properties"]
             let author = payload["author"]
             let toolbar = payload["toolbar"]
-            let heartState = viewModel["toolbarStateKey"].string.flatMap { toolbarStates[$0] }?["heartState"].string
+            let state = viewModel["toolbarStateKey"].string.flatMap { toolbarStates[$0] }
+            let heartState = state?["heartState"].string
+            let surface = viewModel["toolbarSurfaceKey"].string.flatMap { toolbarSurfaces[$0] }
+            func action(_ command: String) -> String? {
+                surface?[command].findFirst("performCommentActionEndpoint")["action"].string
+            }
+            let likeState: String? = {
+                switch state?["likeState"].string {
+                case "TOOLBAR_LIKE_STATE_LIKED": return "LIKED"
+                case "TOOLBAR_LIKE_STATE_DISLIKED": return "DISLIKED"
+                default: return nil
+                }
+            }()
             func nonEmpty(_ value: String?) -> String? {
                 guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty, value != "0" else { return nil }
                 return value
@@ -214,8 +242,13 @@ enum CommentsParser {
                 isPinned: viewModel["pinnedText"].exists,
                 isCreator: author["isCreator"].bool ?? false,
                 isHearted: heartState == "TOOLBAR_HEART_STATE_HEARTED",
-                replyParams: viewModel["toolbarSurfaceKey"].string
-                    .flatMap { toolbarSurfaces[$0] }?.findFirst("createReplyParams").string
+                replyParams: surface?.findFirst("createReplyParams").string,
+                likeCountLikedText: nonEmpty(toolbar["likeCountLiked"].string),
+                likeState: likeState,
+                likeToken: action("likeCommand"),
+                unlikeToken: action("unlikeCommand"),
+                dislikeToken: action("dislikeCommand"),
+                undislikeToken: action("undislikeCommand")
             )
         }
 
@@ -288,7 +321,7 @@ enum ChannelParser {
             guard renderer.exists else { continue }
             let url = renderer.findFirst("webCommandMetadata")["url"].string ?? ""
             let params = renderer.at("endpoint", "browseEndpoint", "params").string
-            for candidate in ChannelTab.allCases where url.hasSuffix("/" + candidate.rawValue) {
+            for candidate in ChannelTab.allCases where candidate.urlSuffixes.contains(where: { url.hasSuffix($0) }) {
                 if let params { tabParams[candidate] = params }
             }
             if renderer["selected"].bool == true { selectedContent = renderer["content"] }
@@ -309,8 +342,79 @@ enum ChannelParser {
                 ?? metadata["description"].string,
             tabParams: tabParams,
             initialTab: tab,
-            initialPage: ItemParser.page(selectedContent)
+            initialPage: ItemParser.page(selectedContent),
+            aboutToken: pageHeader["description"].findFirst("continuationCommand")["token"].string
+                ?? header["c4TabbedHeaderRenderer"].findFirst("continuationCommand")["token"].string
         )
+    }
+
+    /// Posts of the channel's "Posts" (community) tab or of a continuation page.
+    static func posts(_ json: JNode) -> ChannelPostsPage {
+        var seen = Set<String>()
+        let posts = json.findAll("backstagePostRenderer").compactMap(post).filter { seen.insert($0.id).inserted }
+        return ChannelPostsPage(posts: posts, continuation: ItemParser.continuation(in: json))
+    }
+
+    static func post(_ r: JNode) -> ChannelPost? {
+        guard let id = r["postId"].string else { return nil }
+        let attachment = r["backstageAttachment"]
+        var images: [URL] = []
+        if let single = attachment.at("backstageImageRenderer", "image").bestImageURL { images.append(single) }
+        images += attachment.at("postMultiImageRenderer", "images").array.compactMap {
+            $0.at("backstageImageRenderer", "image").bestImageURL
+        }
+        let poll = attachment["pollRenderer"]
+        return ChannelPost(
+            id: id,
+            authorName: r["authorText"].text ?? "",
+            authorAvatar: r["authorThumbnail"].bestImageURL,
+            text: r["contentText"].text ?? "",
+            publishedText: r["publishedTimeText"].text,
+            likeCountText: r["voteCount"].text,
+            commentCountText: r.at("actionButtons", "commentActionButtonsRenderer", "replyButton", "buttonRenderer", "text").text,
+            images: images,
+            video: attachment["videoRenderer"].exists ? ItemParser.video(fromRenderer: attachment["videoRenderer"]) : nil,
+            pollChoices: poll["choices"].array.compactMap { $0["text"].text },
+            pollVotesText: poll["totalVotes"].text
+        )
+    }
+
+    /// The `aboutChannelViewModel` anywhere in a response.
+    static func about(_ json: JNode) -> ChannelAbout? {
+        let model = json.findFirst("aboutChannelViewModel")
+        guard model.exists else { return nil }
+        let links: [ChannelAbout.Link] = model["links"].array.compactMap { entry in
+            let link = entry["channelExternalLinkViewModel"]
+            guard let raw = link["link"].findFirst("urlEndpoint")["url"].string ?? link["link"].text else { return nil }
+            guard let url = externalURL(raw) else { return nil }
+            let display = link["link"].text ?? url.host ?? raw
+            return ChannelAbout.Link(title: link["title"].text ?? display, displayText: display, url: url)
+        }
+        func text(_ key: String) -> String? {
+            guard let value = model[key].text?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return value
+        }
+        return ChannelAbout(
+            description: text("description"),
+            links: links,
+            country: text("country"),
+            subscriberCountText: text("subscriberCountText"),
+            viewCountText: text("viewCountText"),
+            videoCountText: text("videoCountText"),
+            joinedDateText: text("joinedDateText"),
+            canonicalURL: text("canonicalChannelUrl")
+        )
+    }
+
+    /// YouTube wraps outside links as `youtube.com/redirect?q=<target>`.
+    private static func externalURL(_ raw: String) -> URL? {
+        let string = raw.hasPrefix("http") ? raw : "https://" + raw
+        guard let components = URLComponents(string: string) else { return URL(string: string) }
+        if components.host?.contains("youtube.com") == true, components.path.hasPrefix("/redirect"),
+           let target = components.queryItems?.first(where: { $0.name == "q" })?.value, let url = URL(string: target) {
+            return url
+        }
+        return components.url
     }
 }
 
@@ -391,7 +495,8 @@ enum PlayerParser {
             captions: captions,
             availableAt: Date().addingTimeInterval(prerollAdSeconds(json)),
             expiresAt: expires,
-            storyboard: json.at("storyboards", "playerStoryboardSpecRenderer", "spec").string.flatMap(Storyboard.init(spec:))
+            storyboard: json.at("storyboards", "playerStoryboardSpecRenderer", "spec").string.flatMap(Storyboard.init(spec:)),
+            loudnessDb: json.at("playerConfig", "audioConfig", "loudnessDb").double
         )
     }
 
@@ -410,6 +515,7 @@ enum PlayerParser {
             contentLength: f["contentLength"].string.flatMap { Int64($0) },
             qualityLabel: f["qualityLabel"].string,
             audioTrackName: f.at("audioTrack", "displayName").string,
+            audioTrackId: f.at("audioTrack", "id").string,
             isDefaultAudio: f.at("audioTrack", "audioIsDefault").bool ?? true
         )
     }

@@ -60,7 +60,12 @@ final class YouTubeService {
     // MARK: Search
 
     func search(_ query: String, filter: SearchFilter = .all) async throws -> FeedPage {
-        var page = ItemParser.page(try await api.search(query: query, params: filter.params))
+        try await search(query, params: filter.params)
+    }
+
+    /// Search with raw `params` (filters built by `SearchFilters`).
+    func search(_ query: String, params: String?) async throws -> FeedPage {
+        var page = ItemParser.page(try await api.search(query: query, params: params))
         page.kind = .search
         return page
     }
@@ -155,6 +160,22 @@ final class YouTubeService {
         CommentsParser.parse(try await api.nextContinuation(token))
     }
 
+    /// Every video of a playlist (up to `limit`), loading all its pages.
+    func allPlaylistVideos(_ id: String, limit: Int = 200) async throws -> [VideoItem] {
+        let first = try await playlist(id).page
+        var videos = first.videos
+        var token = first.continuation
+        var pages = 0
+        while let current = token, videos.count < limit, pages < 20 {
+            let page = try await browseMore(current)
+            let known = Set(videos.map(\.id))
+            videos += page.videos.filter { !known.contains($0.id) }
+            token = page.continuation == current ? nil : page.continuation
+            pages += 1
+        }
+        return Array(videos.prefix(limit))
+    }
+
     // MARK: Channels & playlists
 
     func channel(_ id: String, tab: ChannelTab = .videos) async throws -> ChannelPage {
@@ -166,6 +187,39 @@ final class YouTubeService {
     func channelTab(_ id: String, tab: ChannelTab, params: String?) async throws -> FeedPage {
         let json = try await api.browse(browseId: id, params: params ?? tab.defaultParams)
         return ChannelParser.parse(json, channelId: id, tab: tab).initialPage
+    }
+
+    func channelPosts(_ id: String, params: String?) async throws -> ChannelPostsPage {
+        ChannelParser.posts(try await api.browse(browseId: id, params: params ?? ChannelTab.posts.defaultParams))
+    }
+
+    func channelPostsMore(_ token: String) async throws -> ChannelPostsPage {
+        ChannelParser.posts(try await api.browseContinuation(token))
+    }
+
+    /// The "About" panel: from the about tab, else from the header's description continuation.
+    func channelAbout(_ id: String, params: String?, token: String?) async throws -> ChannelAbout? {
+        var firstError: Error?
+        do {
+            let json = try await api.browse(browseId: id, params: params ?? ChannelTab.about.defaultParams)
+            if let about = ChannelParser.about(json) { return about }
+            if let found = json.findFirst("aboutChannelRenderer").findFirst("continuationCommand")["token"].string,
+               let about = ChannelParser.about(try await api.browseContinuation(found)) {
+                return about
+            }
+        } catch {
+            firstError = error
+        }
+        if let token {
+            return ChannelParser.about(try await api.browseContinuation(token))
+        }
+        if let firstError { throw firstError }
+        return nil
+    }
+
+    /// Videos of one channel matching `query` (the channel's search tab).
+    func channelSearch(_ id: String, query: String) async throws -> FeedPage {
+        ItemParser.page(try await api.browse(browseId: id, params: ChannelTab.searchParams, query: query))
     }
 
     func playlist(_ id: String) async throws -> PlaylistPage {

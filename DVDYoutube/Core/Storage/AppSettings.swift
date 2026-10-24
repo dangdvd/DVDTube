@@ -108,6 +108,27 @@ final class AppSettings {
     var bedtimeStart: Int { didSet { defaults.set(bedtimeStart, forKey: "settings.bedtimeStart") } }
     var bedtimeEnd: Int { didSet { defaults.set(bedtimeEnd, forKey: "settings.bedtimeEnd") } }
 
+    // Sound
+    /// Evens out loudness between videos (YouTube's "Stable volume").
+    var stableVolume: Bool { didSet { defaults.set(stableVolume, forKey: "settings.stableVolume") } }
+    var eqEnabled: Bool { didSet { defaults.set(eqEnabled, forKey: "settings.eqEnabled"); syncEqualizer() } }
+    /// `EQPreset.id`, or `EQPreset.customID` for the user's own bands.
+    var eqPresetID: String { didSet { defaults.set(eqPresetID, forKey: "settings.eqPreset"); syncEqualizer() } }
+    var eqCustomGains: [Double] { didSet { defaults.set(eqCustomGains, forKey: "settings.eqCustomGains"); syncEqualizer() } }
+    var eqPreampAuto: Bool { didSet { defaults.set(eqPreampAuto, forKey: "settings.eqPreampAuto"); syncEqualizer() } }
+    var eqPreamp: Double { didSet { defaults.set(eqPreamp, forKey: "settings.eqPreamp"); syncEqualizer() } }
+
+    // Watch page & player extras
+    /// Dislike counts from Return YouTube Dislike.
+    var showDislikes: Bool { didSet { defaults.set(showDislikes, forKey: "settings.showDislikes") } }
+    /// Soft glow of the video's colours around the player (dark appearance only).
+    var ambientMode: Bool { didSet { defaults.set(ambientMode, forKey: "settings.ambientMode") } }
+    /// In fullscreen: swipe up/down on the left for brightness, on the right for volume.
+    var swipeControls: Bool { didSet { defaults.set(swipeControls, forKey: "settings.swipeControls") } }
+
+    /// Searches are not added to the search history.
+    var pauseSearchHistory: Bool { didSet { defaults.set(pauseSearchHistory, forKey: "settings.pauseSearchHistory") } }
+
     /// Incognito: nothing is added to the watch or search history (until the app restarts).
     var isIncognito = false
 
@@ -145,6 +166,16 @@ final class AppSettings {
             "settings.bedtimeReminder": false,
             "settings.bedtimeStart": 23 * 60,
             "settings.bedtimeEnd": 7 * 60,
+            "settings.stableVolume": true,
+            "settings.eqEnabled": false,
+            "settings.eqPreset": EQPreset.flat.id,
+            "settings.eqCustomGains": [Double](repeating: 0, count: EQBand.count),
+            "settings.eqPreampAuto": true,
+            "settings.eqPreamp": 0.0,
+            "settings.showDislikes": true,
+            "settings.ambientMode": true,
+            "settings.swipeControls": true,
+            "settings.pauseSearchHistory": false,
         ])
         language = d.string(forKey: SettingsKey.language) ?? "vi"
         region = d.string(forKey: SettingsKey.region) ?? "VN"
@@ -175,6 +206,47 @@ final class AppSettings {
         bedtimeReminder = d.bool(forKey: "settings.bedtimeReminder")
         bedtimeStart = d.integer(forKey: "settings.bedtimeStart")
         bedtimeEnd = d.integer(forKey: "settings.bedtimeEnd")
+        stableVolume = d.bool(forKey: "settings.stableVolume")
+        eqEnabled = d.bool(forKey: "settings.eqEnabled")
+        eqPresetID = d.string(forKey: "settings.eqPreset") ?? EQPreset.flat.id
+        let gains = (d.array(forKey: "settings.eqCustomGains") as? [Double]) ?? []
+        eqCustomGains = gains.count == EQBand.count ? gains : [Double](repeating: 0, count: EQBand.count)
+        eqPreampAuto = d.bool(forKey: "settings.eqPreampAuto")
+        eqPreamp = d.double(forKey: "settings.eqPreamp")
+        showDislikes = d.bool(forKey: "settings.showDislikes")
+        ambientMode = d.bool(forKey: "settings.ambientMode")
+        swipeControls = d.bool(forKey: "settings.swipeControls")
+        pauseSearchHistory = d.bool(forKey: "settings.pauseSearchHistory")
+        syncEqualizer()
+    }
+
+    // MARK: Equalizer
+
+    /// Band gains (dB) of the selected preset or the custom bands.
+    var eqGains: [Double] {
+        if eqPresetID == EQPreset.customID { return eqCustomGains }
+        return (EQPreset.preset(eqPresetID) ?? .flat).gains
+    }
+
+    /// Preamp (dB): automatic headroom for boosted bands, or the user's value.
+    var eqPreampDb: Double {
+        eqPreampAuto ? -0.5 * max(0, eqGains.max() ?? 0) : eqPreamp
+    }
+
+    /// The equalizer changes the sound (enabled and not flat).
+    var eqIsActive: Bool {
+        eqEnabled && (eqGains.contains { abs($0) > 0.01 } || abs(eqPreampDb) > 0.01)
+    }
+
+    var eqPresetName: String {
+        guard eqEnabled else { return "Tắt" }
+        if eqPresetID == EQPreset.customID { return "Tùy chỉnh" }
+        return (EQPreset.preset(eqPresetID) ?? .flat).name
+    }
+
+    /// Hands the current bands to the audio processing (any thread may read them).
+    private func syncEqualizer() {
+        EqualizerEngine.shared.update(enabled: eqIsActive, gains: eqGains, preampDb: eqPreampDb)
     }
 
     /// Whether `date` falls in the bedtime window (which may cross midnight).

@@ -178,6 +178,13 @@ struct VideoMenu: View {
                     Label(downloads.isDownloaded(video.id) ? "Đã tải xuống" : "Tải xuống", systemImage: "arrow.down.circle")
                 }
                 .disabled(downloads.isDownloaded(video.id) || downloads.states[video.id] != nil)
+                if !downloads.isDownloaded(video.id), downloads.states[video.id] == nil {
+                    Button {
+                        downloads.download(video, audioOnly: true)
+                    } label: {
+                        Label("Tải chỉ âm thanh (m4a)", systemImage: "headphones")
+                    }
+                }
             }
             ShareLink(item: video.shareURL) {
                 Label("Chia sẻ", systemImage: "square.and.arrow.up")

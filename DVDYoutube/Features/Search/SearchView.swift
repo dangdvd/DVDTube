@@ -9,6 +9,8 @@ struct SearchView: View {
     @State private var query = ""
     @State private var submitted: String?
     @State private var filter: SearchFilter = .all
+    @State private var advanced = SearchFilters()
+    @State private var showFilters = false
     @State private var suggestions: [String] = []
     @State private var model: FeedModel?
     @State private var suggestTask: Task<Void, Never>?
@@ -37,6 +39,12 @@ struct SearchView: View {
         }
         .onChange(of: query) { _, newValue in
             updateSuggestions(for: newValue)
+        }
+        .sheet(isPresented: $showFilters) {
+            SearchFiltersSheet(filters: $advanced) {
+                if let submitted { runSearch(submitted) }
+            }
+            .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showVoice) {
             VoiceSearchSheet { text in
@@ -130,6 +138,27 @@ struct SearchView: View {
         VStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    Button {
+                        showFilters = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "slider.horizontal.3")
+                            if advanced.activeCount > 0 {
+                                Text("\(advanced.activeCount)")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Capsule().fill(Color.brand))
+                            }
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color(.secondarySystemFill)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Bộ lọc tìm kiếm")
                     ForEach(SearchFilter.allCases) { item in
                         Button {
                             guard item != filter else { return }
@@ -200,8 +229,8 @@ struct SearchView: View {
     }
 
     private func runSearch(_ text: String) {
-        let filter = filter
-        let newModel = FeedModel { try await YouTubeService.shared.search(text, filter: filter) }
+        let params = advanced.applying(filter).params
+        let newModel = FeedModel { try await YouTubeService.shared.search(text, params: params) }
         model = newModel
         Task { await newModel.load() }
     }

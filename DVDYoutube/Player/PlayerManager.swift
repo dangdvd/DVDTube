@@ -84,6 +84,25 @@ final class PlayerManager {
     @ObservationIgnored private var audioDescription = ""
     /// Audio playlists found in HLS manifests, by manifest URL and size.
     @ObservationIgnored private var audioPlaylists: [String: HLSAudio.Rendition] = [:]
+    /// Languages of a dubbed video ("Bản âm thanh") and the one playing.
+    private(set) var audioTracks: [AudioTrackOption] = []
+    private(set) var currentAudioTrackID: String?
+    /// Language picked by the user, kept for the next videos of this session.
+    @ObservationIgnored private var preferredAudioLanguage: String?
+    /// The current item plays an MP4 stream through the equalizer.
+    private(set) var usesEqualizerStream = false
+    @ObservationIgnored private var equalizerBlockedVideoId: String?
+    @ObservationIgnored private var equalizerNoticeVideoId: String?
+    /// Data sources of the equalizer stream (AVFoundation holds them weakly).
+    @ObservationIgnored private var chunkLoaders: [ChunkedResourceLoader] = []
+    /// Player volume = stable-volume gain × sleep-timer fade.
+    @ObservationIgnored private var normalizationGain: Float = 1
+    @ObservationIgnored private var fadeGain: Float = 1
+    /// Ambient mode: a tiny copy of the current frame, refreshed every ~2 s.
+    private(set) var ambientImage: UIImage?
+    @ObservationIgnored private var ambientOutput: AVPlayerItemVideoOutput?
+    @ObservationIgnored private var ambientTask: Task<Void, Never>?
+    @ObservationIgnored private var ambientWanted = false
     /// Touches on the video are ignored until unlocked (YouTube's "Lock screen").
     var isScreenLocked = false
     /// "Stats for nerds" overlay.
@@ -408,6 +427,12 @@ final class PlayerManager {
         currentVideo = video
         playerInfo = nil
         videoSize = .zero
+        audioTracks = []
+        currentAudioTrackID = nil
+        usesEqualizerStream = false
+        ambientImage = nil
+        normalizationGain = 1
+        applyVolume()
         playbackError = nil
         currentTime = startAt ?? 0
         duration = Double(video.durationSeconds ?? 0)
@@ -504,12 +529,13 @@ final class PlayerManager {
     /// The audio-only rendition of an HLS manifest (cached per manifest).
     private func audioRendition(master: URL) async -> HLSAudio.Rendition? {
         let preferSmall = settings.savesData
-        let key = master.absoluteString + (preferSmall ? "#small" : "#best")
+        let language = preferredAudioLanguage
+        let key = master.absoluteString + (preferSmall ? "#small" : "#best") + "#" + (language ?? "")
         if let cached = audioPlaylists[key] { return cached }
         guard let result = try? await URLSession.shared.data(from: master),
               (result.1 as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         let text = String(decoding: result.0, as: UTF8.self)
-        guard let rendition = HLSAudio.pick(from: text, base: master, preferSmall: preferSmall) else {
+        guard let rendition = HLSAudio.pick(from: text, base: master, preferSmall: preferSmall, language: language) else {
             Log.debug("audio only: the HLS manifest has no audio-only playlist")
             return nil
         }
@@ -520,12 +546,7 @@ final class PlayerManager {
 
     /// The AAC stream: the largest normally, the smallest with data saver on mobile data.
     private func audioFormat(in info: PlayerInfo) -> StreamFormat? {
-        let aac = info.adaptiveFormats.filter { $0.isAudio && $0.isAAC }
-        let main = aac.filter(\.isDefaultAudio)
-        let candidates = main.isEmpty ? aac : main
-        return settings.savesData
-            ? candidates.min { $0.bitrate < $1.bitrate }
-            : candidates.max { $0.bitrate < $1.bitrate }
+        info.preferredAudio(language: preferredAudioLanguage, smallest: settings.savesData)
     }
 
     private func loadWatchInfo(_ videoId: String) {
@@ -551,7 +572,10 @@ final class PlayerManager {
     private func loadStream(for video: VideoItem) async {
         if let local = DownloadManager.shared.localFileURL(for: video.id) {
             isLocalPlayback = true
-            startItem(AVPlayerItem(url: local))
+            if DownloadManager.shared.isAudioDownload(video.id) { isAudioOnly = true }
+            let item = await localItem(local)
+            guard !Task.isCancelled, currentVideo?.id == video.id else { return }
+            startItem(item)
             return
         }
         do {
@@ -559,6 +583,8 @@ final class PlayerManager {
             guard !Task.isCancelled, currentVideo?.id == video.id else { return }
             playerInfo = info
             matchFullscreenToVideo()
+            updateAudioTracks(from: info)
+            updateNormalization()
             Log.debug("stream \(video.id): hls=\(info.hlsURL != nil) adaptive=\(info.adaptiveFormats.count) muxed=\(info.muxedFormats.count) captions=\(info.captions.count) adWait=\(Int(info.availableAt.timeIntervalSinceNow))s")
             captionTracks = info.captions
             if duration <= 0, let length = info.lengthSeconds { duration = Double(length) }
@@ -597,6 +623,13 @@ final class PlayerManager {
     /// Stage 2: video+audio composition.
     private func makeItem(info: PlayerInfo, stage: Int) async -> AVPlayerItem? {
         var stage = stage
+        usesEqualizerStream = false
+        if stage <= 0, settings.eqIsActive {
+            if !info.isLive, equalizerBlockedVideoId != info.videoId, let item = await makeEqualizerItem(info: info) {
+                return item
+            }
+            noteEqualizerUnavailable(info.videoId)
+        }
         while stage <= 2 {
             switch stage {
             case -1:
@@ -639,11 +672,17 @@ final class PlayerManager {
     }
 
     private func makeCompositionItem(info: PlayerInfo) async throws -> AVPlayerItem {
-        guard let video = info.bestVideo(maxHeight: quality.maxHeight ?? 1080), let audio = info.bestAudio else {
+        guard let video = info.bestVideo(maxHeight: quality.maxHeight ?? 1080),
+              let audio = info.preferredAudio(language: preferredAudioLanguage) else {
             throw InnerTubeError.noStreams
         }
-        let videoAsset = AVURLAsset(url: video.url)
-        let audioAsset = AVURLAsset(url: audio.url)
+        let composition = try await Self.composition(video: AVURLAsset(url: video.url), audio: AVURLAsset(url: audio.url))
+        return AVPlayerItem(asset: composition.asset)
+    }
+
+    /// Picture of one asset + sound of another, as one composition.
+    private static func composition(video videoAsset: AVURLAsset, audio audioAsset: AVURLAsset) async throws
+        -> (asset: AVMutableComposition, audioTrack: AVMutableCompositionTrack?) {
         let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
         let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
         let videoDuration = try await videoAsset.load(.duration)
@@ -656,14 +695,229 @@ final class PlayerManager {
         let range = CMTimeRange(start: .zero, duration: length)
         try composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)?
             .insertTimeRange(range, of: videoTrack, at: .zero)
-        try composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)?
-            .insertTimeRange(range, of: audioTrack, at: .zero)
-        return AVPlayerItem(asset: composition)
+        let compositionAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        try compositionAudio?.insertTimeRange(range, of: audioTrack, at: .zero)
+        return (composition, compositionAudio)
+    }
+
+    // MARK: Equalizer streams
+
+    /// The same video as an MP4 stream with the equalizer tap (audio taps don't work on HLS).
+    /// Data comes through `ChunkedResourceLoader` so it starts as fast as HLS.
+    private func makeEqualizerItem(info: PlayerInfo) async -> AVPlayerItem? {
+        do {
+            if isAudioOnly {
+                guard let format = audioFormat(in: info), let source = ChunkedResourceLoader.asset(for: format),
+                      let track = try await source.asset.loadTracks(withMediaType: .audio).first,
+                      let mix = EqualizerTap.audioMix(for: track) else { return nil }
+                let item = AVPlayerItem(asset: source.asset)
+                item.audioMix = mix
+                chunkLoaders = [source.loader]
+                fallbackStage = -1
+                audioDescription = "AAC \(format.bitrate / 1000) kbps"
+                usesEqualizerStream = true
+                Log.debug("equalizer stream \(info.videoId): audio itag \(format.itag)")
+                return item
+            }
+            if let video = info.bestVideo(maxHeight: quality.maxHeight ?? 1080),
+               let audio = info.preferredAudio(language: preferredAudioLanguage),
+               let videoSource = ChunkedResourceLoader.asset(for: video),
+               let audioSource = ChunkedResourceLoader.asset(for: audio) {
+                let composition = try await Self.composition(video: videoSource.asset, audio: audioSource.asset)
+                if let track = composition.audioTrack, let mix = EqualizerTap.audioMix(for: track) {
+                    let item = AVPlayerItem(asset: composition.asset)
+                    item.audioMix = mix
+                    chunkLoaders = [videoSource.loader, audioSource.loader]
+                    fallbackStage = 2
+                    usesEqualizerStream = true
+                    Log.debug("equalizer stream \(info.videoId): video itag \(video.itag) + audio itag \(audio.itag)")
+                    return item
+                }
+            }
+            if let muxed = info.muxedFormats.filter({ $0.isH264 || $0.mimeType.contains("mp4") })
+                .max(by: { ($0.height ?? 0) < ($1.height ?? 0) }),
+               let source = ChunkedResourceLoader.asset(for: muxed),
+               let track = try await source.asset.loadTracks(withMediaType: .audio).first,
+               let mix = EqualizerTap.audioMix(for: track) {
+                let item = AVPlayerItem(asset: source.asset)
+                item.audioMix = mix
+                chunkLoaders = [source.loader]
+                fallbackStage = 1
+                usesEqualizerStream = true
+                Log.debug("equalizer stream \(info.videoId): muxed itag \(muxed.itag)")
+                return item
+            }
+        } catch {
+            Log.debug("equalizer stream \(info.videoId) failed: \(error.localizedDescription)")
+        }
+        return nil
+    }
+
+    /// A downloaded file, through the equalizer when it is on.
+    private func localItem(_ url: URL) async -> AVPlayerItem {
+        let asset = AVURLAsset(url: url)
+        let item = AVPlayerItem(asset: asset)
+        usesEqualizerStream = false
+        if settings.eqIsActive, let track = try? await asset.loadTracks(withMediaType: .audio).first,
+           let mix = EqualizerTap.audioMix(for: track) {
+            item.audioMix = mix
+            usesEqualizerStream = true
+        }
+        return item
+    }
+
+    private func noteEqualizerUnavailable(_ videoId: String) {
+        guard equalizerNoticeVideoId != videoId else { return }
+        equalizerNoticeVideoId = videoId
+        showToast("EQ không áp dụng được cho video này")
+    }
+
+    /// The equalizer was switched on/off (or to/from flat): change the stream if needed.
+    /// Band changes while it is on apply live without this.
+    func equalizerSettingsChanged() {
+        guard let video = currentVideo, !isCasting, !usesWebPlayer, player.currentItem != nil else { return }
+        let isLive = playerInfo?.isLive ?? video.isLive
+        let wants = settings.eqIsActive && !isLive && equalizerBlockedVideoId != video.id
+        guard wants != usesEqualizerStream else { return }
+        if isLocalPlayback {
+            guard let url = DownloadManager.shared.localFileURL(for: video.id) else { return }
+            let resumeAt = currentTime
+            loadTask?.cancel()
+            loadTask = Task { [weak self] in
+                guard let self else { return }
+                let item = await self.localItem(url)
+                guard !Task.isCancelled, self.currentVideo?.id == video.id else { return }
+                self.pendingSeek = resumeAt
+                self.startItem(item)
+            }
+            return
+        }
+        reloadStream()
+    }
+
+    // MARK: Audio tracks
+
+    private func updateAudioTracks(from info: PlayerInfo) {
+        audioTracks = info.audioTracks
+        guard !audioTracks.isEmpty else {
+            currentAudioTrackID = nil
+            return
+        }
+        currentAudioTrackID = audioTracks.first { AudioLanguage.matches($0.id, preferredAudioLanguage) }?.id
+            ?? audioTracks.first(where: \.isOriginal)?.id
+            ?? audioTracks.first?.id
+    }
+
+    /// "Bản âm thanh": switches the dubbed language (and keeps it for the next videos).
+    func selectAudioTrack(_ track: AudioTrackOption) {
+        preferredAudioLanguage = track.id
+        currentAudioTrackID = track.id
+        showToast("Bản âm thanh: \(track.name)")
+        guard currentVideo != nil, !isCasting, !usesWebPlayer, !isLocalPlayback else { return }
+        if fallbackStage == 0, !usesEqualizerStream, let item = player.currentItem {
+            Task { await applyAudioSelection(to: item) }
+        } else {
+            reloadStream()
+        }
+    }
+
+    /// HLS: the audible media selection option in the preferred language. Also lists the
+    /// languages when the stream info had no track names.
+    private func applyAudioSelection(to item: AVPlayerItem) async {
+        guard let group = try? await item.asset.loadMediaSelectionGroup(for: .audible), group.options.count > 1 else { return }
+        if audioTracks.isEmpty {
+            var seen = Set<String>()
+            audioTracks = group.options.compactMap { option in
+                let id = option.extendedLanguageTag ?? option.locale?.identifier ?? option.displayName
+                guard seen.insert(id).inserted else { return nil }
+                let name = option.displayName
+                return AudioTrackOption(id: id, name: name, isOriginal: name.lowercased().contains("original"))
+            }
+            if audioTracks.count < 2 { audioTracks = [] }
+            if currentAudioTrackID == nil {
+                currentAudioTrackID = item.currentMediaSelection.selectedMediaOption(in: group)
+                    .map { $0.extendedLanguageTag ?? $0.locale?.identifier ?? $0.displayName }
+            }
+        }
+        guard let language = preferredAudioLanguage, item === player.currentItem else { return }
+        let name = audioTracks.first { $0.id == language }?.name
+        let option = group.options.first { AudioLanguage.matches($0.extendedLanguageTag ?? $0.locale?.identifier, language) }
+            ?? group.options.first { $0.displayName == name }
+        if let option { item.select(option, in: group) }
+    }
+
+    // MARK: Stable volume
+
+    private func applyVolume() {
+        player.volume = normalizationGain * fadeGain
+    }
+
+    /// Turns loud videos down to YouTube's reference loudness ("Âm lượng ổn định").
+    func updateNormalization() {
+        if settings.stableVolume, let loudness = playerInfo?.loudnessDb, loudness > 0 {
+            normalizationGain = Float(min(1, pow(10, -loudness / 20)))
+        } else {
+            normalizationGain = 1
+        }
+        applyVolume()
+    }
+
+    // MARK: Most replayed
+
+    /// Start of the most replayed part still ahead ("Tua tới đoạn hay").
+    var jumpAheadTarget: Double? {
+        guard let info = watchInfo, info.videoId == currentVideo?.id, currentVideo?.isLive != true,
+              !info.heatMarkers.isEmpty else { return nil }
+        let ahead = info.heatMarkers.filter { $0.start + $0.duration > currentTime }
+        guard let top = ahead.max(by: { $0.intensity < $1.intensity }), top.intensity >= 0.6,
+              top.start > currentTime + 10 else { return nil }
+        return top.start
+    }
+
+    // MARK: Ambient mode
+
+    /// Samples the picture for the ambient glow while the watch page shows it.
+    func setAmbientSampling(_ on: Bool) {
+        guard on != ambientWanted else { return }
+        ambientWanted = on
+        ambientTask?.cancel()
+        ambientTask = nil
+        guard on else { return }
+        attachAmbientOutput(to: player.currentItem)
+        ambientTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.sampleAmbientFrame()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+    }
+
+    private func attachAmbientOutput(to item: AVPlayerItem?) {
+        guard let item, ambientWanted, !isAudioOnly else { return }
+        if let output = ambientOutput, item.outputs.contains(output) { return }
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
+        ])
+        item.add(output)
+        ambientOutput = output
+    }
+
+    private func sampleAmbientFrame() {
+        guard let item = player.currentItem, let output = ambientOutput, item.outputs.contains(output),
+              isPlaying || ambientImage == nil,
+              let buffer = output.copyPixelBuffer(forItemTime: item.currentTime(), itemTimeForDisplay: nil),
+              let image = AmbientSampler.tinyImage(from: buffer) else { return }
+        ambientImage = image
     }
 
     private func startItem(_ item: AVPlayerItem) {
         // Spectral keeps the pitch at every speed from 0.25x to 4x.
         item.audioTimePitchAlgorithm = .spectral
+        if !usesEqualizerStream {
+            chunkLoaders.forEach { $0.cancelAll() }
+            chunkLoaders = []
+        }
+        attachAmbientOutput(to: item)
         applyQuality(to: item)
         observe(item)
         player.replaceCurrentItem(with: item)
@@ -788,10 +1042,27 @@ final class PlayerManager {
             let seconds = item.duration.seconds
             if seconds.isFinite, seconds > 0 { duration = seconds }
             updateNowPlayingInfo()
+            if fallbackStage == 0, !usesEqualizerStream {
+                Task { await applyAudioSelection(to: item) }
+            }
         case .failed:
             let message = item.error?.localizedDescription ?? "Không phát được video."
             Log.debug("item failed at stage \(fallbackStage): \(item.error.map { String(describing: $0) } ?? "unknown")")
-            if let info = playerInfo, fallbackStage < 2, !isLocalPlayback {
+            if usesEqualizerStream, let info = playerInfo, !isLocalPlayback {
+                // Back to the normal stream, without the equalizer for this video.
+                equalizerBlockedVideoId = info.videoId
+                let resumeAt = currentTime
+                loadTask = Task { [weak self] in
+                    guard let self else { return }
+                    if let next = await self.makeItem(info: info, stage: self.isAudioOnly ? -1 : 0), !Task.isCancelled {
+                        self.pendingSeek = resumeAt
+                        self.startItem(next)
+                    } else {
+                        self.isLoading = false
+                        self.playbackError = message
+                    }
+                }
+            } else if let info = playerInfo, fallbackStage < 2, !isLocalPlayback {
                 // Try the next way of playing the same video.
                 let resumeAt = currentTime
                 fallbackStage += 1
@@ -883,7 +1154,8 @@ final class PlayerManager {
         sleepTimerEnd = nil
         sleepRemaining = nil
         sleepAtEndOfVideo = false
-        player.volume = 1
+        fadeGain = 1
+        applyVolume()
         guard let minutes else {
             showToast("Đã tắt hẹn giờ")
             return
@@ -904,7 +1176,8 @@ final class PlayerManager {
         let base = max(sleepTimerEnd ?? Date(), Date())
         sleepTask?.cancel()
         sleepAtEndOfVideo = false
-        player.volume = 1
+        fadeGain = 1
+        applyVolume()
         startSleepCountdown(until: base.addingTimeInterval(Double(minutes) * 60))
         showToast("Đã thêm \(minutes) phút")
     }
@@ -925,12 +1198,16 @@ final class PlayerManager {
                 let remaining = end.timeIntervalSinceNow
                 self.sleepRemaining = max(Int(remaining.rounded(.up)), 0)
                 // Fade the sound out over the last 10 seconds, like a sleep timer should.
-                if remaining > 0, remaining <= 10 { self.player.volume = Float(remaining / 10) }
+                if remaining > 0, remaining <= 10 {
+                    self.fadeGain = Float(remaining / 10)
+                    self.applyVolume()
+                }
                 if remaining <= 0 {
                     self.sleepTimerEnd = nil
                     self.sleepRemaining = nil
                     self.pause()
-                    self.player.volume = 1
+                    self.fadeGain = 1
+                    self.applyVolume()
                     self.showToast("Đã hết giờ hẹn — đã dừng phát")
                     return
                 }
@@ -995,12 +1272,13 @@ final class PlayerManager {
     var playbackMethod: String {
         if isCasting { return "Chromecast" }
         if usesWebPlayer { return "Trình phát web" }
-        if isLocalPlayback { return "Tệp đã tải xuống" }
+        let equalizer = usesEqualizerStream ? " + EQ" : ""
+        if isLocalPlayback { return "Tệp đã tải xuống" + equalizer }
         switch fallbackStage {
-        case -1: return "Chỉ âm thanh (\(audioDescription))"
+        case -1: return "Chỉ âm thanh (\(audioDescription))" + equalizer
         case 0: return isAudioOnly ? "HLS 144p (chỉ âm thanh)" : "HLS"
-        case 1: return "MP4 ghép sẵn"
-        default: return "Hình + tiếng ghép trên máy"
+        case 1: return "MP4 ghép sẵn" + equalizer
+        default: return "Hình + tiếng ghép trên máy" + equalizer
         }
     }
 

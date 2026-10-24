@@ -8,11 +8,15 @@ struct DownloadedVideo: Codable, Identifiable, Hashable {
     var fileSize: Int64
     var qualityLabel: String?
     var downloadedAt: Date
+    /// Only the sound (an .m4a file); nil in downloads made before audio downloads existed.
+    var isAudio: Bool?
 
     var id: String { video.id }
 }
 
 enum DownloadState: Equatable {
+    /// Waiting for an earlier download to finish (e.g. a whole playlist).
+    case queued
     case preparing
     case downloading(Double)
     case merging
@@ -30,6 +34,14 @@ final class DownloadManager {
     private(set) var states: [String: DownloadState] = [:]
 
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var pending: [Request] = []
+    private static let maxConcurrent = 2
+
+    private struct Request {
+        var video: VideoItem
+        var audioOnly: Bool
+        var maxHeight: Int
+    }
     @ObservationIgnored private let folder: URL
     @ObservationIgnored private let indexURL: URL
 
@@ -58,23 +70,63 @@ final class DownloadManager {
 
     func isDownloaded(_ videoId: String) -> Bool { localFileURL(for: videoId) != nil }
 
-    func download(_ video: VideoItem) {
-        guard tasks[video.id] == nil, !isDownloaded(video.id) else { return }
+    func isAudioDownload(_ videoId: String) -> Bool {
+        downloads.first { $0.id == videoId }?.isAudio ?? false
+    }
+
+    /// Downloads a video (at `quality`, else the download quality setting) or only its sound.
+    func download(_ video: VideoItem, audioOnly: Bool = false, quality: VideoQuality? = nil) {
+        guard canDownloadNow() else { return }
+        if enqueue(video, audioOnly: audioOnly, quality: quality) {
+            PlayerManager.shared.showToast(audioOnly ? "Đang tải âm thanh…" : "Đang tải xuống…")
+        }
+    }
+
+    /// Queues every video (e.g. a whole playlist); they download a couple at a time.
+    func downloadAll(_ videos: [VideoItem], audioOnly: Bool) {
+        guard canDownloadNow() else { return }
+        let added = videos.filter { !$0.isLive }.reduce(0) { count, video in
+            count + (enqueue(video, audioOnly: audioOnly, quality: nil) ? 1 : 0)
+        }
+        PlayerManager.shared.showToast(added > 0 ? "Đã thêm \(added) video vào hàng chờ tải" : "Các video này đã được tải xuống")
+    }
+
+    private func canDownloadNow() -> Bool {
         if AppSettings.shared.downloadOnWifiOnly, NetworkMonitor.shared.isExpensive {
             PlayerManager.shared.showToast("Chỉ tải xuống khi có Wi-Fi (đổi trong Cài đặt › Tải xuống)")
-            return
+            return false
         }
-        states[video.id] = .preparing
-        tasks[video.id] = Task { [weak self] in
-            await self?.run(video)
+        return true
+    }
+
+    @discardableResult
+    private func enqueue(_ video: VideoItem, audioOnly: Bool, quality: VideoQuality?) -> Bool {
+        guard tasks[video.id] == nil, !pending.contains(where: { $0.video.id == video.id }), !isDownloaded(video.id) else {
+            return false
         }
-        PlayerManager.shared.showToast("Đang tải xuống…")
+        let maxHeight = (quality ?? AppSettings.shared.downloadQuality).maxHeight ?? 1080
+        pending.append(Request(video: video, audioOnly: audioOnly, maxHeight: maxHeight))
+        states[video.id] = .queued
+        startNext()
+        return true
+    }
+
+    private func startNext() {
+        while tasks.count < Self.maxConcurrent, !pending.isEmpty {
+            let request = pending.removeFirst()
+            states[request.video.id] = .preparing
+            tasks[request.video.id] = Task { [weak self] in
+                await self?.run(request)
+            }
+        }
     }
 
     func cancel(_ videoId: String) {
         tasks[videoId]?.cancel()
         tasks[videoId] = nil
+        pending.removeAll { $0.video.id == videoId }
         states[videoId] = nil
+        startNext()
     }
 
     func delete(_ videoId: String) {
@@ -95,7 +147,8 @@ final class DownloadManager {
         try? data.write(to: indexURL, options: .atomic)
     }
 
-    private func run(_ video: VideoItem) async {
+    private func run(_ request: Request) async {
+        let video = request.video
         let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "download-\(video.id)", expirationHandler: nil)
         defer { UIApplication.shared.endBackgroundTask(backgroundTask) }
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("dl-\(video.id)", isDirectory: true)
@@ -117,13 +170,28 @@ final class DownloadManager {
                 item.durationText = formatDuration(length)
             }
 
-            let fileName = Self.fileName(for: item)
+            let fileName = Self.fileName(for: item, audio: request.audioOnly)
             let output = folder.appendingPathComponent(fileName)
             try? FileManager.default.removeItem(at: output)
-            let maxHeight = AppSettings.shared.downloadQuality.maxHeight ?? 1080
+            let maxHeight = request.maxHeight
             var qualityLabel: String?
 
-            if let videoFormat = info.bestVideo(maxHeight: maxHeight), let audioFormat = info.bestAudio {
+            if request.audioOnly {
+                // itag 140 (AAC 128 kbps) when there is one: plays everywhere, also in the Files app.
+                let aac = info.adaptiveFormats.filter { $0.isAudio && $0.isAAC && $0.isDefaultAudio }
+                guard let audioFormat = aac.first(where: { $0.itag == 140 }) ?? info.bestAudio else {
+                    throw InnerTubeError.noStreams
+                }
+                let audioFile = temp.appendingPathComponent("audio.m4a")
+                let id = video.id
+                let total = Double(max(audioFormat.contentLength ?? 1, 1))
+                try await Self.fetch(audioFormat, to: audioFile) { done in
+                    Task { @MainActor in self.report(id, Double(done) / total) }
+                }
+                states[video.id] = .merging
+                try await Self.remuxAudio(audioFile, to: output)
+                qualityLabel = "Âm thanh \(audioFormat.bitrate / 1000) kbps"
+            } else if let videoFormat = info.bestVideo(maxHeight: maxHeight), let audioFormat = info.bestAudio {
                 let videoFile = temp.appendingPathComponent("video.mp4")
                 let audioFile = temp.appendingPathComponent("audio.m4a")
                 let videoLength = videoFormat.contentLength ?? 0
@@ -153,7 +221,7 @@ final class DownloadManager {
             downloads.removeAll { $0.id == video.id }
             downloads.insert(DownloadedVideo(
                 video: item, fileName: fileName, fileSize: size,
-                qualityLabel: qualityLabel, downloadedAt: Date()
+                qualityLabel: qualityLabel, downloadedAt: Date(), isAudio: request.audioOnly
             ), at: 0)
             save()
             states[video.id] = nil
@@ -161,9 +229,10 @@ final class DownloadManager {
         } catch is CancellationError {
             states[video.id] = nil
         } catch {
-            states[video.id] = .failed(error.localizedDescription)
+            if tasks[video.id] != nil { states[video.id] = .failed(error.localizedDescription) }
         }
         tasks[video.id] = nil
+        startNext()
     }
 
     private func report(_ id: String, _ progress: Double) {
@@ -171,12 +240,28 @@ final class DownloadManager {
         states[id] = .downloading(min(max(progress, 0), 1))
     }
 
-    private static func fileName(for video: VideoItem) -> String {
+    private static func fileName(for video: VideoItem, audio: Bool) -> String {
         let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
         let title = video.title.components(separatedBy: invalid).joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let short = String(title.prefix(80))
-        return (short.isEmpty ? video.id : "\(short) [\(video.id)]") + ".mp4"
+        return (short.isEmpty ? video.id : "\(short) [\(video.id)]") + (audio ? ".m4a" : ".mp4")
+    }
+
+    /// YouTube's audio stream is a fragmented MP4: rewrite it as a regular .m4a file.
+    private nonisolated static func remuxAudio(_ input: URL, to output: URL) async throws {
+        let asset = AVURLAsset(url: input)
+        if let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) {
+            export.outputURL = output
+            export.outputFileType = .m4a
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                export.exportAsynchronously { continuation.resume() }
+            }
+            if export.status == .completed { return }
+            Log.debug("audio remux failed: \(export.error.map { String(describing: $0) } ?? "unknown"), keeping the original file")
+        }
+        try? FileManager.default.removeItem(at: output)
+        try FileManager.default.copyItem(at: input, to: output)
     }
 
     /// Downloads in 10 MB `range=` chunks; googlevideo throttles single large requests.

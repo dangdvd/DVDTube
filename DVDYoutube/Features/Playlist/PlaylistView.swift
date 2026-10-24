@@ -5,7 +5,10 @@ struct PlaylistView: View {
 
     @Environment(LibraryStore.self) private var library
     @Environment(PlayerManager.self) private var player
+    @Environment(DownloadManager.self) private var downloads
     @State private var info: PlaylistItem?
+    @State private var confirmDownload = false
+    @State private var preparingDownload = false
     @State private var model: FeedModel?
     @State private var error: String?
 
@@ -41,6 +44,24 @@ struct PlaylistView: View {
             }
         }
         .task { if model == nil { await load() } }
+        .confirmationDialog("Tải xuống cả danh sách phát?", isPresented: $confirmDownload, titleVisibility: .visible) {
+            Button("Video (\(AppSettings.shared.downloadQuality.title))") { Task { await downloadAll(audioOnly: false) } }
+            Button("Chỉ âm thanh (m4a)") { Task { await downloadAll(audioOnly: true) } }
+        } message: {
+            Text("Các video được tải lần lượt; xem tiến trình trong Nội dung tải xuống.")
+        }
+    }
+
+    /// Loads every page of the playlist (up to 200 videos) and queues them for download.
+    private func downloadAll(audioOnly: Bool) async {
+        preparingDownload = true
+        defer { preparingDownload = false }
+        do {
+            let videos = try await YouTubeService.shared.allPlaylistVideos(playlist.id)
+            downloads.downloadAll(videos, audioOnly: audioOnly)
+        } catch {
+            player.showToast("Không tải được danh sách: \(error.localizedDescription)")
+        }
     }
 
     private var header: some View {
@@ -62,6 +83,16 @@ struct PlaylistView: View {
                     Label("Lưu bản sao vào thư viện", systemImage: "square.and.arrow.down.on.square")
                         .font(.subheadline)
                 }
+                Button {
+                    confirmDownload = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Label("Tải xuống tất cả", systemImage: "arrow.down.circle")
+                        if preparingDownload { ProgressView().controlSize(.small) }
+                    }
+                    .font(.subheadline)
+                }
+                .disabled(preparingDownload)
             }
         }
         .padding(.horizontal, 12)

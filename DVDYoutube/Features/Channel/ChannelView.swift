@@ -10,6 +10,7 @@ struct ChannelView: View {
     @State private var tab: ChannelTab = .videos
     @State private var models: [ChannelTab: FeedModel] = [:]
     @State private var showDescription = false
+    @State private var showSearch = false
 
     private var info: ChannelItem { page?.channel ?? channel }
 
@@ -29,11 +30,20 @@ struct ChannelView: View {
         .navigationTitle(info.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    showSearch = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Tìm trong kênh")
                 ShareLink(item: URL(string: "https://www.youtube.com/channel/\(info.id)")!) {
                     Image(systemName: "square.and.arrow.up")
                 }
             }
+        }
+        .navigationDestination(isPresented: $showSearch) {
+            ChannelSearchView(channel: info)
         }
         .task { await load() }
         .sheet(isPresented: $showDescription) {
@@ -127,7 +137,20 @@ struct ChannelView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-        if let model = models[tab] {
+        if tab == .posts || tab == .about {
+            if let page {
+                if tab == .posts {
+                    ChannelPostsSection(channelId: page.channel.id, params: page.tabParams[.posts])
+                } else {
+                    ChannelAboutSection(channelId: page.channel.id, params: page.tabParams[.about],
+                                        token: page.aboutToken, fallbackDescription: page.description)
+                }
+            } else if let error {
+                ErrorStateView(message: error) { Task { await load(force: true) } }
+            } else {
+                LoadingStateView()
+            }
+        } else if let model = models[tab] {
             if model.isLoading && model.items.isEmpty {
                 ProgressView().frame(maxWidth: .infinity).padding(40)
             } else if let error = model.error, model.items.isEmpty {
@@ -172,6 +195,8 @@ struct ChannelView: View {
 
     @discardableResult
     private func model(for tab: ChannelTab) -> FeedModel? {
+        // Posts and About load in their own views.
+        guard tab != .posts, tab != .about else { return nil }
         if let existing = models[tab] { return existing }
         guard let page else { return nil }
         let id = page.channel.id

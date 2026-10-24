@@ -480,6 +480,21 @@ struct PlayerSurface: View {
                         .font(.caption)
                         .lineLimit(1)
                 }
+                if let target = player.jumpAheadTarget, scrubTime == nil {
+                    Button {
+                        player.seek(to: target)
+                        scheduleHide()
+                    } label: {
+                        Label("Tua tới đoạn hay", systemImage: "forward.fill")
+                            .font(.caption2.weight(.semibold))
+                            .lineLimit(1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.white.opacity(0.22)))
+                    }
+                    .fixedSize()
+                    .accessibilityHint("Tua tới đoạn được xem lại nhiều nhất")
+                }
                 Spacer()
                 if player.isPiPPossible {
                     Button { player.togglePictureInPicture() } label: {
@@ -509,6 +524,17 @@ struct PlayerSurface: View {
             .padding(.horizontal, 8)
 
             if player.currentVideo?.isLive != true {
+                if let info = player.watchInfo, info.videoId == player.currentVideo?.id,
+                   !info.heatMarkers.isEmpty, player.duration > 0 {
+                    // "Most replayed": how much each part of the video is rewatched.
+                    HeatmapGraph(markers: info.heatMarkers, duration: player.duration)
+                        .fill(Color.white.opacity(scrubTime == nil ? 0.3 : 0.55))
+                        .frame(height: mode == .fullscreen ? 36 : 24)
+                        .padding(.horizontal, mode == .fullscreen ? 4 : 0)
+                        .padding(.bottom, -14)
+                        .allowsHitTesting(false)
+                        .animation(.easeInOut(duration: 0.2), value: scrubTime == nil)
+                }
                 SeekBar(
                     current: player.currentTime,
                     duration: player.duration,
@@ -683,8 +709,36 @@ struct SeekBar: View {
     }
 }
 
+/// YouTube's "Most replayed" graph: a smooth outline over the seek bar.
+struct HeatmapGraph: Shape {
+    let markers: [HeatMarker]
+    let duration: Double
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard duration > 0, !markers.isEmpty else { return path }
+        let points = markers.map { marker in
+            CGPoint(x: rect.minX + rect.width * CGFloat(min((marker.start + marker.duration / 2) / duration, 1)),
+                    y: rect.maxY - rect.height * CGFloat(marker.intensity))
+        }
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: points[0].y))
+        var previous = CGPoint(x: rect.minX, y: points[0].y)
+        for point in points {
+            let middle = CGPoint(x: (previous.x + point.x) / 2, y: (previous.y + point.y) / 2)
+            path.addQuadCurve(to: middle, control: previous)
+            previous = point
+        }
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: previous.y), control: previous)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
 struct PlayerSettingsSheet: View {
     @Environment(PlayerManager.self) private var player
+    @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -722,6 +776,41 @@ struct PlayerSettingsSheet: View {
                     }
                 } footer: {
                     Text("Chỉ phát âm thanh không tải hình ảnh nên tốn ít dữ liệu 4G hơn nhiều (khoảng 1 MB/phút, hoặc 0,4 MB/phút khi bật Tiết kiệm dữ liệu).")
+                }
+                if !player.audioTracks.isEmpty {
+                    Section("Bản âm thanh") {
+                        ForEach(player.audioTracks) { track in
+                            let lowered = track.name.lowercased()
+                            let marked = track.isOriginal && !lowered.contains("original") && !lowered.contains("gốc")
+                            checkRow(track.name + (marked ? " (gốc)" : ""), selected: player.currentAudioTrackID == track.id) {
+                                player.selectAudioTrack(track)
+                            }
+                        }
+                    }
+                }
+                Section {
+                    NavigationLink {
+                        EqualizerView()
+                    } label: {
+                        HStack {
+                            Label("Bộ chỉnh âm (EQ)", systemImage: "slider.vertical.3")
+                            Spacer()
+                            Text(settings.eqPresetName).foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle(isOn: Binding(
+                        get: { settings.stableVolume },
+                        set: {
+                            settings.stableVolume = $0
+                            player.updateNormalization()
+                        }
+                    )) {
+                        Label("Âm lượng ổn định", systemImage: "speaker.wave.2")
+                    }
+                } header: {
+                    Text("Âm thanh")
+                } footer: {
+                    Text("Âm lượng ổn định giảm tiếng các video quá to về cùng mức với các video khác.")
                 }
                 Section("Tốc độ phát") {
                     ForEach(AppSettings.speeds, id: \.self) { speed in
