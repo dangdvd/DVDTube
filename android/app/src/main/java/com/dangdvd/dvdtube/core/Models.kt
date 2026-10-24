@@ -103,6 +103,9 @@ data class FeedPage(
 
 data class Chapter(val title: String, val startSeconds: Int, val thumbnail: String?)
 
+/** One slice of YouTube's "Most replayed" graph: how often that part is rewatched (0…1). */
+data class HeatMarker(val start: Double, val duration: Double, val intensity: Double)
+
 /** Where the watch page's chat starts ("Top chat" / "Live chat", or their replays). */
 data class LiveChatInfo(val modes: List<Mode>, val isReplay: Boolean) {
     data class Mode(val title: String, val continuation: String)
@@ -127,6 +130,7 @@ data class WatchInfo(
     val likeStatus: String?,
     val isSubscribed: Boolean?,
     val liveChat: LiveChatInfo?,
+    val heatmap: List<HeatMarker> = emptyList(),
 )
 
 data class AccountPlaylistOption(val id: String, val title: String, val containsVideo: Boolean)
@@ -181,6 +185,15 @@ data class Comment(
     val isHearted: Boolean,
     /** Present when signed in: lets the account reply to this comment. */
     val replyParams: String?,
+    /** Present when signed in: `comment/perform_comment_action` tokens. */
+    val likeToken: String? = null,
+    val unlikeToken: String? = null,
+    val dislikeToken: String? = null,
+    val undislikeToken: String? = null,
+    /** "LIKED", "DISLIKED" or "INDIFFERENT" for the signed-in account. */
+    val likeState: String = "INDIFFERENT",
+    /** Like count as YouTube shows it once the account has liked the comment. */
+    val likeCountLikedText: String? = null,
 )
 
 data class CommentsPage(
@@ -197,9 +210,23 @@ enum class ChannelTab(val title: String, val defaultParams: String) {
     VIDEOS("Video", "EgZ2aWRlb3PyBgQKAjoA"),
     SHORTS("Shorts", "EgZzaG9ydHPyBgUKA5oBAA%3D%3D"),
     STREAMS("Trực tiếp", "EgdzdHJlYW1z8gYECgJ6AA%3D%3D"),
-    PLAYLISTS("Danh sách phát", "EglwbGF5bGlzdHPyBgoKCEIGCgIQaCIA");
+    PLAYLISTS("Danh sách phát", "EglwbGF5bGlzdHPyBgoKCEIGCgIQaCIA"),
+    POSTS("Bài đăng", "Egljb21tdW5pdHnyBgQKAkoA"),
+    ABOUT("Giới thiệu", "EgVhYm91dPIGBAoCEgA%3D");
 
     val urlSuffix: String get() = name.lowercase(Locale.ROOT)
+
+    /** The tab's URL endings on youtube.com (`/posts` used to be `/community`). */
+    val urlSuffixes: List<String>
+        get() = when (this) {
+            POSTS -> listOf("posts", "community")
+            else -> listOf(urlSuffix)
+        }
+
+    companion object {
+        /** Browse params of a channel's own search. */
+        const val SEARCH_PARAMS = "EgZzZWFyY2jyBgQKAloA"
+    }
 }
 
 data class ChannelPage(
@@ -209,6 +236,43 @@ data class ChannelPage(
     val tabParams: Map<ChannelTab, String>,
     val initialTab: ChannelTab,
     val initialPage: FeedPage,
+    /** Continuation that loads the channel's "About" panel (from the header's description). */
+    val aboutToken: String? = null,
+)
+
+/** What a community post shows below its text. */
+sealed class PostAttachment {
+    data class Images(val urls: List<String>) : PostAttachment()
+    data class Video(val video: VideoItem) : PostAttachment()
+    data class Poll(val choices: List<String>, val totalVotes: String?) : PostAttachment()
+}
+
+/** A post on a channel's "Posts" (community) tab. */
+data class CommunityPost(
+    val id: String,
+    val authorName: String,
+    val authorAvatar: String?,
+    val text: String,
+    val publishedText: String?,
+    val likeCountText: String?,
+    val commentCountText: String?,
+    val attachment: PostAttachment?,
+)
+
+data class PostsPage(val posts: List<CommunityPost>, val continuation: String?)
+
+data class ChannelLink(val title: String, val displayUrl: String?, val url: String)
+
+/** The channel's "About" panel. */
+data class ChannelAbout(
+    val description: String?,
+    val country: String?,
+    val subscriberCountText: String?,
+    val viewCountText: String?,
+    val videoCountText: String?,
+    val joinedDateText: String?,
+    val channelUrl: String?,
+    val links: List<ChannelLink>,
 )
 
 data class PlaylistPage(val playlist: PlaylistItem, val page: FeedPage)
@@ -235,6 +299,8 @@ data class StreamFormat(
     val qualityLabel: String?,
     val audioTrackName: String?,
     val isDefaultAudio: Boolean,
+    /** Language of a dubbed / alternative audio track ("en", "vi"…), from `audioTrack.id`. */
+    val audioLanguage: String? = null,
 ) {
     val isVideo: Boolean get() = mimeType.startsWith("video/")
     val isAudio: Boolean get() = mimeType.startsWith("audio/")
@@ -260,6 +326,8 @@ data class PlayerInfo(
     /** Streams only work after this moment (server-side pre-roll ad wait), epoch ms. */
     val availableAt: Long,
     val storyboard: Storyboard?,
+    /** How much louder than YouTube's reference level the audio is (dB), for "Stable volume". */
+    val loudnessDb: Double? = null,
 ) {
     val bestAudio: StreamFormat?
         get() = adaptiveFormats.filter { it.isAudio && it.isAAC && it.isDefaultAudio }.maxByOrNull { it.bitrate }

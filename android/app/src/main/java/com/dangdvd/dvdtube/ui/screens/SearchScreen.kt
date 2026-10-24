@@ -9,18 +9,24 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,16 +37,22 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.NorthWest
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,12 +67,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dangdvd.dvdtube.core.AppSettings
+import com.dangdvd.dvdtube.core.services.DurationFilter
+import com.dangdvd.dvdtube.core.services.FeatureFilter
 import com.dangdvd.dvdtube.core.services.SearchFilter
+import com.dangdvd.dvdtube.core.services.SearchFilters
+import com.dangdvd.dvdtube.core.services.SortOrder
+import com.dangdvd.dvdtube.core.services.TypeFilter
+import com.dangdvd.dvdtube.core.services.UploadDateFilter
 import com.dangdvd.dvdtube.core.services.YouTubeService
+import com.dangdvd.dvdtube.core.services.isSelected
+import com.dangdvd.dvdtube.core.services.toggle
 import com.dangdvd.dvdtube.core.storage.LibraryStore
 import com.dangdvd.dvdtube.player.PlayerController
 import com.dangdvd.dvdtube.player.Toasts
@@ -181,9 +202,9 @@ private fun SuggestionRow(text: String, isHistory: Boolean, onFill: () -> Unit, 
 }
 
 class SearchResultsState(val query: String) {
-    var filter by mutableStateOf(SearchFilter.ALL)
-    val models = mutableStateMapOf<SearchFilter, FeedModel>()
-    fun model(filter: SearchFilter): FeedModel = models.getOrPut(filter) { FeedModel { YouTubeService.search(query, filter) } }
+    var filters by mutableStateOf(SearchFilters())
+    val models = mutableStateMapOf<SearchFilters, FeedModel>()
+    fun model(filters: SearchFilters): FeedModel = models.getOrPut(filters) { FeedModel { YouTubeService.search(query, filters) } }
 }
 
 @Composable
@@ -191,6 +212,7 @@ fun SearchResultsScreen(route: Route.SearchResults) {
     val state = rememberRouteModel(route.key) { SearchResultsState(route.query) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    var showFilters by remember { mutableStateOf(false) }
     val voice = rememberVoiceSearch { text ->
         LibraryStore.addSearch(text)
         Router.back()
@@ -217,13 +239,78 @@ fun SearchResultsScreen(route: Route.SearchResults) {
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), state = listState) {
             item(key = "filters") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(SearchFilter.entries) { filter ->
-                        FilterChip(selected = state.filter == filter, onClick = { state.filter = filter }, label = { Text(filter.title) })
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { showFilters = true }, modifier = Modifier.padding(start = 4.dp)) {
+                        val count = state.filters.activeCount
+                        BadgedBox(badge = { if (count > 0) Badge { Text("$count") } }) { Icon(Icons.Default.Tune, "Bộ lọc tìm kiếm") }
+                    }
+                    LazyRow(contentPadding = PaddingValues(end = 12.dp, top = 4.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(SearchFilter.entries) { filter ->
+                            FilterChip(selected = filter.isSelected(state.filters), onClick = { state.filters = filter.toggle(state.filters) },
+                                label = { Text(filter.title) })
+                        }
                     }
                 }
             }
-            pagedFeed(state.model(state.filter), scope, compact = true, emptyTitle = "Không tìm thấy kết quả")
+            pagedFeed(state.model(state.filters), scope, compact = true, emptyTitle = "Không tìm thấy kết quả")
+        }
+    }
+    if (showFilters) SearchFiltersSheet(state.filters, onApply = { state.filters = it }) { showFilters = false }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Group(title: String, content: @Composable () -> Unit) {
+    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp))
+    FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+}
+
+/** YouTube's search filters: upload date, type, duration, features and sort order. */
+@Composable
+private fun SearchFiltersSheet(initial: SearchFilters, onApply: (SearchFilters) -> Unit, onDismiss: () -> Unit) {
+    var filters by remember { mutableStateOf(initial) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 12.dp)) {
+            Text("Bộ lọc tìm kiếm", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp))
+            Group("Ngày tải lên") {
+                UploadDateFilter.entries.forEach { option ->
+                    FilterChip(selected = filters.uploadDate == option, onClick = { filters = filters.copy(uploadDate = option) },
+                        label = { Text(option.title) })
+                }
+            }
+            Group("Loại") {
+                TypeFilter.entries.forEach { option ->
+                    FilterChip(selected = filters.type == option, onClick = { filters = filters.copy(type = option) }, label = { Text(option.title) })
+                }
+            }
+            Group("Thời lượng") {
+                DurationFilter.entries.forEach { option ->
+                    FilterChip(selected = filters.duration == option, onClick = { filters = filters.copy(duration = option) },
+                        label = { Text(option.title) })
+                }
+            }
+            Group("Tính năng") {
+                FeatureFilter.entries.forEach { option ->
+                    val selected = option in filters.features
+                    FilterChip(
+                        selected = selected,
+                        onClick = { filters = filters.copy(features = if (selected) filters.features - option else filters.features + option) },
+                        label = { Text(option.title) },
+                    )
+                }
+            }
+            Group("Sắp xếp theo") {
+                SortOrder.entries.forEach { option ->
+                    FilterChip(selected = filters.sort == option, onClick = { filters = filters.copy(sort = option) }, label = { Text(option.title) })
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = { filters = SearchFilters() }) { Text("Đặt lại") }
+                Spacer(Modifier.weight(1f))
+                Button(onClick = { onApply(filters); onDismiss() }) { Text("Áp dụng") }
+            }
         }
     }
 }

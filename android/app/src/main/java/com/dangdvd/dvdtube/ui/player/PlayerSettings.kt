@@ -15,15 +15,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.HorizontalDivider
@@ -48,10 +51,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.VideoQuality
+import com.dangdvd.dvdtube.player.Equalizer
 import com.dangdvd.dvdtube.player.PlayerController
 import com.dangdvd.dvdtube.ui.Brand
 
-private enum class SettingsPage { MAIN, QUALITY, SPEED, CAPTIONS, TRANSLATE, SLEEP }
+private enum class SettingsPage { MAIN, QUALITY, SPEED, CAPTIONS, TRANSLATE, SLEEP, AUDIO_TRACK, EQUALIZER }
 
 private fun speedTitle(speed: Float): String = if (speed == 1f) "Chuẩn" else "${speed}x".replace(".0x", "x")
 
@@ -72,6 +76,8 @@ fun PlayerSettingsSheet(onDismiss: () -> Unit) {
                             SettingsPage.CAPTIONS -> "Phụ đề"
                             SettingsPage.TRANSLATE -> "Tự động dịch"
                             SettingsPage.SLEEP -> "Hẹn giờ tắt"
+                            SettingsPage.AUDIO_TRACK -> "Bản âm thanh"
+                            SettingsPage.EQUALIZER -> "Bộ chỉnh âm (EQ)"
                             SettingsPage.MAIN -> ""
                         },
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
@@ -133,6 +139,13 @@ fun PlayerSettingsSheet(onDismiss: () -> Unit) {
                     }
                 }
                 SettingsPage.SLEEP -> SleepTimerContent(onDone = onDismiss)
+                SettingsPage.AUDIO_TRACK -> PlayerController.audioTracks.forEach { option ->
+                    CheckRow(option.name + if (option.isDefault) " (gốc)" else "", PlayerController.selectedAudioTrackId == option.id) {
+                        PlayerController.selectAudioTrack(option)
+                        onDismiss()
+                    }
+                }
+                SettingsPage.EQUALIZER -> EqualizerContent()
             }
         }
     }
@@ -152,6 +165,19 @@ private fun MainPage(open: (SettingsPage) -> Unit, onDismiss: () -> Unit) {
     }
     if (PlayerController.captionTracks.isNotEmpty()) {
         SettingRow(Icons.Default.ClosedCaption, "Phụ đề", PlayerController.selectedCaption?.name ?: "Tắt") { open(SettingsPage.CAPTIONS) }
+    }
+    val audioTracks = PlayerController.audioTracks
+    if (audioTracks.size > 1 && !PlayerController.usesWebPlayer && !PlayerController.isCasting) {
+        val current = audioTracks.firstOrNull { it.id == PlayerController.selectedAudioTrackId }
+            ?: audioTracks.firstOrNull { it.isDefault }
+        SettingRow(Icons.Default.RecordVoiceOver, "Bản âm thanh", current?.name) { open(SettingsPage.AUDIO_TRACK) }
+    }
+    if (!PlayerController.usesWebPlayer && !PlayerController.isCasting) {
+        SettingRow(Icons.Default.GraphicEq, "Bộ chỉnh âm (EQ)", if (Equalizer.isEnabled) Equalizer.presetTitle else "Tắt") {
+            open(SettingsPage.EQUALIZER)
+        }
+        ToggleRow(Icons.AutoMirrored.Filled.VolumeUp, "Âm lượng ổn định", AppSettings.stableVolume,
+            "Giảm bớt video quá to để âm lượng đều giữa các video") { PlayerController.setStableVolume(it) }
     }
     if (!isLive && !PlayerController.usesWebPlayer) {
         ToggleRow(Icons.Default.Repeat, "Phát lặp lại", PlayerController.isLooping) { PlayerController.setLooping(it) }

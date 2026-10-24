@@ -16,6 +16,7 @@ import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.Log
 import com.dangdvd.dvdtube.core.StreamFormat
 import com.dangdvd.dvdtube.core.VideoItem
+import com.dangdvd.dvdtube.core.VideoQuality
 import com.dangdvd.dvdtube.core.formatDuration
 import com.dangdvd.dvdtube.core.innertube.InnerTube
 import com.dangdvd.dvdtube.core.innertube.InnerTubeException
@@ -45,9 +46,13 @@ data class DownloadedVideo(
     val fileSize: Long,
     val qualityLabel: String? = null,
     val downloadedAt: Long,
+    /** Only the sound, as an `.m4a` file. */
+    val isAudioOnly: Boolean = false,
 )
 
 sealed class DownloadState {
+    /** Waiting in the queue (e.g. a whole playlist being downloaded one by one). */
+    data object Queued : DownloadState()
     data object Preparing : DownloadState()
     data class Downloading(val progress: Double) : DownloadState()
     data object Merging : DownloadState()
@@ -56,7 +61,7 @@ sealed class DownloadState {
 
 /**
  * Offline downloads: fetches the H.264 video + AAC audio streams in chunks and merges them
- * into a regular `.mp4`.
+ * into a regular `.mp4`, or only the AAC audio into an `.m4a`.
  */
 object DownloadManager {
     private val json = Json { ignoreUnknownKeys = true }
@@ -65,9 +70,17 @@ object DownloadManager {
     private lateinit var appContext: Context
     private val jobs = HashMap<String, Job>()
 
+    private data class Request(val video: VideoItem, val audioOnly: Boolean)
+    /** Downloads waiting their turn (one at a time), e.g. a whole playlist. */
+    private val queue = ArrayDeque<Request>()
+    private var queueJob: Job? = null
+
     var downloads by mutableStateOf(listOf<DownloadedVideo>())
         private set
     var states by mutableStateOf(mapOf<String, DownloadState>())
+        private set
+    /** Titles of downloads in progress or queued, for the downloads screen. */
+    var activeTitles by mutableStateOf(mapOf<String, String>())
         private set
 
     fun init(context: Context) {
@@ -82,6 +95,8 @@ object DownloadManager {
     val activeCount: Int get() = states.values.count { it !is DownloadState.Failed }
     val totalSize: Long get() = downloads.sumOf { it.fileSize }
 
+    fun entry(videoId: String): DownloadedVideo? = downloads.firstOrNull { it.video.id == videoId }
+
     fun localFile(videoId: String): File? {
         val entry = downloads.firstOrNull { it.video.id == videoId } ?: return null
         return File(folder, entry.fileName).takeIf { it.exists() }
@@ -93,20 +108,59 @@ object DownloadManager {
         states = if (state == null) states - id else states + (id to state)
     }
 
-    fun download(video: VideoItem) {
-        if (jobs.containsKey(video.id) || isDownloaded(video.id)) return
+    private fun isBusy(videoId: String): Boolean = jobs.containsKey(videoId) || queue.any { it.video.id == videoId }
+
+    private fun blockedByNetwork(): Boolean {
         if (AppSettings.downloadOnWifiOnly && AppSettings.isMeteredNetwork) {
             Toasts.show("Chỉ tải xuống khi có Wi-Fi (đổi trong Cài đặt › Tải xuống)")
+            return true
+        }
+        return false
+    }
+
+    /** [quality] overrides the download quality setting; [audioOnly] saves just the sound (.m4a). */
+    fun download(video: VideoItem, audioOnly: Boolean = false, quality: VideoQuality? = null) {
+        if (isBusy(video.id) || isDownloaded(video.id)) return
+        if (blockedByNetwork()) return
+        setState(video.id, DownloadState.Preparing)
+        activeTitles = activeTitles + (video.id to video.title.ifEmpty { video.id })
+        jobs[video.id] = AppScope.launch { run(video, audioOnly, quality) }
+        Toasts.show(if (audioOnly) "Đang tải âm thanh…" else "Đang tải xuống…")
+    }
+
+    /** Queues every video (e.g. of a playlist); they download one after another. */
+    fun downloadAll(videos: List<VideoItem>, audioOnly: Boolean) {
+        if (blockedByNetwork()) return
+        val fresh = videos.distinctBy { it.id }.filter { !it.isLive && !isBusy(it.id) && !isDownloaded(it.id) }
+        if (fresh.isEmpty()) {
+            Toasts.show("Các video này đã được tải xuống")
             return
         }
-        setState(video.id, DownloadState.Preparing)
-        jobs[video.id] = AppScope.launch { run(video) }
-        Toasts.show("Đang tải xuống…")
+        for (video in fresh) {
+            queue.addLast(Request(video, audioOnly))
+            setState(video.id, DownloadState.Queued)
+        }
+        activeTitles = activeTitles + fresh.associate { it.id to it.title.ifEmpty { it.id } }
+        Toasts.show("Đã thêm ${fresh.size} video vào hàng đợi tải xuống")
+        if (queueJob?.isActive != true) queueJob = AppScope.launch { drainQueue() }
+    }
+
+    private suspend fun drainQueue() {
+        while (true) {
+            val next = queue.removeFirstOrNull() ?: break
+            if (states[next.video.id] != DownloadState.Queued) continue
+            setState(next.video.id, DownloadState.Preparing)
+            val job = AppScope.launch { run(next.video, next.audioOnly, null) }
+            jobs[next.video.id] = job
+            job.join()
+        }
     }
 
     fun cancel(videoId: String) {
+        queue.removeAll { it.video.id == videoId }
         jobs.remove(videoId)?.cancel()
         setState(videoId, null)
+        activeTitles = activeTitles - videoId
     }
 
     fun delete(videoId: String) {
@@ -125,36 +179,44 @@ object DownloadManager {
         }
     }
 
-    /** Copies a downloaded video into the phone's Movies folder (visible in the gallery). */
+    /** Copies a download into the phone's Movies (or Music, for audio) folder. */
     fun exportToGallery(videoId: String) {
         val entry = downloads.firstOrNull { it.video.id == videoId } ?: return
         val source = File(folder, entry.fileName)
+        val audio = entry.isAudioOnly
         AppScope.launch {
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     val resolver = appContext.contentResolver
                     val values = ContentValues().apply {
-                        put(MediaStore.Video.Media.DISPLAY_NAME, entry.fileName)
-                        put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, entry.fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, if (audio) "audio/mp4" else "video/mp4")
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/DVDTube")
+                            put(MediaStore.MediaColumns.RELATIVE_PATH,
+                                (if (audio) Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES) + "/DVDTube")
                         }
                     }
-                    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    } else {
-                        MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    val collection = when {
+                        audio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        audio -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        else -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                     }
                     val uri = resolver.insert(collection, values) ?: error("insert failed")
                     resolver.openOutputStream(uri)?.use { out -> source.inputStream().use { it.copyTo(out) } }
                     true
                 }.getOrDefault(false)
             }
-            Toasts.show(if (ok) "Đã lưu vào thư mục Movies/DVDTube" else "Không lưu được vào thư viện")
+            Toasts.show(when {
+                !ok -> "Không lưu được vào thư viện"
+                audio -> "Đã lưu vào thư mục Music/DVDTube"
+                else -> "Đã lưu vào thư mục Movies/DVDTube"
+            })
         }
     }
 
-    private suspend fun run(video: VideoItem) {
+    private suspend fun run(video: VideoItem, audioOnly: Boolean, quality: VideoQuality?) {
         val temp = File(appContext.cacheDir, "dl-${video.id}").apply { mkdirs() }
         try {
             val info = YouTubeService.player(video.id)
@@ -169,14 +231,24 @@ object DownloadManager {
                 item = item.copy(durationSeconds = info.lengthSeconds, durationText = formatDuration(info.lengthSeconds))
             }
 
-            val fileName = fileName(item)
+            val fileName = fileName(item, if (audioOnly) "m4a" else "mp4")
             val output = File(folder, fileName)
             output.delete()
-            val maxHeight = AppSettings.downloadQuality.maxHeight ?: 1080
+            val maxHeight = (quality ?: AppSettings.downloadQuality).maxHeight ?: 1080
             val qualityLabel: String?
             val videoFormat = info.bestVideo(maxHeight)
             val audioFormat = info.bestAudio
-            if (videoFormat != null && audioFormat != null) {
+            if (audioOnly) {
+                // itag 140 (AAC 128 kbps) in the original language plays everywhere.
+                val audio = info.adaptiveFormats.firstOrNull { it.itag == 140 && it.isDefaultAudio } ?: audioFormat
+                    ?: throw InnerTubeException.NoStreams()
+                val raw = File(temp, "audio.m4a")
+                val total = maxOf(audio.contentLength ?: 1L, 1L).toDouble()
+                fetch(audio, raw) { done -> report(video.id, done / total) }
+                setState(video.id, DownloadState.Merging)
+                withContext(Dispatchers.IO) { remuxOrCopyAudio(raw, output) }
+                qualityLabel = "Âm thanh ${audio.bitrate / 1000} kbps"
+            } else if (videoFormat != null && audioFormat != null) {
                 val videoFile = File(temp, "video.mp4")
                 val audioFile = File(temp, "audio.m4a")
                 val videoLength = videoFormat.contentLength ?: 0L
@@ -192,7 +264,7 @@ object DownloadManager {
                 fetch(muxed, output) { done -> report(video.id, done / total) }
                 qualityLabel = muxed.qualityLabel
             }
-            downloads = listOf(DownloadedVideo(item, fileName, output.length(), qualityLabel, System.currentTimeMillis())) +
+            downloads = listOf(DownloadedVideo(item, fileName, output.length(), qualityLabel, System.currentTimeMillis(), audioOnly)) +
                 downloads.filter { it.video.id != video.id }
             save()
             setState(video.id, null)
@@ -205,6 +277,7 @@ object DownloadManager {
         } finally {
             temp.deleteRecursively()
             jobs.remove(video.id)
+            activeTitles = activeTitles - video.id
         }
     }
 
@@ -213,9 +286,9 @@ object DownloadManager {
         setState(id, DownloadState.Downloading(progress.coerceIn(0.0, 1.0)))
     }
 
-    private fun fileName(video: VideoItem): String {
+    private fun fileName(video: VideoItem, extension: String): String {
         val title = video.title.replace(Regex("[/\\\\?%*|\"<>:]"), " ").trim().take(80)
-        return (if (title.isEmpty()) video.id else "$title [${video.id}]") + ".mp4"
+        return (if (title.isEmpty()) video.id else "$title [${video.id}]") + ".$extension"
     }
 
     /** Downloads in 10 MB `range=` chunks; googlevideo throttles single large requests. */
@@ -255,6 +328,41 @@ object DownloadManager {
                     delay(failures * 1000L)
                 }
             }
+        }
+    }
+
+    /** DASH audio is fragmented; a plain MP4 container works in every player (else keep it as is). */
+    private fun remuxOrCopyAudio(raw: File, output: File) {
+        if (runCatching { remuxAudio(raw, output) }.isSuccess) return
+        output.delete()
+        raw.copyTo(output, overwrite = true)
+    }
+
+    /** Rewrites a fragmented (DASH) audio file as a regular MP4 audio file, without re-encoding. */
+    private fun remuxAudio(input: File, output: File) {
+        val extractor = MediaExtractor().apply { setDataSource(input.path) }
+        val muxer = MediaMuxer(output.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        try {
+            val track = (0 until extractor.trackCount).first {
+                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            }
+            extractor.selectTrack(track)
+            val out = muxer.addTrack(extractor.getTrackFormat(track))
+            muxer.start()
+            val buffer = ByteBuffer.allocate(1 shl 20)
+            val info = MediaCodec.BufferInfo()
+            while (true) {
+                buffer.clear()
+                val size = extractor.readSampleData(buffer, 0)
+                if (size < 0) break
+                info.set(0, size, extractor.sampleTime, MediaCodec.BUFFER_FLAG_KEY_FRAME)
+                muxer.writeSampleData(out, buffer, info)
+                extractor.advance()
+            }
+            muxer.stop()
+        } finally {
+            runCatching { muxer.release() }
+            extractor.release()
         }
     }
 

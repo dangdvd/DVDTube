@@ -28,6 +28,9 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -204,6 +207,9 @@ class CommentsModel(private val initialToken: String) {
         private set
     var loadingReplies by mutableStateOf(setOf<String>())
         private set
+    /** Likes / dislikes given in this sheet, by comment id ("LIKED", "DISLIKED", "INDIFFERENT"). */
+    var likeStates by mutableStateOf(mapOf<String, String>())
+        private set
     private var next: String? = null
     private var currentToken = initialToken
 
@@ -274,6 +280,40 @@ class CommentsModel(private val initialToken: String) {
         }
     }
 
+    fun likeState(comment: Comment): String = likeStates[comment.id] ?: comment.likeState
+
+    /** Like (or dislike) a comment on the account; shown at once, undone if YouTube refuses. */
+    suspend fun rate(comment: Comment, dislike: Boolean) {
+        if (!AccountStore.isSignedIn) {
+            Toasts.show("Đăng nhập để thích bình luận")
+            return
+        }
+        val current = likeState(comment)
+        val target = when {
+            dislike -> if (current == "DISLIKED") "INDIFFERENT" else "DISLIKED"
+            else -> if (current == "LIKED") "INDIFFERENT" else "LIKED"
+        }
+        val token = when {
+            target == "LIKED" -> comment.likeToken
+            target == "DISLIKED" -> comment.dislikeToken
+            current == "LIKED" -> comment.unlikeToken
+            else -> comment.undislikeToken
+        }
+        if (token == null) {
+            Toasts.show("Không thể đánh giá bình luận này")
+            return
+        }
+        likeStates = likeStates + (comment.id to target)
+        try {
+            InnerTube.performCommentAction(token)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (failure: Exception) {
+            likeStates = likeStates + (comment.id to current)
+            Toasts.show("Không gửi được: ${failure.message}")
+        }
+    }
+
     suspend fun post(text: String, replyTo: Comment?): Boolean {
         return try {
             if (replyTo != null) {
@@ -326,9 +366,16 @@ fun CommentsSheet(token: String, onDismiss: () -> Unit) {
                     }
                     else -> {
                         itemsIndexed(model.comments, key = { index, comment -> comment.id + "#" + index }) { index, comment ->
-                            CommentRow(comment, onReply = if (comment.replyParams != null) ({ replyTo = comment }) else null)
+                            CommentRow(
+                                comment, model.likeState(comment),
+                                onRate = { dislike -> scope.launch { model.rate(comment, dislike) } },
+                                onReply = if (comment.replyParams != null) ({ replyTo = comment }) else null,
+                            )
                             val loaded = model.replies[comment.id].orEmpty()
-                            loaded.forEach { reply -> CommentRow(reply, indent = true, onReply = null) }
+                            loaded.forEach { reply ->
+                                CommentRow(reply, model.likeState(reply), indent = true,
+                                    onRate = { dislike -> scope.launch { model.rate(reply, dislike) } }, onReply = null)
+                            }
                             val hasMore = if (loaded.isEmpty()) comment.repliesToken != null else model.repliesNext[comment.id] != null
                             if (hasMore) {
                                 TextButton(
@@ -398,7 +445,13 @@ fun CommentsSheet(token: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun CommentRow(comment: Comment, indent: Boolean = false, onReply: (() -> Unit)?) {
+private fun CommentRow(
+    comment: Comment,
+    likeState: String,
+    indent: Boolean = false,
+    onRate: (dislike: Boolean) -> Unit,
+    onReply: (() -> Unit)?,
+) {
     Row(Modifier.fillMaxWidth().padding(start = if (indent) 56.dp else 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)) {
         Avatar(
             comment.authorAvatar, if (indent) 26.dp else 36.dp, comment.authorName,
@@ -424,8 +477,22 @@ private fun CommentRow(comment: Comment, indent: Boolean = false, onReply: (() -
             Spacer(Modifier.height(2.dp))
             Text(linkifiedText(comment.text, MaterialTheme.colorScheme.primary), style = MaterialTheme.typography.bodyMedium)
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
-                Icon(Icons.Outlined.ThumbUp, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(" ${comment.likeCountText ?: ""}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val liked = likeState == "LIKED"
+                val disliked = likeState == "DISLIKED"
+                val tint = MaterialTheme.colorScheme.onSurfaceVariant
+                Icon(
+                    if (liked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp, "Thích",
+                    Modifier.size(28.dp).clickable { onRate(false) }.padding(6.dp),
+                    tint = if (liked) MaterialTheme.colorScheme.onSurface else tint,
+                )
+                val count = if (liked) comment.likeCountLikedText ?: comment.likeCountText else comment.likeCountText
+                Text(count ?: "", style = MaterialTheme.typography.labelSmall, color = tint)
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    if (disliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown, "Không thích",
+                    Modifier.size(28.dp).clickable { onRate(true) }.padding(6.dp),
+                    tint = if (disliked) MaterialTheme.colorScheme.onSurface else tint,
+                )
                 if (comment.isHearted) {
                     Spacer(Modifier.width(10.dp))
                     Icon(Icons.Default.Favorite, "Được tim", Modifier.size(14.dp), tint = Brand)

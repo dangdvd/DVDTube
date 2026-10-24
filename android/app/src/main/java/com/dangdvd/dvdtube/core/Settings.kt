@@ -138,6 +138,35 @@ object AppSettings {
     var bedtimeStart: Int by intPref("bedtimeStart", 23 * 60)
     var bedtimeEnd: Int by intPref("bedtimeEnd", 7 * 60)
 
+    // Sound
+    /** Evens out loudness between videos (YouTube's "Stable volume"). */
+    var stableVolume: Boolean by boolPref("stableVolume", true)
+    var equalizerEnabled: Boolean by boolPref("eq.enabled", false)
+    /** Id of the selected [com.dangdvd.dvdtube.player.EqPreset] ("custom" for the user's own bands). */
+    var equalizerPreset: String by stringPref("eq.preset", "flat")
+    /** The user's own band gains (dB), comma separated. */
+    var equalizerCustomGains: String by stringPref("eq.custom", "")
+    var equalizerAutoPreamp: Boolean by boolPref("eq.autoPreamp", true)
+    var equalizerPreamp: Float by Pref({ it.getFloat("eq.preamp", 0f) }, { e, v -> e.putFloat("eq.preamp", v) })
+
+    // Watch page
+    /** Dislike counts from Return YouTube Dislike. */
+    var showDislikes: Boolean by boolPref("ryd", true)
+    /** A soft glow of the video's colours around the player in dark mode. */
+    var ambientMode: Boolean by boolPref("ambientMode", true)
+    /** Fullscreen: swipe up/down on the left for brightness, on the right for volume. */
+    var swipeGestures: Boolean by boolPref("swipeGestures", true)
+
+    // History
+    /** Search queries are not saved. */
+    var pauseSearchHistory: Boolean by boolPref("pauseSearchHistory", false)
+    /** Nothing is added to the watch history (here or on the account); resume positions still work. */
+    var pauseWatchHistory: Boolean
+        get() = !saveHistory
+        set(value) {
+            saveHistory = !value
+        }
+
     /** Incognito: nothing is added to the watch or search history (until the app restarts). */
     var isIncognito by mutableStateOf(false)
 

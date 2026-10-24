@@ -210,6 +210,10 @@ object InnerTube {
 
     suspend fun browseContinuation(token: String): JNode = web("browse", JSONObject().put("continuation", token))
 
+    /** A channel's own search (browse with the search tab's params and a query). */
+    suspend fun browseSearch(browseId: String, params: String, query: String): JNode =
+        web("browse", JSONObject().put("browseId", browseId).put("params", params).put("query", query))
+
     suspend fun searchContinuation(token: String): JNode = web("search", JSONObject().put("continuation", token))
 
     suspend fun next(videoId: String): JNode =
@@ -309,6 +313,10 @@ object InnerTube {
 
     suspend fun createComment(text: String, params: String): JNode =
         web("comment/create_comment", JSONObject().put("commentText", text).put("createCommentParams", params))
+
+    /** Like / unlike / dislike a comment with the token from its toolbar. */
+    suspend fun performCommentAction(action: String): JNode =
+        web("comment/perform_comment_action", JSONObject().put("actions", JSONArray().put(action)))
 
     suspend fun createReply(text: String, params: String): JNode =
         web("comment/create_comment_reply", JSONObject().put("commentText", text).put("createReplyParams", params))

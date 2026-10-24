@@ -79,6 +79,7 @@ private sealed class SettingsDialog {
     data object SponsorCategories : SettingsDialog()
     data object RemoteConfig : SettingsDialog()
     data object ClearHistory : SettingsDialog()
+    data object ClearSearchHistory : SettingsDialog()
     data object DoubleTap : SettingsDialog()
     data object BreakReminder : SettingsDialog()
     data object BedtimeStart : SettingsDialog()
@@ -132,8 +133,27 @@ fun SettingsScreen() {
                 SettingRow(null, "Ngôn ngữ phụ đề", languageName(AppSettings.captionLanguage)) { dialog = SettingsDialog.CaptionLanguage }
                 SettingRow(null, "Cỡ chữ phụ đề", AppSettings.captionSize.title) { dialog = SettingsDialog.CaptionSizeChoice }
                 SettingRow(null, "Nền phụ đề", captionBackgroundTitle(AppSettings.captionBackground)) { dialog = SettingsDialog.CaptionBackground }
+                ToggleRow(null, "Vuốt để chỉnh độ sáng và âm lượng", AppSettings.swipeGestures,
+                    "Khi xem toàn màn hình: vuốt lên/xuống ở bên trái để chỉnh độ sáng, bên phải để chỉnh âm lượng") {
+                    AppSettings.swipeGestures = it
+                }
+                ToggleRow(null, "Chế độ môi trường", AppSettings.ambientMode,
+                    "Màu của video tỏa nhẹ ra nền trang xem (khi dùng giao diện tối)") { AppSettings.ambientMode = it }
+                ToggleRow(null, "Hiện số lượt không thích", AppSettings.showDislikes,
+                    "Số ước tính từ returnyoutubedislike.com (chỉ gửi mã video)") { AppSettings.showDislikes = it }
                 ToggleRow(null, "Trình phát web dự phòng", AppSettings.webPlayerFallback,
                     "Dùng trình phát nhúng của YouTube (đã chặn quảng cáo) khi luồng gốc bị từ chối") { AppSettings.webPlayerFallback = it }
+            }
+            item {
+                Section("Âm thanh")
+                SettingRow(null, "Bộ chỉnh âm (EQ)",
+                    if (com.dangdvd.dvdtube.player.Equalizer.isEnabled) com.dangdvd.dvdtube.player.Equalizer.presetTitle else "Tắt") {
+                    Router.open(Route.Equalizer())
+                }
+                ToggleRow(null, "Âm lượng ổn định", AppSettings.stableVolume,
+                    "Giảm bớt những video quá to để âm lượng đều nhau giữa các video") {
+                    com.dangdvd.dvdtube.player.PlayerController.setStableVolume(it)
+                }
             }
             item {
                 Section("Tiết kiệm dữ liệu")
@@ -201,16 +221,19 @@ fun SettingsScreen() {
                 Section("Quyền riêng tư")
                 ToggleRow(null, "Chế độ ẩn danh", AppSettings.isIncognito,
                     "Không lưu video đã xem và tìm kiếm (máy lẫn tài khoản). Tự tắt khi mở lại ứng dụng") { AppSettings.isIncognito = it }
-                ToggleRow(null, "Lưu nhật ký xem trên máy", AppSettings.saveHistory) { AppSettings.saveHistory = it }
                 SettingRow(null, "Nội dung đã ẩn",
                     "${com.dangdvd.dvdtube.core.storage.HiddenContentStore.videos.size + com.dangdvd.dvdtube.core.storage.HiddenContentStore.channels.size}") {
                     Router.open(Route.HiddenContent())
                 }
+            }
+            item {
+                Section("Nhật ký")
+                ToggleRow(null, "Tạm dừng nhật ký xem", AppSettings.pauseWatchHistory,
+                    "Không thêm video vào nhật ký trên máy và trên tài khoản; vẫn nhớ chỗ đang xem dở") { AppSettings.pauseWatchHistory = it }
+                ToggleRow(null, "Tạm dừng nhật ký tìm kiếm", AppSettings.pauseSearchHistory,
+                    "Nội dung tìm kiếm không được lưu lại") { AppSettings.pauseSearchHistory = it }
                 SettingRow(null, "Xóa nhật ký xem", "${LibraryStore.history.size} video") { dialog = SettingsDialog.ClearHistory }
-                SettingRow(null, "Xóa lịch sử tìm kiếm", "${LibraryStore.searchHistory.size}") {
-                    LibraryStore.clearSearchHistory()
-                    Toasts.show("Đã xóa lịch sử tìm kiếm")
-                }
+                SettingRow(null, "Xóa nhật ký tìm kiếm", "${LibraryStore.searchHistory.size}") { dialog = SettingsDialog.ClearSearchHistory }
             }
             item {
                 Section("Nâng cao")
@@ -317,6 +340,18 @@ fun SettingsScreen() {
             AppSettings.captionSize, { dialog = null }) { AppSettings.captionSize = it }
         SettingsDialog.CaptionBackground -> ChoiceDialog("Nền phụ đề", listOf(0f, 0.5f, 0.75f, 1f).map { it to captionBackgroundTitle(it) },
             AppSettings.captionBackground, { dialog = null }) { AppSettings.captionBackground = it }
+        SettingsDialog.ClearSearchHistory -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text("Xóa toàn bộ nhật ký tìm kiếm?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    LibraryStore.clearSearchHistory()
+                    Toasts.show("Đã xóa nhật ký tìm kiếm")
+                    dialog = null
+                }) { Text("Xóa") }
+            },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Hủy") } },
+        )
         SettingsDialog.ClearHistory -> AlertDialog(
             onDismissRequest = { dialog = null },
             title = { Text("Xóa toàn bộ nhật ký xem trên máy?") },

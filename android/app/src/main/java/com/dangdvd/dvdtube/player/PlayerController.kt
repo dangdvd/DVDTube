@@ -16,6 +16,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -27,9 +29,11 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.dangdvd.dvdtube.cast.CastController
 import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.CaptionTrack
+import com.dangdvd.dvdtube.core.HeatMarker
 import com.dangdvd.dvdtube.core.Log
 import com.dangdvd.dvdtube.core.PlayerInfo
 import com.dangdvd.dvdtube.core.SponsorSegment
+import com.dangdvd.dvdtube.core.StreamFormat
 import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.VideoQuality
 import com.dangdvd.dvdtube.core.WatchInfo
@@ -52,6 +56,10 @@ import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.pow
+
+/** One audio language of a video ("Bản âm thanh"): dubbed tracks or the original. */
+data class AudioTrackOption(val id: String, val name: String, val language: String?, val isDefault: Boolean)
 
 /**
  * Owns the one ExoPlayer used for regular videos and everything around it: queue, history,
@@ -169,8 +177,22 @@ object PlayerController {
     private var audioOnlyChoice: Boolean? = null
     /** How the audio-only stream is played (for "Stats for nerds"). */
     private var audioDescription = ""
-    /** Audio playlists found in HLS manifests, by manifest URL and size. */
-    private val audioPlaylists = HashMap<String, HlsAudio.Rendition>()
+    /** HLS master manifests already downloaded (for their audio-only playlists), by URL. */
+    private val manifests = HashMap<String, String>()
+
+    /** Audio languages of the current video, when there is more than one. */
+    var audioTracks by mutableStateOf(listOf<AudioTrackOption>())
+        private set
+    var selectedAudioTrackId by mutableStateOf<String?>(null)
+        private set
+    /** Audio language picked in the player this session (name, language); later videos use it too. */
+    private var preferredAudio: Pair<String?, String?>? = null
+    /** The picked language was applied to the HLS tracks of the current stream. */
+    private var appliedAudioPreference = false
+
+    /** "Stable volume" gain for the current video and the sleep timer's fade (both 0…1). */
+    private var loudnessGain = 1f
+    private var fadeGain = 1f
     /** Touches on the video are ignored until unlocked (YouTube's "Lock screen"). */
     var isScreenLocked by mutableStateOf(false)
     /** "Stats for nerds" overlay. */
@@ -210,7 +232,7 @@ object PlayerController {
 
     fun init(context: Context) {
         appContext = context.applicationContext
-        exo = ExoPlayer.Builder(appContext)
+        exo = ExoPlayer.Builder(appContext, EqualizerRenderersFactory(appContext))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
                 true,
@@ -219,6 +241,7 @@ object PlayerController {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         exo.addListener(listener)
+        Equalizer.apply()
         sessionPlayer = SessionPlayer(exo)
         rate = AppSettings.playbackSpeed
         startTicker()
@@ -477,6 +500,12 @@ object PlayerController {
         quality = defaultQuality()
         isAudioOnly = wantsAudioOnly
         audioDescription = ""
+        audioTracks = emptyList()
+        selectedAudioTrackId = null
+        appliedAudioPreference = false
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_AUDIO).build()
+        loudnessGain = 1f
+        applyVolume()
         applyAudioOnlyTracks()
         isLoading = true
         pendingSeek = startAt ?: if (AppSettings.resumePlayback) LibraryStore.resumePosition(video.id) else null
@@ -536,6 +565,7 @@ object PlayerController {
             val info = playerInfo
             if (info != null && info.videoId == video.id && info.availableAt <= System.currentTimeMillis()) {
                 fallbackStage = 0
+                appliedAudioPreference = false
                 val source = makeSource(info, if (isAudioOnly) -1 else 0, video)
                 if (currentVideo?.id != video.id) return@launch
                 if (source != null) {
@@ -552,34 +582,150 @@ object PlayerController {
         }
     }
 
-    /** The audio-only rendition of an HLS manifest (cached per manifest). */
+    /** The audio-only rendition of an HLS manifest (the manifest is cached). */
     private suspend fun audioRendition(master: String): HlsAudio.Rendition? {
-        val preferSmall = AppSettings.savesData
-        val key = master + if (preferSmall) "#small" else "#best"
-        audioPlaylists[key]?.let { return it }
-        val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val text = manifests[master] ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 InnerTube.client.newCall(okhttp3.Request.Builder().url(master).build()).execute().use { response ->
                     if (response.isSuccessful) response.body?.string() else null
                 }
             }.getOrNull()
+        }?.also {
+            if (manifests.size > 20) manifests.clear()
+            manifests[master] = it
         } ?: return null
-        val rendition = HlsAudio.pick(text, master, preferSmall)
+        val matches = preferredAudio?.let { { rendition: HlsAudio.Rendition -> matchesPreferredAudio(rendition.name, rendition.language) } }
+        val rendition = HlsAudio.pick(text, master, AppSettings.savesData, matches)
         if (rendition == null) {
             Log.debug("audio only: the HLS manifest has no audio-only playlist")
             return null
         }
-        if (audioPlaylists.size > 20) audioPlaylists.clear()
-        audioPlaylists[key] = rendition
+        audioTracks = HlsAudio.renditions(text, master)
+            .groupBy { it.name ?: it.language ?: "" }
+            .filterKeys { it.isNotEmpty() }
+            .map { (key, group) -> AudioTrackOption(key, group.first().name ?: languageName(group.first().language), group.first().language, group.any { it.isDefault }) }
+        selectedAudioTrackId = rendition.name ?: rendition.language
         return rendition
     }
 
-    /** The AAC stream: the largest normally, the smallest with data saver on mobile data. */
-    private fun audioFormat(info: PlayerInfo): com.dangdvd.dvdtube.core.StreamFormat? {
+    /** The AAC stream (in the picked language): the largest normally, the smallest with data saver on mobile data. */
+    private fun audioFormat(info: PlayerInfo): StreamFormat? {
         val aac = info.adaptiveFormats.filter { it.isAudio && it.isAAC }
-        val main = aac.filter { it.isDefaultAudio }
+        val picked = aac.filter { preferredAudio != null && matchesPreferredAudio(it.audioTrackName, it.audioLanguage) }
+        val main = picked.ifEmpty { aac.filter { it.isDefaultAudio } }
         val candidates = main.ifEmpty { aac }
         return if (AppSettings.savesData) candidates.minByOrNull { it.bitrate } else candidates.maxByOrNull { it.bitrate }
+    }
+
+    /** Audio languages offered by the adaptive formats (progressive playback). */
+    private fun noteFormatAudioTracks(info: PlayerInfo, chosen: StreamFormat?) {
+        audioTracks = info.adaptiveFormats.filter { it.isAudio && it.audioTrackName != null }
+            .groupBy { it.audioTrackName ?: "" }
+            .map { (name, group) -> AudioTrackOption(name, name, group.first().audioLanguage, group.any { it.isDefaultAudio }) }
+        selectedAudioTrackId = chosen?.audioTrackName
+    }
+
+    private fun matchesPreferredAudio(name: String?, language: String?): Boolean {
+        val (preferredName, preferredLanguage) = preferredAudio ?: return false
+        if (preferredName != null && name != null && name.equals(preferredName, ignoreCase = true)) return true
+        if (preferredLanguage != null && language != null) {
+            return language.substringBefore('-').equals(preferredLanguage.substringBefore('-'), ignoreCase = true)
+        }
+        return false
+    }
+
+    private fun languageName(code: String?): String {
+        if (code.isNullOrEmpty()) return "Không rõ"
+        val locale = java.util.Locale.forLanguageTag(code)
+        return locale.getDisplayName(java.util.Locale.forLanguageTag(APIConfig.hl)).ifEmpty { code }
+            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
+    }
+
+    /** Switches the audio language ("Bản âm thanh"); later videos use the same language when they have it. */
+    fun selectAudioTrack(option: AudioTrackOption) {
+        preferredAudio = option.name to option.language
+        selectedAudioTrackId = option.id
+        Toasts.show("Bản âm thanh: ${option.name}")
+        if (currentVideo == null || isCasting || usesWebPlayer || isLocalPlayback) return
+        if (fallbackStage == 0 && !isAudioOnly && selectHlsAudio(option.id)) return
+        reloadStream()
+    }
+
+    /** HLS audio languages come from the player's tracks. */
+    private fun noteHlsAudioTracks(tracks: Tracks) {
+        if (fallbackStage != 0 || isAudioOnly || isLocalPlayback) return
+        val options = LinkedHashMap<String, AudioTrackOption>()
+        var selected: String? = null
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO || group.length == 0) continue
+            val format = group.getTrackFormat(0)
+            val key = format.label ?: format.language ?: continue
+            val isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0
+            options[key] = AudioTrackOption(key, format.label ?: languageName(format.language), format.language,
+                isDefault || options[key]?.isDefault == true)
+            if (group.isSelected) selected = key
+        }
+        audioTracks = if (options.size > 1) options.values.toList() else emptyList()
+        if (selected != null) selectedAudioTrackId = selected
+        if (preferredAudio != null && !appliedAudioPreference && options.size > 1) {
+            appliedAudioPreference = true
+            options.values.firstOrNull { matchesPreferredAudio(it.name, it.language) }
+                ?.takeIf { it.id != selected }
+                ?.let { selectHlsAudio(it.id) }
+        }
+    }
+
+    private fun selectHlsAudio(key: String): Boolean {
+        val group = exo.currentTracks.groups
+            .filter { it.type == C.TRACK_TYPE_AUDIO && it.length > 0 && (it.getTrackFormat(0).label ?: it.getTrackFormat(0).language) == key }
+            .maxByOrNull { if (AppSettings.savesData) -it.getTrackFormat(0).bitrate else it.getTrackFormat(0).bitrate }
+            ?: return false
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0))
+            .build()
+        selectedAudioTrackId = key
+        return true
+    }
+
+    // MARK: Stable volume
+
+    private fun applyVolume() {
+        exo.volume = (loudnessGain * fadeGain).coerceIn(0f, 1f)
+    }
+
+    /** Turns loud videos down to YouTube's reference level ("Âm lượng ổn định"). */
+    fun refreshStableVolume() {
+        val loudness = playerInfo?.takeIf { it.videoId == currentVideo?.id }?.loudnessDb
+        loudnessGain = if (AppSettings.stableVolume && loudness != null && loudness > 0) 10.0.pow(-loudness / 20).toFloat() else 1f
+        applyVolume()
+    }
+
+    @JvmName("chooseStableVolume")
+    fun setStableVolume(on: Boolean) {
+        AppSettings.stableVolume = on
+        refreshStableVolume()
+    }
+
+    // MARK: Most replayed
+
+    /** The "Most replayed" graph of the current video. */
+    val heatmap: List<HeatMarker>
+        get() = watchInfo?.takeIf { it.videoId == currentVideo?.id }?.heatmap.orEmpty()
+
+    /** Start of the most replayed part still ahead (at least 10 s away), for "Jump ahead". */
+    val jumpAheadTarget: Double?
+        get() {
+            if (currentVideo?.isLive == true || playerInfo?.isLive == true) return null
+            val now = currentTime
+            val best = heatmap.filter { it.start + it.duration > now }.maxByOrNull { it.intensity } ?: return null
+            if (best.intensity < 0.6 || best.start <= now + 10) return null
+            return best.start
+        }
+
+    fun jumpAhead() {
+        val target = jumpAheadTarget ?: return
+        seek(target)
+        Toasts.show("Đã tua tới đoạn được xem lại nhiều nhất")
     }
 
     private fun loadWatchInfo(videoId: String) {
@@ -603,9 +749,16 @@ object PlayerController {
         }
     }
 
+    private val hasNetwork: Boolean
+        get() = appContext.getSystemService(ConnectivityManager::class.java)?.activeNetwork != null
+
     private suspend fun loadStream(video: VideoItem) {
-        DownloadManager.localFile(video.id)?.let { file ->
+        val download = DownloadManager.entry(video.id)
+        val file = DownloadManager.localFile(video.id)
+        // An audio-only download stands in for the video only offline or in audio-only mode.
+        if (download != null && file != null && (!download.isAudioOnly || isAudioOnly || !hasNetwork)) {
             isLocalPlayback = true
+            if (download.isAudioOnly) isAudioOnly = true
             startSource(progressive(Uri.fromFile(file).toString(), video), video)
             return
         }
@@ -614,6 +767,7 @@ object PlayerController {
             if (currentVideo?.id != video.id) return
             playerInfo = info
             matchFullscreenToVideo()
+            refreshStableVolume()
             Log.debug("stream ${video.id}: hls=${info.hlsUrl != null} adaptive=${info.adaptiveFormats.size} muxed=${info.muxedFormats.size} captions=${info.captions.size} adWait=${(info.availableAt - System.currentTimeMillis()) / 1000}s")
             captionTracks = info.captions
             if (duration <= 0 && info.lengthSeconds != null) duration = info.lengthSeconds.toDouble()
@@ -682,6 +836,7 @@ object PlayerController {
                     audioFormat(info)?.let {
                         fallbackStage = -1
                         audioDescription = "AAC ${it.bitrate / 1000} kbps"
+                        noteFormatAudioTracks(info, it)
                         Log.debug("audio only ${info.videoId}: progressive $audioDescription")
                         return progressive(it.url, video)
                     }
@@ -694,13 +849,17 @@ object PlayerController {
                 }
                 1 -> info.muxedFormats.filter { it.mimeType.contains("mp4") }.maxByOrNull { it.height ?: 0 }?.let {
                     fallbackStage = 1
+                    audioTracks = emptyList()
                     return progressive(it.url, video)
                 }
                 else -> {
                     val videoFormat = info.bestVideo(quality.maxHeight ?: 1080)
-                    val audioFormat = info.bestAudio
+                    val audioFormat = info.adaptiveFormats
+                        .filter { it.isAudio && it.isAAC && preferredAudio != null && matchesPreferredAudio(it.audioTrackName, it.audioLanguage) }
+                        .maxByOrNull { it.bitrate } ?: info.bestAudio
                     if (videoFormat != null && audioFormat != null) {
                         fallbackStage = 2
+                        noteFormatAudioTracks(info, audioFormat)
                         return MergingMediaSource(progressive(videoFormat.url, video), progressive(audioFormat.url, video))
                     }
                 }
@@ -823,6 +982,11 @@ object PlayerController {
             isPlaying = exo.isPlaying || (exo.playWhenReady && state == Player.STATE_BUFFERING)
         }
 
+        override fun onTracksChanged(tracks: Tracks) {
+            if (isCasting || usesWebPlayer) return
+            noteHlsAudioTracks(tracks)
+        }
+
         override fun onVideoSizeChanged(videoSize: VideoSize) {
             if (videoSize.width <= 0 || videoSize.height <= 0) return
             pictureSize = videoSize.width to videoSize.height
@@ -915,7 +1079,8 @@ object PlayerController {
         sleepTimerEnd = null
         sleepRemaining = null
         sleepAtEndOfVideo = false
-        exo.volume = 1f
+        fadeGain = 1f
+        applyVolume()
         if (minutes == null) {
             Toasts.show("Đã tắt hẹn giờ")
             return
@@ -934,7 +1099,8 @@ object PlayerController {
         val base = maxOf(sleepTimerEnd ?: 0L, System.currentTimeMillis())
         sleepJob?.cancel()
         sleepAtEndOfVideo = false
-        exo.volume = 1f
+        fadeGain = 1f
+        applyVolume()
         startSleepCountdown(base + minutes * 60_000L)
         Toasts.show("Đã thêm $minutes phút")
     }
@@ -955,12 +1121,16 @@ object PlayerController {
                 val remaining = end - System.currentTimeMillis()
                 sleepRemaining = ((remaining + 999) / 1000).toInt().coerceAtLeast(0)
                 // Fade the sound out over the last 10 seconds, like a sleep timer should.
-                if (remaining in 1..10_000) exo.volume = remaining / 10_000f
+                if (remaining in 1..10_000) {
+                    fadeGain = remaining / 10_000f
+                    applyVolume()
+                }
                 if (remaining <= 0) {
                     sleepTimerEnd = null
                     sleepRemaining = null
                     pause()
-                    exo.volume = 1f
+                    fadeGain = 1f
+                    applyVolume()
                     Toasts.show("Đã hết giờ hẹn — đã dừng phát")
                     return@launch
                 }
@@ -1051,6 +1221,8 @@ object PlayerController {
             lines += "Tốc độ phát" to "${rate}x"
             lines += "Mạng" to if (AppSettings.isMeteredNetwork) "Dữ liệu di động" else "Wi-Fi"
             if (AppSettings.savesData) lines += "Tiết kiệm dữ liệu" to "Đang bật"
+            if (Equalizer.isEnabled) lines += "Bộ chỉnh âm" to Equalizer.presetTitle
+            if (loudnessGain < 1f) lines += "Âm lượng ổn định" to String.format(java.util.Locale.ROOT, "%.1f dB", 20 * kotlin.math.log10(loudnessGain.toDouble()))
             return lines
         }
 
@@ -1238,6 +1410,19 @@ object PlayerController {
     /** Local file of a downloaded video, if any (cannot be cast). */
     fun localFile(videoId: String): File? = DownloadManager.localFile(videoId)
 
+    /** Android Auto (or another media browser) picked something to play. */
+    fun playFromSession(items: List<MediaItem>, startIndex: Int, startPositionMs: Long) {
+        val videos = items.mapNotNull(AutoLibrary::video)
+        if (videos.isEmpty()) return
+        val index = startIndex.coerceIn(0, videos.lastIndex)
+        val queue = if (videos.size == 1) AutoLibrary.queueFor(videos[0].id) ?: videos else videos
+        val start = if (startPositionMs > 0 && startPositionMs != C.TIME_UNSET) startPositionMs / 1000.0 else null
+        val expanded = isExpanded
+        play(videos[index], queue, start)
+        // The phone keeps showing whatever it showed.
+        isExpanded = expanded
+    }
+
     /** Notification / headset controls go through the app's own logic. */
     private class SessionPlayer(player: ExoPlayer) : ForwardingPlayer(player) {
         override fun getAvailableCommands(): Player.Commands =
@@ -1256,5 +1441,20 @@ object PlayerController {
         override fun seekToNextMediaItem() = PlayerController.playNext()
         override fun seekToPrevious() = PlayerController.playPrevious()
         override fun seekToPreviousMediaItem() = PlayerController.playPrevious()
+
+        // Media browsers (Android Auto) set items by id: play them through the app.
+        override fun setMediaItems(mediaItems: MutableList<MediaItem>) = PlayerController.playFromSession(mediaItems, 0, C.TIME_UNSET)
+        override fun setMediaItems(mediaItems: MutableList<MediaItem>, resetPosition: Boolean) =
+            PlayerController.playFromSession(mediaItems, 0, C.TIME_UNSET)
+        override fun setMediaItems(mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long) =
+            PlayerController.playFromSession(mediaItems, startIndex, startPositionMs)
+        override fun setMediaItem(mediaItem: MediaItem) = PlayerController.playFromSession(listOf(mediaItem), 0, C.TIME_UNSET)
+        override fun setMediaItem(mediaItem: MediaItem, startPositionMs: Long) =
+            PlayerController.playFromSession(listOf(mediaItem), 0, startPositionMs)
+        override fun setMediaItem(mediaItem: MediaItem, resetPosition: Boolean) =
+            PlayerController.playFromSession(listOf(mediaItem), 0, C.TIME_UNSET)
+        override fun addMediaItems(mediaItems: MutableList<MediaItem>) {
+            mediaItems.mapNotNull(AutoLibrary::video).forEach { PlayerController.addToQueue(it) }
+        }
     }
 }
