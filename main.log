@@ -1,0 +1,44 @@
+2026-10-24 23:10:48.440 INFO DVDTube 1.0.68 (Electron 43.7.7, win32) — smoke mode
+2026-10-24 23:10:48.988 INFO accounts: 0 stored, signed in: false
+2026-10-24 23:10:49.048 INFO smoke: core-ipc ok — storeWrite / storeRead ok
+2026-10-24 23:10:49.193 INFO remote config -> HTTP 404
+2026-10-24 23:10:49.194 INFO remote config -> HTTP 404
+2026-10-24 23:10:49.195 INFO smoke: core-remote-config ok — player clients: VISIONOS 1.04; web 2.20261019.01.00
+2026-10-24 23:10:49.715 INFO WEB search -> HTTP 200, 400649 chars
+2026-10-24 23:10:49.942 INFO WEB search -> HTTP 200, 713858 chars
+2026-10-24 23:10:49.948 INFO smoke: core-search ok — 22 items, 44 videos, more: yes
+2026-10-24 23:10:50.046 INFO VISIONOS visitor_id -> HTTP 200, 532 chars
+2026-10-24 23:10:50.209 INFO VISIONOS player -> HTTP 200, 755 chars
+2026-10-24 23:10:50.209 INFO player(jNQXAC9IVRw) via VISIONOS failed: Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:10:50.242 INFO ANDROID_VR visitor_id -> HTTP 200, 731 chars
+2026-10-24 23:10:50.345 INFO ANDROID_VR player -> HTTP 200, 985 chars
+2026-10-24 23:10:50.346 INFO player(jNQXAC9IVRw) via ANDROID_VR failed: Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:10:50.346 WARN smoke: core-player failed — Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:10:51.324 INFO WEB search -> HTTP 200, 533042 chars
+2026-10-24 23:10:52.340 INFO smoke: home ok — 20 video
+2026-10-24 23:10:53.027 INFO WEB search -> HTTP 200, 699782 chars
+2026-10-24 23:10:54.752 INFO smoke: search ok — 19 kết quả cho "nhạc trẻ remix"
+2026-10-24 23:10:54.883 INFO VISIONOS player -> HTTP 200, 755 chars
+2026-10-24 23:10:54.883 INFO player(I1nee4q6nrk) via VISIONOS failed: Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:10:54.980 INFO ANDROID_VR player -> HTTP 200, 985 chars
+2026-10-24 23:10:54.981 INFO player(I1nee4q6nrk) via ANDROID_VR failed: Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:10:54.981 WARN player: Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:10:55.332 INFO WEB next -> HTTP 200, 617133 chars
+2026-10-24 23:10:55.498 INFO WEB next -> HTTP 200, 257769 chars
+2026-10-24 23:10:56.590 INFO smoke: watch SKIPPED — Đăng nhập để xác nhận bạn không phải là robot — YouTube yêu cầu xác nhận không phải robot với địa chỉ IP của máy CI — bước này chỉ chạy được trên mạng thường
+2026-10-24 23:10:58.124 INFO smoke: watch-details ok — "NHẠC REMIX TIKTOK TRIỆU VIEW - BXH Nhạc Trẻ Remix Hay Nhất H" • 20 video liên quan • 20 bình luận
+2026-10-24 23:10:58.337 INFO WEB browse -> HTTP 200, 432525 chars
+2026-10-24 23:10:59.936 INFO smoke: channel ok — H2O Remix • 30 video
+2026-10-24 23:11:00.360 INFO WEB search -> HTTP 200, 508739 chars
+2026-10-24 23:11:01.507 INFO smoke: mini-player SKIPPED — YouTube yêu cầu xác nhận không phải robot với địa chỉ IP của máy CI — bước này chỉ chạy được trên mạng thường
+2026-10-24 23:11:02.080 INFO WEB search -> HTTP 200, 466888 chars
+2026-10-24 23:11:02.191 INFO VISIONOS player -> HTTP 200, 755 chars
+2026-10-24 23:11:02.192 INFO player(DNvE_uLAWyA) via VISIONOS failed: Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:11:02.280 INFO ANDROID_VR player -> HTTP 200, 985 chars
+2026-10-24 23:11:02.281 INFO player(DNvE_uLAWyA) via ANDROID_VR failed: Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:11:02.281 WARN player: Đăng nhập để xác nhận bạn không phải là robot
+2026-10-24 23:11:02.670 INFO WEB next -> HTTP 200, 365110 chars
+2026-10-24 23:11:04.052 INFO smoke: shorts SKIPPED — YouTube yêu cầu xác nhận không phải robot với địa chỉ IP của máy CI — bước này chỉ chạy được trên mạng thường
+2026-10-24 23:11:05.821 INFO smoke: settings ok — 11 mục
+2026-10-24 23:11:05.822 INFO smoke: finish ok — Tất cả các bước đều đạt
+2026-10-24 23:11:05.822 INFO smoke: finished, 13 steps, 0 failed → exit 0

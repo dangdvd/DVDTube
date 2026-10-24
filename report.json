@@ -1,0 +1,108 @@
+[
+  {
+    "name": "core-ipc",
+    "ok": true,
+    "detail": "storeWrite / storeRead ok",
+    "informational": true,
+    "time": "2026-10-24T23:10:49.047Z",
+    "elapsedMs": 608
+  },
+  {
+    "name": "core-remote-config",
+    "ok": true,
+    "detail": "player clients: VISIONOS 1.04; web 2.20261019.01.00",
+    "informational": true,
+    "time": "2026-10-24T23:10:49.195Z",
+    "elapsedMs": 756
+  },
+  {
+    "name": "core-search",
+    "ok": true,
+    "detail": "22 items, 44 videos, more: yes",
+    "informational": true,
+    "time": "2026-10-24T23:10:49.948Z",
+    "elapsedMs": 1509
+  },
+  {
+    "name": "core-player",
+    "ok": false,
+    "detail": "Đăng nhập để xác nhận bạn không phải là robot",
+    "informational": true,
+    "time": "2026-10-24T23:10:50.346Z",
+    "elapsedMs": 1907
+  },
+  {
+    "name": "home",
+    "ok": true,
+    "detail": "20 video",
+    "screenshot": "home.png",
+    "time": "2026-10-24T23:10:52.340Z",
+    "elapsedMs": 3901
+  },
+  {
+    "name": "search",
+    "ok": true,
+    "detail": "19 kết quả cho \"nhạc trẻ remix\"",
+    "screenshot": "search.png",
+    "time": "2026-10-24T23:10:54.752Z",
+    "elapsedMs": 6313
+  },
+  {
+    "name": "watch",
+    "ok": false,
+    "skipped": true,
+    "detail": "Đăng nhập để xác nhận bạn không phải là robot — YouTube yêu cầu xác nhận không phải robot với địa chỉ IP của máy CI — bước này chỉ chạy được trên mạng thường",
+    "screenshot": "watch.png",
+    "time": "2026-10-24T23:10:56.590Z",
+    "elapsedMs": 8151
+  },
+  {
+    "name": "watch-details",
+    "ok": true,
+    "detail": "\"NHẠC REMIX TIKTOK TRIỆU VIEW - BXH Nhạc Trẻ Remix Hay Nhất H\" • 20 video liên quan • 20 bình luận",
+    "screenshot": "watch-details.png",
+    "time": "2026-10-24T23:10:58.124Z",
+    "elapsedMs": 9685
+  },
+  {
+    "name": "channel",
+    "ok": true,
+    "detail": "H2O Remix • 30 video",
+    "screenshot": "channel.png",
+    "time": "2026-10-24T23:10:59.936Z",
+    "elapsedMs": 11497
+  },
+  {
+    "name": "mini-player",
+    "ok": false,
+    "skipped": true,
+    "detail": "YouTube yêu cầu xác nhận không phải robot với địa chỉ IP của máy CI — bước này chỉ chạy được trên mạng thường",
+    "screenshot": "mini-player.png",
+    "time": "2026-10-24T23:11:01.506Z",
+    "elapsedMs": 13067
+  },
+  {
+    "name": "shorts",
+    "ok": false,
+    "skipped": true,
+    "detail": "YouTube yêu cầu xác nhận không phải robot với địa chỉ IP của máy CI — bước này chỉ chạy được trên mạng thường",
+    "screenshot": "shorts.png",
+    "time": "2026-10-24T23:11:04.052Z",
+    "elapsedMs": 15613
+  },
+  {
+    "name": "settings",
+    "ok": true,
+    "detail": "11 mục",
+    "screenshot": "settings.png",
+    "time": "2026-10-24T23:11:05.821Z",
+    "elapsedMs": 17382
+  },
+  {
+    "name": "finish",
+    "ok": true,
+    "detail": "Tất cả các bước đều đạt",
+    "time": "2026-10-24T23:11:05.822Z",
+    "elapsedMs": 17383
+  }
+]
