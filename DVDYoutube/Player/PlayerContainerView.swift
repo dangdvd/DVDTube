@@ -46,8 +46,13 @@ struct PlayerContainerView: View {
                 PlayerSurface(mode: fullscreen ? .fullscreen : (expanded ? .inline : .mini),
                               insets: Self.rotate(insets, quarterTurns: turns))
                     .frame(width: surfaceWidth, height: surfaceHeight)
-                    .gesture(swipeGesture(fullscreen: fullscreen, width: surfaceWidth, height: surfaceHeight),
-                             including: expanded && !player.isScreenLocked ? .all : .subviews)
+                    .background {
+                        PageDragTracker(isEnabled: expanded && !fullscreen,
+                                        onChanged: { dy in dragOffset = max(dy, 0) },
+                                        onEnded: endPageDrag)
+                    }
+                    .gesture(fullscreenSwipeGesture(width: surfaceWidth),
+                             including: fullscreen && !player.isScreenLocked ? .all : .subviews)
                     .rotationEffect(.degrees(Double(turns) * 90))
                     .frame(width: videoWidth, height: videoHeight)
                     .animation(.easeInOut(duration: 0.3), value: turns)
@@ -108,38 +113,35 @@ struct PlayerContainerView: View {
     }
 
     /// Same gestures as the official app: on the portrait watch page swipe up for
-    /// fullscreen and down for the mini player; in fullscreen swipe down to exit.
-    /// In fullscreen (when enabled) a vertical swipe starting on the left 35% sets the
-    /// brightness and on the right 35% the volume; the middle keeps swipe-down-to-exit.
-    /// On the watch page the drag is measured in screen coordinates: the page follows the finger,
-    /// so in its own coordinates the translation would shrink as it moves and the video would jitter.
-    private func swipeGesture(fullscreen: Bool, width: CGFloat, height: CGFloat) -> some Gesture {
-        let space: CoordinateSpace = fullscreen ? .local : .global
-        return DragGesture(minimumDistance: 24, coordinateSpace: space)
-            .onChanged { value in
-                guard !fullscreen, abs(value.translation.height) > abs(value.translation.width) else { return }
-                if value.translation.height > 0 { dragOffset = value.translation.height }
+    /// fullscreen and down for the mini player (the page follows the finger).
+    private func endPageDrag(translation: CGSize, velocity: CGSize) {
+        let dy = translation.height
+        let predicted = dy + velocity.height * 0.25
+        let isVertical = abs(dy) >= abs(translation.width)
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) {
+            dragOffset = 0
+            if isVertical && (dy < -50 || predicted < -200) {
+                player.enterFullscreen()
+            } else if isVertical && (dy > 120 || predicted > 300) {
+                player.isExpanded = false
             }
+        }
+    }
+
+    /// In fullscreen swipe down to exit. When enabled, a vertical swipe starting on the left 35%
+    /// sets the brightness and on the right 35% the volume (handled in the player).
+    private func fullscreenSwipeGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 24)
             .onEnded { value in
-                // Side swipes in fullscreen set brightness / volume (handled in the player).
-                if fullscreen, settings.swipeControls, !player.usesWebPlayer {
+                if settings.swipeControls, !player.usesWebPlayer {
                     let fraction = value.startLocation.x / max(width, 1)
                     if fraction < 0.35 || fraction > 0.65 { return }
                 }
                 let dy = value.translation.height
-                let predicted = value.predictedEndTranslation.height
                 let isVertical = abs(dy) > abs(value.translation.width)
-                let swipedUp = isVertical && (dy < -50 || predicted < -200)
-                let swipedDown = isVertical && (dy > (fullscreen ? 50 : 120) || predicted > (fullscreen ? 200 : 300))
+                guard isVertical, dy > 50 || value.predictedEndTranslation.height > 200 else { return }
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) {
-                    dragOffset = 0
-                    if fullscreen {
-                        if swipedDown { player.exitFullscreen() }
-                    } else if swipedUp {
-                        player.enterFullscreen()
-                    } else if swipedDown {
-                        player.isExpanded = false
-                    }
+                    player.exitFullscreen()
                 }
             }
     }
@@ -234,6 +236,107 @@ struct PlayerLayerView: UIViewRepresentable {
         if view.playerLayer.videoGravity != gravity { view.playerLayer.videoGravity = gravity }
         if view.playerLayer.player == nil, UIApplication.shared.applicationState == .active {
             view.playerLayer.player = player
+        }
+    }
+}
+
+/// Drag on the watch page's video, tracked by UIKit in window coordinates. A SwiftUI drag
+/// gesture on the video moves with the page it drags, so its translation fed back into the
+/// offset and the page jumped back and forth every frame during a slow drag.
+struct PageDragTracker: UIViewRepresentable {
+    var isEnabled: Bool
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (_ translation: CGSize, _ velocity: CGSize) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> AnchorView {
+        let view = AnchorView()
+        view.isUserInteractionEnabled = false
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ view: AnchorView, context: Context) {
+        context.coordinator.tracker = self
+    }
+
+    static func dismantleUIView(_ view: AnchorView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    /// Marks where drags may start; the recognizer itself sits on the window's root view.
+    final class AnchorView: UIView {
+        weak var coordinator: Coordinator?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            coordinator?.attach(to: self)
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var tracker: PageDragTracker
+        private weak var anchor: UIView?
+        private var pan: UIPanGestureRecognizer?
+
+        init(_ tracker: PageDragTracker) {
+            self.tracker = tracker
+        }
+
+        func attach(to anchor: UIView) {
+            self.anchor = anchor
+            guard let host = anchor.window?.rootViewController?.view else {
+                detach()
+                return
+            }
+            if pan?.view === host { return }
+            detach()
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+            pan.cancelsTouchesInView = false
+            pan.delaysTouchesEnded = false
+            pan.delegate = self
+            host.addGestureRecognizer(pan)
+            self.pan = pan
+        }
+
+        func detach() {
+            if let pan { pan.view?.removeGestureRecognizer(pan) }
+            pan = nil
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard tracker.isEnabled, let anchor, anchor.window != nil else { return false }
+            return anchor.bounds.contains(touch.location(in: anchor))
+        }
+
+        /// Only a mostly vertical drag moves the page (a sideways one may be the seek bar).
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+            let velocity = pan.velocity(in: nil)
+            let translation = pan.translation(in: nil)
+            return abs(velocity.y) + abs(translation.y) * 10 > abs(velocity.x) + abs(translation.x) * 10
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+            let translation = pan.translation(in: nil)
+            switch pan.state {
+            case .began, .changed:
+                tracker.onChanged(translation.y)
+            case .ended:
+                let velocity = pan.velocity(in: nil)
+                tracker.onEnded(CGSize(width: translation.x, height: translation.y),
+                                CGSize(width: velocity.x, height: velocity.y))
+            case .cancelled, .failed:
+                tracker.onEnded(.zero, .zero)
+            default:
+                break
+            }
         }
     }
 }
