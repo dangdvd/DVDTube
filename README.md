@@ -19,8 +19,8 @@ hình trong hình (PiP), tải video xem offline.
 | Trang chủ | Gợi ý dựa trên nhật ký xem + video mới của kênh đăng ký + Shorts; chip Âm nhạc, Trò chơi, Trực tiếp, Podcast, Tin tức, Thể thao, Học tập, Phim. |
 | Shorts | Vuốt dọc toàn màn hình, tự lặp, tải trước video kế tiếp, thích / bình luận / chia sẻ. |
 | Kênh đăng ký | Đăng ký không cần tài khoản; nhập/xuất từ Google Takeout (`subscriptions.csv`). |
-| Trang xem video | Mini player kéo xuống/lên, vuốt lên toàn màn hình (video dọc giữ màn hình dọc, chỉ video ngang mới xoay ngang; nút xoay 90° theo/ngược chiều kim đồng hồ khi toàn màn hình), chạm đúp tua ±10 giây, xem trước khung hình khi kéo thanh tua, chương (chapters), chất lượng, tốc độ, phụ đề (kể cả tự dịch sang tiếng Việt), AirPlay, hàng đợi. |
-| Điều khiển giống app gốc | Giữ màn hình để tua nhanh 2x, chụm hai ngón để phóng đầy màn hình, chạm hai lần để tua (5–60 giây, chỉnh được), tốc độ 0,25x–4x (kéo thanh trượt), lặp lại video, tự phát video tiếp theo có đếm ngược 5 giây, khóa màn hình (chống chạm nhầm), thống kê chi tiết (độ phân giải, bitrate, bộ đệm…), cỡ chữ và nền phụ đề. |
+| Trang xem video | Mini player kéo xuống/lên (trang đi theo ngón tay), vuốt lên toàn màn hình (video dọc giữ màn hình dọc, chỉ video ngang mới xoay ngang; nút xoay 90° theo/ngược chiều kim đồng hồ khi toàn màn hình), chạm đúp tua ±10 giây, xem trước khung hình khi kéo thanh tua, chương (chapters), chất lượng, tốc độ, phụ đề (kể cả tự dịch sang tiếng Việt), AirPlay, hàng đợi. |
+| Điều khiển giống app gốc | Giữ màn hình để tua nhanh 2x, chụm hai ngón để phóng đầy màn hình, chạm hai lần để tua (5–60 giây, chỉnh được), tốc độ 0,25x–4x (kéo thanh trượt), lặp lại video, tự phát video tiếp theo có đếm ngược 5 giây, khóa màn hình (nút 🔒 ngay trên thanh điều khiển, chống chạm nhầm), thống kê chi tiết (độ phân giải, bitrate, bộ đệm…), cỡ chữ và nền phụ đề. |
 | Hẹn giờ tắt | Nút 🌙 ngay dưới video và trong ⚙ trình phát: 5 phút → 2 giờ, khi hết video, hoặc tự chọn giờ/phút; hiện đồng hồ đếm ngược trên trình phát và mini player, thêm +5/+15/+30 phút, âm thanh nhỏ dần 10 giây cuối rồi dừng (chạy cả khi phát nền/khóa máy). |
 | Chỉ phát âm thanh | Nút 🎧 trên trình phát / dưới video: không tải hình, chỉ tải luồng âm thanh (~1 MB/phút, ~0,4 MB/phút khi tiết kiệm dữ liệu) — nghe nhạc, podcast bằng 4G rất tiết kiệm; tùy chọn tự bật khi dùng dữ liệu di động. |
 | Tiết kiệm dữ liệu | Khi dùng 4G/5G: video tối đa 360p, ảnh thu nhỏ cỡ nhỏ, không tải trước Shorts; tùy chọn chỉ tải xuống qua Wi-Fi. |
@@ -36,7 +36,7 @@ hình trong hình (PiP), tải video xem offline.
 | Âm thanh | Chọn **bản âm thanh** (ngôn ngữ lồng tiếng) cho video có nhiều ngôn ngữ, **âm lượng ổn định** (cân bằng độ to giữa các video). |
 | Phát lại nhiều nhất | Biểu đồ "phát lại nhiều nhất" trên thanh tua và nút **Tua tới đoạn hay**. |
 | Chế độ môi trường | Ở giao diện tối, màu của khung hình đang phát toả nhẹ ra quanh trình phát như app gốc. |
-| Vuốt chỉnh độ sáng / âm lượng | Khi toàn màn hình: vuốt dọc ở mép trái để chỉnh độ sáng, mép phải để chỉnh âm lượng (tắt được trong Cài đặt). |
+| Vuốt chỉnh độ sáng / âm lượng | Khi toàn màn hình: vuốt dọc ở mép trái để chỉnh độ sáng, mép phải để chỉnh âm lượng; thanh mức hiện ngay trong lúc vuốt (tắt được trong Cài đặt). |
 | Kênh | Tab **Bài đăng** (cộng đồng: chữ, ảnh, video, bình chọn), tab **Giới thiệu** (mô tả, liên kết, ngày tham gia, số lượt xem) và **tìm kiếm trong kênh**. |
 | Bộ lọc tìm kiếm | Ngày tải lên, loại, thời lượng, tính năng (Trực tiếp, 4K, HD, Phụ đề, 360°, HDR…), sắp xếp theo lượt xem / ngày tải lên / xếp hạng. |
 | Bình luận & đánh giá | Thích / không thích bình luận khi đã đăng nhập; hiện **số lượt không thích** của video (dữ liệu Return YouTube Dislike, tắt được). |
@@ -109,7 +109,7 @@ Android 8.0 trở lên. Mỗi lần build, GitHub Actions tạo cả tệp IPA (
    dữ liệu (đăng ký kênh, nhật ký, tải xuống…).
 
 Bản Android có đầy đủ các tính năng ở bảng trên: phát trong nền với điều khiển trên thông báo và màn
-hình khóa, hình trong hình (tự bật khi về màn hình chính), xoay ngang để xem toàn màn hình, Chromecast
+hình khóa (vuốt đóng ứng dụng khỏi danh sách gần đây thì dừng phát), hình trong hình (tự bật khi về màn hình chính), xoay ngang để xem toàn màn hình, Chromecast
 (qua Google Cast có sẵn trong Google Play services), đăng nhập Google, nhiều tài khoản/kênh thương
 hiệu, tải video lên, live chat, thông báo video mới (WorkManager, khoảng mỗi giờ), mở link YouTube
 được chia sẻ từ ứng dụng khác.
