@@ -214,11 +214,9 @@ export async function runSmoke(navigate: NavigateFunction): Promise<void> {
     navigate(paths.shorts())
     const video = await waitFor('Shorts đang phát', () => {
       const page = document.querySelector('[data-testid="shorts-page"]') ?? document.querySelector('[data-testid="content"]')
-      if (botBlocked && page?.querySelector('video') == null && page?.textContent && isBotCheck(page.textContent)) {
-        throw new SkipStep(BOT_CHECK_SKIP)
-      }
+      if (botBlocked && page?.textContent && isBotCheck(page.textContent)) throw new SkipStep(BOT_CHECK_SKIP)
       return page ? playingVideo(page) : null
-    }).catch((error) => {
+    }, botBlocked ? 30_000 : STEP_TIMEOUT_MS).catch((error) => {
       if (botBlocked && !(error instanceof SkipStep)) throw new SkipStep(BOT_CHECK_SKIP)
       throw error
     })
