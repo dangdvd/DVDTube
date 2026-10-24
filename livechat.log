@@ -1,0 +1,9 @@
+[DVDTube] WEB search -> HTTP 200, 452031 bytes
+[DVDTube] WEB search -> HTTP 200, 264964 bytes
+[DVDTube] WEB search -> HTTP 200, 420606 bytes
+[DVDTube] WEB next -> HTTP 200, 398848 bytes
+[DVDTube] home: related=[28] fresh=0 trending=20 shorts=40 total=41
+[DVDTube] WEB next -> HTTP 200, 720735 bytes
+[DVDTube] live chat probe: rFZHOHl-L8A modes=["Tin nhắn hàng đầu"] replay=false
+[DVDTube] live_chat page -> HTTP 200, 300109 bytes
+[DVDTube] live chat: 70 messages via page, next=true, canSend=false
