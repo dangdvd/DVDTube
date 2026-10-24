@@ -39,8 +39,9 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Swiping the app away stops playback unless something is still playing.
-        if (!PlayerController.exo.playWhenReady || PlayerController.exo.mediaItemCount == 0) stopSelf()
+        // Swiping the app away from Recents closes it: stop the sound and remove the notification.
+        PlayerController.appTaskRemoved()
+        stopSelf()
     }
 
     override fun onDestroy() {

@@ -111,8 +111,11 @@ struct PlayerContainerView: View {
     /// fullscreen and down for the mini player; in fullscreen swipe down to exit.
     /// In fullscreen (when enabled) a vertical swipe starting on the left 35% sets the
     /// brightness and on the right 35% the volume; the middle keeps swipe-down-to-exit.
+    /// On the watch page the drag is measured in screen coordinates: the page follows the finger,
+    /// so in its own coordinates the translation would shrink as it moves and the video would jitter.
     private func swipeGesture(fullscreen: Bool, width: CGFloat, height: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 24)
+        let space: CoordinateSpace = fullscreen ? .local : .global
+        return DragGesture(minimumDistance: 24, coordinateSpace: space)
             .onChanged { value in
                 guard !fullscreen, abs(value.translation.height) > abs(value.translation.width) else { return }
                 if value.translation.height > 0 { dragOffset = value.translation.height }

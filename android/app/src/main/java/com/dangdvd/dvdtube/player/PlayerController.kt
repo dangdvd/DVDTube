@@ -1303,6 +1303,13 @@ object PlayerController {
         if (!AppSettings.backgroundPlayback && !isInPictureInPicture) pause()
     }
 
+    /** The app was swiped away from Recents: stop playing here (a cast keeps playing on the TV). */
+    fun appTaskRemoved() {
+        saveProgress()
+        if (isCasting) return
+        close()
+    }
+
     // MARK: Web player fallback
 
     private fun shouldUseWebFallback(error: Exception): Boolean {
