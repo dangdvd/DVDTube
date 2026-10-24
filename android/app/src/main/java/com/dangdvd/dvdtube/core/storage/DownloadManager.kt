@@ -70,9 +70,9 @@ object DownloadManager {
     private lateinit var appContext: Context
     private val jobs = HashMap<String, Job>()
 
-    private data class Request(val video: VideoItem, val audioOnly: Boolean)
+    private data class QueuedDownload(val video: VideoItem, val audioOnly: Boolean)
     /** Downloads waiting their turn (one at a time), e.g. a whole playlist. */
-    private val queue = ArrayDeque<Request>()
+    private val queue = ArrayDeque<QueuedDownload>()
     private var queueJob: Job? = null
 
     var downloads by mutableStateOf(listOf<DownloadedVideo>())
@@ -137,7 +137,7 @@ object DownloadManager {
             return
         }
         for (video in fresh) {
-            queue.addLast(Request(video, audioOnly))
+            queue.addLast(QueuedDownload(video, audioOnly))
             setState(video.id, DownloadState.Queued)
         }
         activeTitles = activeTitles + fresh.associate { it.id to it.title.ifEmpty { it.id } }
