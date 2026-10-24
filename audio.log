@@ -1,0 +1,12 @@
+[DVDTube] VISIONOS visitor_id -> HTTP 200, 532 bytes
+[DVDTube] VISIONOS player -> HTTP 200, 771 bytes
+[DVDTube] player(aqz-KE-bpKQ) via VISIONOS failed: Đăng nhập để xác nhận bạn không phải là robot
+[DVDTube] stream aqz-KE-bpKQ failed: Đăng nhập để xác nhận bạn không phải là robot
+[DVDTube] switching to web player: Đăng nhập để xác nhận bạn không phải là robot
+[DVDTube] WEB search -> HTTP 200, 464020 bytes
+[DVDTube] WEB next -> HTTP 200, 393666 bytes
+[DVDTube] WEB search -> HTTP 200, 378412 bytes
+[DVDTube] WEB next -> HTTP 200, 386821 bytes
+[DVDTube] home: related=[24] fresh=0 trending=20 shorts=40 total=38
+[DVDTube] web player error: Sign in to confirm you’re not a bot
+

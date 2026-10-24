@@ -1,0 +1,16 @@
+[DVDTube] WEB search -> HTTP 200, 463788 bytes
+[DVDTube] WEB search -> HTTP 200, 379243 bytes
+[DVDTube] cast relay: ready on port 54094, fmp4=true, audio=fmp4
+[DVDTube] cast relay: TV got playlist -> 200, 2484 bytes
+[DVDTube] relay probe: master -> 200, 12 uris, all relayed=true, fmp4=true, cors=*, variants=8
+[DVDTube] WEB next -> HTTP 200, 397417 bytes
+[DVDTube] home: related=[28] fresh=0 trending=20 shorts=40 total=41
+[DVDTube] cast relay: TV got playlist -> 200, 8126 bytes
+[DVDTube] relay probe: media playlist -> 200, 101 uris, all relayed=true
+[DVDTube] cast relay: TV got segment -> 200, 150482312 bytes, video/mp4
+[DVDTube] relay probe: HEAD first resource -> 200, length=150482312
+[DVDTube] cast relay: TV got segment -> 206, 65536 bytes, video/mp4
+[DVDTube] relay probe: first resource range -> 206, 65536 bytes
+[DVDTube] cast relay: TV got segment -> 206, 1024 bytes, video/mp4
+[DVDTube] relay probe: segment range -> 206, 1024 bytes, content-range=bytes 0-1023/150482312
+[DVDTube] relay probe: preflight -> 204

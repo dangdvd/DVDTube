@@ -1,0 +1,17 @@
+[DVDTube] WEB search -> HTTP 200, 429585 bytes
+[DVDTube] WEB search -> HTTP 200, 376985 bytes
+[DVDTube] WEB next -> HTTP 200, 403387 bytes
+[DVDTube] home: related=[28] fresh=0 trending=20 shorts=40 total=41
+[DVDTube] WEB search -> HTTP 200, 377335 bytes
+[DVDTube] VISIONOS visitor_id -> HTTP 200, 532 bytes
+[DVDTube] VISIONOS visitor_id -> HTTP 200, 532 bytes
+[DVDTube] VISIONOS visitor_id -> HTTP 200, 530 bytes
+[DVDTube] VISIONOS player -> HTTP 200, 771 bytes
+[DVDTube] VISIONOS player -> HTTP 200, 769 bytes
+[DVDTube] player(XYxq5NnyOs8) via VISIONOS failed: Đăng nhập để xác nhận bạn không phải là robot
+[DVDTube] player(XYxq5NnyOs8) via VISIONOS failed: Đăng nhập để xác nhận bạn không phải là robot
+[DVDTube] VISIONOS player -> HTTP 200, 771 bytes
+[DVDTube] player(KyDcIguMuIY) via VISIONOS failed: Đăng nhập để xác nhận bạn không phải là robot
+[DVDTube] short KyDcIguMuIY: bot check, using web player
+[DVDTube] WEB next -> HTTP 200, 385512 bytes
+[DVDTube] WEB next -> HTTP 200, 386180 bytes

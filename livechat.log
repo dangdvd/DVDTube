@@ -1,0 +1,30 @@
+[DVDTube] WEB search -> HTTP 200, 487712 bytes
+[DVDTube] WEB search -> HTTP 200, 264979 bytes
+[DVDTube] WEB next -> HTTP 200, 398999 bytes
+[DVDTube] WEB search -> HTTP 200, 376953 bytes
+[DVDTube] home: related=[27] fresh=0 trending=20 shorts=40 total=41
+[DVDTube] WEB next -> HTTP 200, 725744 bytes
+[DVDTube] live chat probe: rFZHOHl-L8A modes=["Tin nhắn hàng đầu"] replay=false
+[DVDTube] live_chat page -> HTTP 200, 295464 bytes
+[DVDTube] live chat: 69 messages via page, next=true, canSend=false
+[DVDTube] WEB live_chat/get_live_chat -> HTTP 200, 5880 bytes
+[DVDTube] live chat: 3 messages via api, next=true, canSend=false
+[DVDTube] WEB live_chat/get_live_chat -> HTTP 200, 3421 bytes
+[DVDTube] live chat probe: 72 messages ["text": 71, "system": 1], badges=2, withPhoto=71, error=none, ended=false, views=["Tin nhắn hàng đầu", "Trò chuyện trực tiếp"]
+[DVDTube] live_chat page -> HTTP 200, 294134 bytes
+[DVDTube] live chat: 68 messages via page, next=true, canSend=false
+[DVDTube] WEB live_chat/get_live_chat -> HTTP 200, 5615 bytes
+[DVDTube] live chat: 3 messages via api, next=true, canSend=false
+[DVDTube] live chat probe: switched to Trò chuyện trực tiếp: 71 messages, error=none
+[DVDTube] WEB navigation/resolve_url -> HTTP 200, 1105 bytes
+[DVDTube] WEB browse -> HTTP 200, 365404 bytes
+[DVDTube] chat replay probe: @LofiGirl streams tab has 25 videos
+[DVDTube] WEB navigation/resolve_url -> HTTP 200, 1105 bytes
+[DVDTube] WEB browse -> HTTP 200, 431086 bytes
+[DVDTube] chat replay probe: @NASA streams tab has 30 videos
+[DVDTube] WEB next -> HTTP 200, 397261 bytes
+[DVDTube] chat replay probe: DWcJFNfaw9c chat=replay
+[DVDTube] live_chat_replay page -> HTTP 200, 228898 bytes
+[DVDTube] chat replay probe: DWcJFNfaw9c page messages=96 next=true seek=true
+[DVDTube] WEB live_chat/get_live_chat_replay -> HTTP 200, 124069 bytes
+[DVDTube] chat replay probe: at 10:00 messages=97 offsets=530871...657936 next=true
