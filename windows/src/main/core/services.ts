@@ -27,7 +27,7 @@ import {
   type WatchInfo,
 } from '@shared/models'
 import { AuthSession } from './auth'
-import { relativeDate, rssVideos } from './aux'
+import { relativeDate, rssVideos } from './extras'
 import { debug, isVietnamese } from './config'
 import { describeError, Errors } from './errors'
 import { RECENT_VIDEOS_PARAMS, VIDEOS_PARAMS, searchParams } from './filters'

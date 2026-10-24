@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { feedVideos } from '@shared/models'
-import { parseCaptions, parseRss, parseSponsorSegments, relativeDate } from '../core/aux'
+import { parseCaptions, parseRss, parseSponsorSegments, relativeDate } from '../core/extras'
 import { initialData } from '../core/innertube'
 import { JNode } from '../core/json'
 import { parseIdentities, parseNotifications, parsePlaylistOptions, parseProfile } from '../core/parsers/account'

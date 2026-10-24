@@ -15,7 +15,7 @@ import {
 import type { CoreConfig } from '@shared/settings'
 import * as accounts from './accounts'
 import { AuthSession } from './core/auth'
-import { dislikes, loadCaptions, sponsorSegments } from './core/aux'
+import { dislikes, loadCaptions, sponsorSegments } from './core/extras'
 import { refreshRemoteConfig } from './core/clients'
 import { coreState } from './core/config'
 import { Errors } from './core/errors'
