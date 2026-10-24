@@ -422,6 +422,8 @@ final class CastManager {
         }
         prepareTask?.cancel()
         loadTimeout?.cancel()
+        // Commands until the new media reports in must not go to the previous media session.
+        mediaSessionId = nil
         loadingVideo = video
         loadStartAt = startAt
         statusText = "Đang tải video lên TV…"
@@ -451,7 +453,7 @@ final class CastManager {
                         let relay = try await CastProxy.shared.prepare(hls: hls, host: host)
                         relayed = Candidate(
                             url: relay.url, contentType: "application/x-mpegurl",
-                            segmentFormat: relay.isFMP4 ? "fmp4" : "ts",
+                            segmentFormat: relay.audioFormat,
                             videoSegmentFormat: relay.isFMP4 ? "fmp4" : "mpeg2_ts",
                             live: streams.isLive, kind: "relay-hls"
                         )

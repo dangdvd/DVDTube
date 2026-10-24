@@ -15,6 +15,9 @@ final class CastProxy: @unchecked Sendable {
         var url: URL
         /// The playlists use fragmented MP4 (`#EXT-X-MAP`) rather than MPEG-TS segments.
         var isFMP4: Bool
+        /// What the audio segments really are, as the receiver names it (`hlsSegmentFormat`):
+        /// "ts", "aac" (packed ADTS audio) or "fmp4". YouTube keeps the sound in its own playlist.
+        var audioFormat: String
     }
 
     private enum Kind { case playlist, resource }
@@ -57,11 +60,11 @@ final class CastProxy: @unchecked Sendable {
         served = 0
         lock.unlock()
 
-        let isFMP4 = await detectFMP4(master: hls)
+        let formats = await probeFormats(master: hls)
         let path = register(hls, kind: .playlist)
         guard let url = URL(string: "http://\(Self.urlHost(host)):\(port)\(path)") else { throw URLError(.badURL) }
-        Log.debug("cast relay: ready on port \(port), fmp4=\(isFMP4)")
-        return Prepared(url: url, isFMP4: isFMP4)
+        Log.debug("cast relay: ready on port \(port), fmp4=\(formats.videoFMP4), audio=\(formats.audio)")
+        return Prepared(url: url, isFMP4: formats.videoFMP4, audioFormat: formats.audio)
     }
 
     func stop() {
@@ -181,14 +184,9 @@ final class CastProxy: @unchecked Sendable {
     }
 
     private func serve(_ route: Route, range: String?, includeBody: Bool, on connection: NWConnection) async {
-        var request = URLRequest(url: route.url)
+        let request = URLRequest(url: route.url)
         guard route.kind == .playlist else {
-            // Segments are streamed to the TV as they arrive instead of being held in memory.
-            if let range { request.setValue(range, forHTTPHeaderField: "Range") }
-            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-            let task = session.dataTask(with: request)
-            task.delegate = RelayStream(owner: self, connection: connection, includeBody: includeBody)
-            task.resume()
+            await serveSegment(route.url, range: range, includeBody: includeBody, on: connection)
             return
         }
         do {
@@ -206,6 +204,59 @@ final class CastProxy: @unchecked Sendable {
         } catch {
             Log.debug("cast relay: upstream failed: \(error.localizedDescription)")
             send(status: 502, headers: [:], body: Data(), on: connection)
+        }
+    }
+
+    /// A segment, fetched whole (one retry if it fails or comes back empty) and sent with its
+    /// real length and type: some receivers stall on bodies without a length.
+    private func serveSegment(_ url: URL, range: String?, includeBody: Bool, on connection: NWConnection) async {
+        var lastStatus = 502
+        for attempt in 0..<2 {
+            var request = URLRequest(url: url)
+            if let range, attempt == 0 { request.setValue(range, forHTTPHeaderField: "Range") }
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+                lastStatus = http.statusCode
+                guard (200..<300).contains(http.statusCode), !data.isEmpty else {
+                    Log.debug("cast relay: segment upstream -> \(http.statusCode), \(data.count) bytes\(attempt == 0 ? ", retrying" : "")")
+                    continue
+                }
+                let type = Self.mediaType(of: data) ?? http.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream"
+                var headers = ["Content-Type": type, "Accept-Ranges": "bytes"]
+                if let contentRange = http.value(forHTTPHeaderField: "Content-Range") { headers["Content-Range"] = contentRange }
+                noteSegment(status: http.statusCode, bytes: data.count, type: type)
+                send(status: http.statusCode, headers: headers, body: includeBody ? data : Data(), contentLength: data.count, on: connection)
+                return
+            } catch {
+                Log.debug("cast relay: segment upstream failed: \(error.localizedDescription)")
+            }
+        }
+        noteSegment(status: lastStatus == 200 ? 502 : lastStatus, bytes: 0, type: "-")
+        send(status: lastStatus == 200 ? 502 : lastStatus, headers: [:], body: Data(), on: connection)
+    }
+
+    /// The container of a segment from its first bytes.
+    private static func mediaType(of data: Data) -> String? {
+        guard data.count >= 8 else { return nil }
+        let bytes = [UInt8](data.prefix(12))
+        if bytes[0] == 0x47 { return "video/mp2t" }
+        if bytes[0] == 0xFF, bytes[1] & 0xF0 == 0xF0 { return "audio/aac" }
+        if bytes[0] == 0x49, bytes[1] == 0x44, bytes[2] == 0x33 { return "audio/aac" }  // "ID3" + ADTS
+        let box = String(decoding: bytes[4..<8], as: UTF8.self)
+        if ["ftyp", "styp", "moof", "sidx", "moov"].contains(box) { return "video/mp4" }
+        return nil
+    }
+
+    /// Logs the first segments (size and real type) and every failure.
+    private func noteSegment(status: Int, bytes: Int, type: String) {
+        lock.lock()
+        served += 1
+        let count = served
+        lock.unlock()
+        if count <= 10 || !(200..<300).contains(status) {
+            Log.debug("cast relay: TV got segment -> \(status), \(bytes) bytes, \(type)")
         }
     }
 
@@ -338,23 +389,56 @@ final class CastProxy: @unchecked Sendable {
         return String(rest.prefix { $0 != "," })
     }
 
-    /// Looks at the first usable media playlist: fMP4 segments come with `#EXT-X-MAP`.
-    private func detectFMP4(master: URL) async -> Bool {
-        guard let playlist = try? await session.data(from: master) else { return true }
-        let lines = String(decoding: playlist.0, as: UTF8.self).components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+    /// Looks at the playlists the TV will use: fMP4 segments come with `#EXT-X-MAP`; the
+    /// separate audio playlist's segments are sniffed, since the receiver must be told their
+    /// format and guessing wrong leaves it buffering forever.
+    private func probeFormats(master: URL) async -> (videoFMP4: Bool, audio: String) {
+        guard let playlist = try? await session.data(from: master) else { return (true, "fmp4") }
+        let lines = Self.lines(of: playlist.0)
         guard lines.contains(where: { $0.hasPrefix("#EXT-X-STREAM-INF") }) else {
-            return lines.contains { $0.hasPrefix("#EXT-X-MAP") }
+            let fmp4 = lines.contains { $0.hasPrefix("#EXT-X-MAP") }
+            return (fmp4, fmp4 ? "fmp4" : "ts")
         }
         let keep = Self.variantFilter(lines)
         var variantURL: URL?
+        var audioGroup: String?
         for (index, line) in lines.enumerated() where line.hasPrefix("#EXT-X-STREAM-INF") && keep(line) {
             if index + 1 < lines.count { variantURL = URL(string: lines[index + 1], relativeTo: master)?.absoluteURL }
+            audioGroup = Self.attribute("AUDIO", in: line)
             break
         }
-        guard let variantURL, let media = try? await session.data(from: variantURL) else { return true }
-        return String(decoding: media.0, as: UTF8.self).contains("#EXT-X-MAP")
+        var videoFMP4 = true
+        if let variantURL, let media = try? await session.data(from: variantURL) {
+            videoFMP4 = String(decoding: media.0, as: UTF8.self).contains("#EXT-X-MAP")
+        }
+        let renditions = lines.filter {
+            $0.hasPrefix("#EXT-X-MEDIA") && $0.contains("TYPE=AUDIO") && (audioGroup == nil || Self.attribute("GROUP-ID", in: $0) == audioGroup)
+        }
+        guard let rendition = renditions.first(where: { $0.contains("DEFAULT=YES") }) ?? renditions.first,
+              let uri = Self.attribute("URI", in: rendition),
+              let audioURL = URL(string: uri, relativeTo: master)?.absoluteURL else {
+            // The sound is inside the video segments.
+            return (videoFMP4, videoFMP4 ? "fmp4" : "ts")
+        }
+        guard let audioPlaylist = try? await session.data(from: audioURL) else { return (videoFMP4, videoFMP4 ? "fmp4" : "ts") }
+        let audioLines = Self.lines(of: audioPlaylist.0)
+        if audioLines.contains(where: { $0.hasPrefix("#EXT-X-MAP") }) { return (videoFMP4, "fmp4") }
+        guard let first = audioLines.first(where: { !$0.hasPrefix("#") }),
+              let segmentURL = URL(string: first, relativeTo: audioURL)?.absoluteURL else { return (videoFMP4, "ts") }
+        var request = URLRequest(url: segmentURL)
+        request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
+        guard let (head, _) = try? await session.data(for: request) else { return (videoFMP4, "ts") }
+        switch Self.mediaType(of: head) ?? "" {
+        case "audio/aac": return (videoFMP4, "aac")
+        case "video/mp4": return (videoFMP4, "fmp4")
+        default: return (videoFMP4, "ts")
+        }
+    }
+
+    private static func lines(of data: Data) -> [String] {
+        String(decoding: data, as: UTF8.self).components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     private static func urlHost(_ host: String) -> String {
@@ -383,55 +467,6 @@ final class CastProxy: @unchecked Sendable {
             if fallback == nil, name.hasPrefix("en"), !ip.hasPrefix("169.254.") { fallback = ip }
         }
         return fallback
-    }
-}
-
-/// Streams one upstream response to the TV: headers first, then each chunk as it arrives.
-private final class RelayStream: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private let owner: CastProxy
-    private let connection: NWConnection
-    private let includeBody: Bool
-    private var sentHead = false
-
-    init(owner: CastProxy, connection: NWConnection, includeBody: Bool) {
-        self.owner = owner
-        self.connection = connection
-        self.includeBody = includeBody
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
-                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        let http = response as? HTTPURLResponse
-        let status = http?.statusCode ?? 502
-        var headers = [
-            "Content-Type": http?.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream",
-            "Accept-Ranges": "bytes",
-        ]
-        if let contentRange = http?.value(forHTTPHeaderField: "Content-Range") { headers["Content-Range"] = contentRange }
-        let length = response.expectedContentLength
-        owner.note(isPlaylist: false, status: status, bytes: Int(max(length, 0)))
-        sentHead = true
-        connection.send(content: owner.head(status: status, headers: headers, contentLength: length >= 0 ? Int(length) : nil),
-                        completion: .contentProcessed { _ in })
-        completionHandler(includeBody ? .allow : .cancel)
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        connection.send(content: data, completion: .contentProcessed { error in
-            // The TV went away (e.g. it seeked): stop downloading.
-            if error != nil { dataTask.cancel() }
-        })
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if !sentHead {
-            Log.debug("cast relay: upstream failed: \(error?.localizedDescription ?? "no response")")
-            connection.send(content: owner.head(status: 502, headers: [:], contentLength: 0), completion: .contentProcessed { _ in })
-        }
-        let connection = connection
-        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in
-            connection.cancel()
-        })
     }
 }
 
