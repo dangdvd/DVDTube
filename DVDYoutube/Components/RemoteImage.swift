@@ -56,11 +56,14 @@ struct RemoteImage: View {
     @State private var image: UIImage?
 
     var body: some View {
+        // A cached image shows on the first render (no placeholder frame and no extra update
+        // per card while scrolling back through a feed).
+        let shown = image ?? url.flatMap { ImageLoader.shared.cached(dataSavingThumbnail($0)) }
         Rectangle()
             .fill(Color(.secondarySystemFill))
             .overlay {
-                if let image {
-                    Image(uiImage: image)
+                if let shown {
+                    Image(uiImage: shown)
                         .resizable()
                         .aspectRatio(contentMode: contentMode)
                         .transition(.opacity)
@@ -74,7 +77,7 @@ struct RemoteImage: View {
                 }
                 let url = dataSavingThumbnail(original)
                 if let cached = ImageLoader.shared.cached(url) {
-                    image = cached
+                    if image !== cached { image = cached }
                     return
                 }
                 image = nil

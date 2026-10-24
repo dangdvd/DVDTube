@@ -35,7 +35,8 @@ final class DownloadManager {
 
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var pending: [Request] = []
-    private static let maxConcurrent = 2
+    /// One at a time, so downloads leave bandwidth for the video being watched.
+    private static let maxConcurrent = 1
 
     private struct Request {
         var video: VideoItem
