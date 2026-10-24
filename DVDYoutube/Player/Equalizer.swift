@@ -249,11 +249,11 @@ enum EqualizerTap {
             unprepare: tapUnprepare,
             process: tapProcess
         )
-        var tap: MTAudioProcessingTap?
+        var created: Unmanaged<MTAudioProcessingTap>?
         let status = MTAudioProcessingTapCreate(
-            kCFAllocatorDefault, &callbacks, MTAudioProcessingTapCreationFlags(kMTAudioProcessingTapCreationFlag_PostEffects), &tap
+            kCFAllocatorDefault, &callbacks, MTAudioProcessingTapCreationFlags(kMTAudioProcessingTapCreationFlag_PostEffects), &created
         )
-        guard status == noErr, let tap else {
+        guard status == noErr, let tap = created?.takeRetainedValue() else {
             Unmanaged.passUnretained(processor).release()
             Log.debug("equalizer: tap creation failed (\(status))")
             return nil
