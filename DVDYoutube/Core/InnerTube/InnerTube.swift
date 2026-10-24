@@ -1,5 +1,23 @@
 import Foundation
 
+/// When the anonymous player request last met YouTube's bot check.
+enum BotCheck {
+    private static let lock = NSLock()
+    private static var lastSeen = Date.distantPast
+
+    static func note() {
+        lock.lock()
+        lastSeen = Date()
+        lock.unlock()
+    }
+
+    static var isRecent: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return Date().timeIntervalSince(lastSeen) < 600
+    }
+}
+
 enum InnerTubeError: LocalizedError {
     case http(Int)
     case unplayable(String)
@@ -155,6 +173,14 @@ final class InnerTube {
     // MARK: - Endpoints
 
     func player(videoId: String) async throws -> PlayerInfo {
+        let signedIn = AuthSession.shared.isAuthenticated
+        // Right after a bot check, go straight to the signed-in request (the anonymous one
+        // would only fail again and cost a round trip per video).
+        var triedSignedIn = false
+        if signedIn, BotCheck.isRecent {
+            triedSignedIn = true
+            if let info = try? await signedInPlayer(videoId: videoId) { return info }
+        }
         var lastError: Error = InnerTubeError.noStreams
         for profile in APIConfig.playerProfiles {
             for attempt in 0..<2 {
@@ -186,7 +212,31 @@ final class InnerTube {
                 }
             }
         }
+        if case InnerTubeError.loginRequired = lastError { BotCheck.note() }
+        // "Sign in to confirm you're not a bot" (or a video that needs an account): ask as the
+        // signed-in account through the web client, whose HLS stream needs no PO token.
+        if signedIn, !triedSignedIn {
+            do {
+                return try await signedInPlayer(videoId: videoId)
+            } catch {
+                Log.debug("player(\(videoId)) via signed-in WEB failed: \(error.localizedDescription)")
+            }
+        }
         throw lastError
+    }
+
+    /// The player endpoint as the signed-in account (WEB client with Safari's user agent, which
+    /// is what makes YouTube include an HLS manifest).
+    private func signedInPlayer(videoId: String) async throws -> PlayerInfo {
+        let json = try await web("player", body: [
+            "videoId": videoId,
+            "contentCheckOk": true,
+            "racyCheckOk": true,
+            "playbackContext": ["contentPlaybackContext": ["html5Preference": "HTML5_PREF_WANTS"]],
+        ])
+        let info = try PlayerParser.parse(json, videoId: videoId)
+        Log.debug("player(\(videoId)) via signed-in WEB: hls=\(info.hlsURL != nil) adaptive=\(info.adaptiveFormats.count)")
+        return info
     }
 
     func search(query: String, params: String?) async throws -> JNode {
