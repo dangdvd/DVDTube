@@ -43,6 +43,22 @@ adb shell input keyevent KEYCODE_HOME
 sleep 6
 shot pip
 
+# The Android TV interface (same APK; the phone emulator turns landscape for it).
+scenario tv-home 35 -n "$PACKAGE/.tv.TvActivity"
+adb shell input keyevent KEYCODE_DPAD_DOWN
+sleep 2
+shot tv-focus
+scenario tv-search 20 -n "$PACKAGE/.tv.TvActivity" -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT "'lofi hip hop'"
+scenario tv-watch 40 -n "$PACKAGE/.tv.TvActivity" -a android.intent.action.VIEW -d "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+adb shell input keyevent KEYCODE_DPAD_CENTER
+sleep 3
+shot tv-controls
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+adb shell input keyevent KEYCODE_BACK
+sleep 3
+shot tv-back
+
 adb logcat -d > "$OUT/logcat.txt"
 if adb shell pidof "$PACKAGE" >/dev/null; then echo "app process alive"; else echo "app process NOT running"; fi
 

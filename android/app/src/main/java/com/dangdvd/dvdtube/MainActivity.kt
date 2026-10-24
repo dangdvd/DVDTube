@@ -24,11 +24,14 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.dangdvd.dvdtube.core.AppSettings
+import com.dangdvd.dvdtube.core.TvLogin
 import com.dangdvd.dvdtube.core.VideoItem
 import com.dangdvd.dvdtube.core.services.NewVideoWorker
 import com.dangdvd.dvdtube.core.services.YouTubeService
 import com.dangdvd.dvdtube.player.PlaybackService
 import com.dangdvd.dvdtube.player.PlayerController
+import com.dangdvd.dvdtube.player.Toasts
+import com.dangdvd.dvdtube.tv.TvActivity
 import com.dangdvd.dvdtube.ui.DVDTubeTheme
 import com.dangdvd.dvdtube.ui.MainScreen
 import com.dangdvd.dvdtube.ui.Route
@@ -46,6 +49,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (TvActivity.isTelevision(this)) {
+            // On a TV, links and shared text open in the TV interface.
+            startActivity(Intent(intent).setClass(this, TvActivity::class.java))
+            finish()
+            return
+        }
         enableEdgeToEdge()
         setContent { DVDTubeTheme { MainScreen() } }
         // A recreated activity gets the launch intent again: it was already handled.
@@ -79,12 +88,22 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (TvActivity.isTelevision(this)) {
+            startActivity(Intent(intent).setClass(this, TvActivity::class.java))
+            return
+        }
         handleIntent(intent)
     }
 
     /** YouTube links, shared text and taps on "new video" notifications. */
     private fun handleIntent(intent: Intent?) {
         intent ?: return
+        // The QR code of "Sign in from the phone" on DVDTube for TV.
+        if (intent.data?.scheme == "dvdtube" && intent.data?.host == "tv-login") {
+            val invite = TvLogin.parse(intent.dataString ?: "")
+            if (invite == null) Toasts.show("Mã đăng nhập TV không hợp lệ hoặc không thuộc mạng nội bộ") else Router.tvLoginInvite = invite
+            return
+        }
         intent.getStringExtra(NewVideoWorker.EXTRA_VIDEO_ID)?.let { id ->
             PlayerController.play(VideoItem(id = id, title = intent.getStringExtra(NewVideoWorker.EXTRA_TITLE) ?: ""))
             return

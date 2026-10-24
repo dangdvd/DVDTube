@@ -62,7 +62,8 @@ Vào tab **Bạn** (hoặc *Cài đặt*) → **Đăng nhập tài khoản Googl
 
 Cách hoạt động: bạn đăng nhập trên chính trang của Google (mật khẩu không đi qua ứng dụng). Ứng dụng
 chỉ giữ lại *phiên YouTube* (cookie của youtube.com), lưu trong **Keychain** của máy, và chỉ gửi
-chúng tới `youtube.com` — giống như trang web YouTube làm.
+chúng tới `youtube.com` — giống như trang web YouTube làm. Ngoại lệ duy nhất: khi bạn quét mã QR *Đăng nhập
+bằng điện thoại* của DVDTube trên TV nhà mình và bấm *Gửi*, phiên được mã hoá rồi gửi tới TV đó qua mạng nội bộ.
 
 Nếu Google báo *"Trình duyệt hoặc ứng dụng này có thể không an toàn"*, dùng **Nhập cookie thủ
 công** (menu ⋯ trên màn hình đăng nhập): đăng nhập youtube.com trên máy tính (cửa sổ ẩn danh), xuất
@@ -112,6 +113,21 @@ hình khóa, hình trong hình (tự bật khi về màn hình chính), xoay nga
 (qua Google Cast có sẵn trong Google Play services), đăng nhập Google, nhiều tài khoản/kênh thương
 hiệu, tải video lên, live chat, thông báo video mới (WorkManager, khoảng mỗi giờ), mở link YouTube
 được chia sẻ từ ứng dụng khác.
+
+### Android TV / Google TV
+
+Dùng **chính tệp `DVDTube.apk`** ở trên: cài lên TV (Android 8.0 trở lên) là ứng dụng hiện giao diện riêng cho
+TV, điều khiển bằng remote, và có biểu tượng trên màn hình chính của TV.
+
+1. Chép `DVDTube.apk` vào USB rồi mở bằng trình quản lý tệp trên TV, hoặc dùng ứng dụng *Downloader* /
+   *Send Files to TV*; cho phép *Cài ứng dụng không rõ nguồn gốc* khi được hỏi.
+2. Menu bên trái: Tìm kiếm (có tìm bằng giọng nói), Trang chủ, Shorts, Kênh đăng ký, Thư viện, Tài khoản, Cài đặt.
+3. Khi xem: **OK** phát/tạm dừng, **◀ ▶** tua 10 giây (giữ để tua nhanh), **▲** hiện nút điều khiển (phụ đề,
+   chất lượng, tốc độ, chỉ âm thanh, bản âm thanh, EQ, hẹn giờ tắt, thích, đăng ký…), **▼** video tiếp theo.
+4. **Đăng nhập bằng điện thoại**: *Tài khoản › Đăng nhập bằng điện thoại* hiện mã QR — quét bằng Camera trên
+   iPhone (hoặc *Bạn › Đăng nhập cho TV* trong DVDTube trên Android), xác nhận trên điện thoại là TV đăng nhập.
+   Điện thoại và TV phải cùng mạng Wi-Fi. Phiên đăng nhập chỉ được gửi tới địa chỉ trong mạng nội bộ ghi
+   trong mã QR, đã mã hoá bằng khoá chỉ có trong mã đó. Cũng có thể *Đăng nhập trên TV* bằng trang của Google.
 
 ### Android Auto (nghe trong xe)
 

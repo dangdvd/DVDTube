@@ -46,6 +46,7 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -105,6 +106,7 @@ fun LibraryScreen() {
     val history = LibraryStore.history
     val signedIn = AccountStore.isSignedIn
     var creating by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     Scaffold(
         topBar = {
             TopAppBar(
@@ -155,6 +157,11 @@ fun LibraryScreen() {
                     item { LibraryRow(Icons.Outlined.AccountCircle, "Kênh của bạn") { Router.openChannel(id, AccountStore.profile?.name ?: "") } }
                 }
                 item { LibraryRow(Icons.Outlined.Notifications, "Thông báo") { Router.open(Route.Notifications()) } }
+                item {
+                    LibraryRow(Icons.Outlined.Tv, "Đăng nhập cho TV (quét mã QR)", "Mở DVDTube trên Android TV › Tài khoản") {
+                        com.dangdvd.dvdtube.ui.account.scanTvLoginCode(context)
+                    }
+                }
                 item { HorizontalDivider() }
             }
             item { LibraryRow(Icons.Outlined.Schedule, "Xem sau", if (signedIn) null else "${LibraryStore.watchLater.size} video") { Router.open(Route.WatchLater()) } }

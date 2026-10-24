@@ -60,6 +60,8 @@ object Router {
     var signInAddsAccount by mutableStateOf(false)
     var showAccountSwitcher by mutableStateOf(false)
     var showUpload by mutableStateOf(false)
+    /** A TV's "sign in from the phone" QR code was opened: confirm before sending the session. */
+    var tvLoginInvite by mutableStateOf<com.dangdvd.dvdtube.core.TvLogin.Invite?>(null)
 
     /** Shorts tapped somewhere else (search, home shelf, channel) to open in the Shorts tab. */
     var pendingShorts by mutableStateOf<Pair<List<VideoItem>, String>?>(null)
