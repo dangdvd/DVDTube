@@ -102,12 +102,61 @@ jobs:
           path: DVDTube.apk
           retention-days: 30
 
-  # Publishes a GitHub Release with the IPA and APK: for a pushed v* tag, or for a push whose
+  windows:
+    name: Build Windows app
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build installer and portable zip
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm version "1.0.${GITHUB_RUN_NUMBER}" --no-git-tag-version --allow-same-version
+          npx electron-vite build
+          npx electron-builder --win --x64 --publish never
+
+      - name: Collect
+        shell: bash
+        run: |
+          ls -la dist
+          mkdir -p ../win-out
+          cp dist/DVDTube-Setup.exe ../win-out/DVDTube-Setup.exe
+          cp dist/DVDTube-*-x64.zip ../win-out/DVDTube-Windows-portable.zip
+
+      - name: Upload Windows app
+        uses: actions/upload-artifact@v4
+        with:
+          name: DVDTube-windows
+          path: win-out/
+          retention-days: 30
+
+  # Publishes a GitHub Release with the IPA, APK and Windows installer: for a pushed v* tag, or for a push whose
   # commit message contains "[release]" (the tag v1.0.<run number> is then created here).
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
-    needs: [build, android]
+    needs: [build, android, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -121,11 +170,62 @@ jobs:
           TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v1.0.{0}', github.run_number) }}
         run: |
           gh release create "$TAG" artifacts/DVDTube-unsigned.ipa artifacts/DVDTube.apk \
+            artifacts/DVDTube-Setup.exe artifacts/DVDTube-Windows-portable.zip \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --latest \
             --title "DVDTube $TAG" \
-            --notes "IPA chưa ký cho iPhone (cài bằng SideStore, AltStore, Sideloadly…) và APK cho Android điện thoại và Android TV — xem README. Tải thẳng APK bản mới nhất: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/DVDTube.apk"
+            --notes "IPA chưa ký cho iPhone (cài bằng SideStore, AltStore, Sideloadly…), APK cho Android điện thoại và Android TV, DVDTube-Setup.exe (bộ cài) và DVDTube-Windows-portable.zip (bản chạy không cần cài) cho Windows 10/11 — xem README. Tải thẳng APK bản mới nhất: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/DVDTube.apk — bộ cài Windows mới nhất: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/DVDTube-Setup.exe"
+
+  windows-smoke:
+    name: Windows smoke test
+    needs: windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: DVDTube-windows
+          path: win-out
+
+      - name: Run app scenarios
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          Expand-Archive win-out/DVDTube-Windows-portable.zip -DestinationPath app
+          $out = Join-Path $PWD 'smoke-windows'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $p = Start-Process -FilePath 'app/DVDTube.exe' -ArgumentList "--smoke=$out" -PassThru -Wait
+          if (Test-Path "$out/report.json") { Get-Content "$out/report.json" }
+          if (Test-Path "$out/main.log") { Get-Content "$out/main.log" -Tail 80 }
+          exit $p.ExitCode
+
+      # Opt-in (commit message contains "[screenshots]"), like the iOS smoke test.
+      - name: Publish screenshots branch
+        if: always() && contains(github.event.head_commit.message, '[screenshots]')
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd smoke-windows
+          rm -rf userdata
+          git init -q -b ci-screenshots-windows
+          git add -A
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" \
+            commit -qm "Windows smoke test results for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots-windows
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-smoke-results
+          path: |
+            smoke-windows/
+            !smoke-windows/userdata/
+          retention-days: 14
 
   android-smoke:
     name: Android emulator smoke test

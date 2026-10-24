@@ -4,3 +4,4 @@ out-test/
 dist/
 *.log
 *.tsbuildinfo
+src/renderer/public/dev/

@@ -1,6 +1,6 @@
-# DVDTube — xem YouTube không quảng cáo trên iPhone và Android
+# DVDTube — xem YouTube không quảng cáo trên iPhone, Android và Windows
 
-Ứng dụng iOS (SwiftUI) và Android (Kotlin + Jetpack Compose) cùng tính năng, giao diện theo phong
+Ứng dụng iOS (SwiftUI), Android (Kotlin + Jetpack Compose) và Windows (Electron) cùng tính năng, giao diện theo phong
 cách ứng dụng YouTube chính thức nhưng **không có quảng cáo** và mở sẵn các tính năng của YouTube Premium: phát trong nền,
 hình trong hình (PiP), tải video xem offline.
 
@@ -142,6 +142,31 @@ Vì DVDTube không cài từ Google Play, cần bật một lần: mở ứng d�
 triển* → bật **Nguồn không xác định** (Unknown sources). Sau đó vào *Tùy chỉnh trình chạy* của
 Android Auto nếu DVDTube chưa hiện.
 
+## Cài đặt lên Windows
+
+Windows 10 / 11 (64-bit). Tải **bộ cài** bản mới nhất:
+**https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-Setup.exe**
+(hoặc `DVDTube-Windows-portable.zip` trong mục **Releases**: giải nén rồi chạy `DVDTube.exe`, không cần cài).
+
+1. Mở `DVDTube-Setup.exe`. Vì bộ cài chưa ký số, Windows SmartScreen có thể báo *"Windows đã bảo vệ
+   PC của bạn"*: bấm **Thông tin bổ sung** → **Vẫn chạy**.
+2. Chọn thư mục cài (mặc định trong tài khoản người dùng, không cần quyền quản trị) → **Cài đặt**.
+   Bộ cài tạo lối tắt trên Desktop và Start menu; bản sau cài đè lên, giữ nguyên dữ liệu.
+
+Bản Windows có các tính năng như bản điện thoại, giao diện theo YouTube trên máy tính: trang chủ theo
+chủ đề, tìm kiếm có bộ lọc, kênh, danh sách phát, Shorts, kênh đăng ký, nhật ký xem, Xem sau, tải video /
+âm thanh về máy (MP4 / M4A), đăng nhập Google (nhiều tài khoản, kênh thương hiệu) hoặc **đăng nhập
+bằng điện thoại** (quét mã QR bằng DVDTube trên điện thoại, như Android TV). Trình phát hỗ trợ tới
+4K/8K (VP9, AV1, H.264), chế độ rạp hát, toàn màn hình, trình phát mini khi duyệt trang khác, hình
+trong hình, phụ đề (tự dịch), bản âm thanh lồng tiếng, SponsorBlock, bộ chỉnh âm 10 băng tần với các
+mẫu Rock, Pop, EDM, Dance, Trap, Cổ điển, Jazz…, âm lượng ổn định, hẹn giờ tắt, phím media và nút
+⏮ ⏯ ⏭ trên thanh tác vụ, thu nhỏ xuống khay hệ thống, thông báo video mới của kênh đăng ký.
+
+Phím tắt giống YouTube: `Space`/`K` phát–tạm dừng (giữ `Space` để tua nhanh 2x), `J`/`L` lùi/tới 10 giây,
+`←`/`→` lùi/tới, `↑`/`↓` âm lượng, `M` tắt tiếng, `F` toàn màn hình, `T` rạp hát, `I` trình phát mini,
+`C` phụ đề, `Shift`+`<`/`>` tốc độ, `0`–`9` nhảy tới 0–90 %, `Shift`+`N`/`P` video tiếp theo / trước,
+`Ctrl`+`K` hoặc `/` tìm kiếm, dán (`Ctrl`+`V`) một link YouTube ở bất kỳ đâu để mở ngay.
+
 ## Cách hoạt động
 
 ```
@@ -180,11 +205,17 @@ DVDYoutube/
 Config/            Info.plist và remote-config.json
 android/           Ứng dụng Android (Gradle): cùng cấu trúc core/ (InnerTube, dịch vụ, lưu trữ),
                    player/ (Media3 ExoPlayer, MediaSession), cast/ (Google Cast + relay), ui/ (Compose)
+windows/           Ứng dụng Windows (Electron + React + TypeScript): src/main (InnerTube, tài khoản,
+                   tải xuống, cửa sổ), src/renderer (giao diện, trình phát shaka-player DASH/HLS)
 ```
 
 Bản Android dùng Media3 ExoPlayer thay cho AVPlayer, WebView cho trình phát web dự phòng và đăng
 nhập, Google Cast SDK cho Chromecast. Build bằng `cd android && ./gradlew assembleRelease`
 (JDK 17, Android SDK 35).
+
+Bản Windows dựng luồng DASH (VP9/AV1/H.264 + AAC/Opus) từ phản hồi InnerTube và phát bằng
+shaka-player trong Chromium của Electron; build bằng `cd windows && npm ci && npm run dist:win`
+(Node 22, chạy trên Windows) — CI tạo bộ cài NSIS và bản zip.
 
 Dự án iOS dùng *thư mục đồng bộ* của Xcode 16: thêm tệp `.swift` mới vào `DVDYoutube/` là Xcode tự
 nhận, không phải sửa `project.pbxproj`.

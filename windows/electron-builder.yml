@@ -6,6 +6,8 @@ directories:
   output: dist
 files:
   - out/**/*
+  # Local test media for the mock mode (scripts/make-test-media.sh), never shipped.
+  - "!out/renderer/dev/**"
   - package.json
 # Icons and thumbar glyphs, read at runtime from process.resourcesPath/resources.
 extraResources:
