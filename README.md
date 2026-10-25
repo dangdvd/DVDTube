@@ -1,11 +1,28 @@
 # DVDTube — xem YouTube không quảng cáo trên iPhone, Android, TV và máy tính
 
-Ứng dụng iOS (SwiftUI), Android (Kotlin + Jetpack Compose) và Windows (Electron) cùng tính năng, giao diện theo phong
-cách ứng dụng YouTube chính thức nhưng **không có quảng cáo** và mở sẵn các tính năng của YouTube Premium: phát trong nền,
-hình trong hình (PiP), tải video xem offline.
+DVDTube có bản cho **iPhone**, **Android** (điện thoại, Android TV, Android Auto), **Windows**, **macOS**, **Linux**
+và **TV LG webOS**, cùng tính năng, giao diện theo phong cách ứng dụng YouTube chính thức nhưng **không có quảng
+cáo** và mở sẵn các tính năng của YouTube Premium: phát trong nền, hình trong hình (PiP), tải video xem offline.
 
 > DVDTube là dự án cá nhân, không chính thức, không liên kết với Google/YouTube.
 > Không bắt buộc tài khoản Google: khi chưa đăng nhập, đăng ký kênh, nhật ký xem, danh sách phát… lưu trên máy.
+
+## Tải về
+
+Mọi bản cài đều nằm trong trang **[Releases](https://github.com/dangdvd/DVDTube/releases/latest)** (bản mới nhất,
+không cần đăng nhập GitHub). Các link dưới đây luôn trỏ tới bản phát hành mới nhất:
+
+| Thiết bị | Tệp cài | Yêu cầu |
+| --- | --- | --- |
+| iPhone | [DVDTube-unsigned.ipa](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-unsigned.ipa) | iOS 17+, cài bằng SideStore / AltStore / Sideloadly |
+| Android điện thoại, Android TV, Google TV | [DVDTube.apk](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube.apk) | Android 8.0+ |
+| Windows | [DVDTube-Setup.exe](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-Setup.exe) (bộ cài) · [DVDTube-Windows-portable.zip](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-Windows-portable.zip) (không cần cài) | Windows 10 / 11, 64-bit |
+| macOS | [DVDTube-mac-arm64.dmg](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-mac-arm64.dmg) (chip Apple) · [DVDTube-mac-x64.dmg](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-mac-x64.dmg) (Intel) | macOS 11+ |
+| Linux | [DVDTube-linux-x86_64.AppImage](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-linux-x86_64.AppImage) · [DVDTube-linux-amd64.deb](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-linux-amd64.deb) | x86-64 |
+| TV LG | [DVDTube-webOS.ipk](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-webOS.ipk) | webOS 5.0+ (TV từ 2020), cài bằng Developer Mode |
+
+**Cập nhật:** ứng dụng tự kiểm tra bản mới. Android và Windows tải và cài bản mới ngay trong ứng dụng; iPhone,
+macOS, Linux và TV LG báo có bản mới và mở trang tải. Bản mới cài đè lên bản cũ, giữ nguyên dữ liệu.
 
 ## Tính năng
 
@@ -85,38 +102,31 @@ cookie bằng tiện ích *Get cookies.txt LOCALLY*, đóng cửa sổ ẩn danh
 
 ## Cài đặt lên iPhone
 
-Có hai cách. iOS 17 trở lên.
+iOS 17 trở lên.
 
-### Cách 1 — Không cần máy Mac (tải IPA từ GitHub)
-
-1. Vào tab **Actions** của repo → chọn lần chạy *Build apps* mới nhất (dấu tích xanh) →
-   tải **DVDTube-unsigned-ipa** ở mục *Artifacts* rồi giải nén ra `DVDTube-unsigned.ipa`.
-   Nếu đã tạo tag dạng `v1.0`, tệp IPA cũng có trong mục **Releases**.
+1. Tải [DVDTube-unsigned.ipa](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-unsigned.ipa) từ trang Releases.
 2. Cài tệp IPA bằng một trong các công cụ sau (chúng tự ký lại bằng Apple ID của bạn):
-   - [AltStore](https://altstore.io) hoặc [SideStore](https://sidestore.io)
-   - [Sideloadly](https://sideloadly.io) (Windows/macOS)
-   - TrollStore (nếu phiên bản iOS của bạn hỗ trợ — cài vĩnh viễn, không phải ký lại)
-3. Với Apple ID miễn phí, ứng dụng hết hạn sau 7 ngày — AltStore/SideStore tự gia hạn.
+   - [SideStore](https://sidestore.io) hoặc [AltStore](https://altstore.io): mở ứng dụng → **+** → chọn tệp IPA.
+   - [Sideloadly](https://sideloadly.io) trên Windows/macOS: cắm iPhone, kéo tệp IPA vào, bấm *Start*.
+   - TrollStore (nếu phiên bản iOS của bạn hỗ trợ — cài vĩnh viễn, không phải ký lại).
+3. Với Apple ID miễn phí, ứng dụng hết hạn sau 7 ngày — SideStore/AltStore tự gia hạn.
+4. Cập nhật: khi ứng dụng báo có bản mới, tải IPA mới và cài lại bằng cùng công cụ; dữ liệu được giữ nguyên.
 
-### Cách 2 — Dùng Xcode trên máy Mac
-
-1. Cài Xcode 16 trở lên, mở `DVDYoutube.xcodeproj`.
-2. Chọn target **DVDYoutube** → *Signing & Capabilities* → chọn *Team* (Apple ID cá nhân) và đổi
-   *Bundle Identifier* thành tên riêng, ví dụ `com.tenban.dvdtube`.
-3. Cắm iPhone, chọn thiết bị và bấm **Run** (⌘R). Lần đầu cần bật *Developer Mode* trên iPhone
-   và tin cậy nhà phát triển trong *Cài đặt › Cài đặt chung › Quản lý VPN & thiết bị*.
+Người phát triển có thể build bằng Xcode 16 trên máy Mac: mở `DVDYoutube.xcodeproj`, chọn *Team* (Apple ID) và
+đổi *Bundle Identifier* trong *Signing & Capabilities* của target **DVDYoutube**, cắm iPhone rồi bấm **Run** (⌘R).
 
 ## Cài đặt lên Android
 
-Android 8.0 trở lên. Mỗi lần build, GitHub Actions tạo cả tệp IPA (iPhone) và tệp APK (Android).
+Android 8.0 trở lên.
 
-1. Vào tab **Actions** của repo → chọn lần chạy *Build apps* mới nhất (dấu tích xanh) → tải
-   **DVDTube-apk** ở mục *Artifacts*, giải nén ra `DVDTube.apk` (nếu đã tạo tag `v…`, tệp APK cũng
-   có trong mục **Releases**).
-2. Mở tệp APK trên điện thoại, cho phép *Cài ứng dụng không rõ nguồn gốc* cho trình duyệt / trình
-   quản lý tệp khi được hỏi, rồi bấm **Cài đặt**.
-3. Không hết hạn, không cần ký lại. Các bản sau ký bằng cùng khóa nên cài đè lên bản cũ, giữ nguyên
-   dữ liệu (đăng ký kênh, nhật ký, tải xuống…).
+1. Trên điện thoại, mở [DVDTube.apk](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube.apk) (tải từ trang Releases).
+2. Cho phép *Cài ứng dụng không rõ nguồn gốc* cho trình duyệt / trình quản lý tệp khi được hỏi, rồi bấm **Cài đặt**.
+3. Không hết hạn, không cần ký lại. Ứng dụng tự báo khi có bản mới và cài đè ngay trong ứng dụng (*Cài đặt ›
+   Kiểm tra cập nhật*), giữ nguyên dữ liệu (kênh đăng ký, nhật ký, tải xuống…).
+
+> Từ v1.0.77, APK được ký bằng khoá mới kèm chứng nhận chuyển khoá: Android 9 trở lên cài đè bình thường. Nếu máy
+> báo *"Ứng dụng chưa được cài đặt"* khi cập nhật từ bản cũ hơn, hãy *Cài đặt › Đồng bộ & sao lưu › Xuất thư viện*,
+> gỡ DVDTube, cài bản mới rồi *Nhập thư viện*.
 
 Bản Android có đầy đủ các tính năng ở bảng trên: phát trong nền với điều khiển trên thông báo và màn
 hình khóa (vuốt đóng ứng dụng khỏi danh sách gần đây thì dừng phát), hình trong hình (tự bật khi về màn hình chính), xoay ngang để xem toàn màn hình, Chromecast
@@ -126,13 +136,12 @@ hiệu, tải video lên, live chat, thông báo video mới (WorkManager, kho�
 
 ### Android TV / Google TV
 
-Dùng **chính tệp `DVDTube.apk`** ở trên: cài lên TV (Android 8.0 trở lên) là ứng dụng hiện giao diện riêng cho
-TV, điều khiển bằng remote, và có biểu tượng trên màn hình chính của TV.
+Dùng **chính tệp `DVDTube.apk`**: cài lên TV (Android 8.0 trở lên) là ứng dụng hiện giao diện riêng cho TV, điều
+khiển bằng remote, và có biểu tượng trên màn hình chính của TV.
 
 1. Cách nhanh nhất: cài ứng dụng *Downloader* (AFTVnews) từ Google Play trên TV, nhập địa chỉ
-   `https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube.apk` (luôn là bản phát hành mới
-   nhất) rồi bấm *Cài đặt*. Hoặc chép `DVDTube.apk` vào USB và mở bằng trình quản lý tệp trên TV. Cho
-   phép *Cài ứng dụng không rõ nguồn gốc* khi được hỏi.
+   `https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube.apk` rồi bấm *Cài đặt*. Hoặc chép `DVDTube.apk` vào USB và mở bằng trình quản lý tệp trên TV.
+   Cho phép *Cài ứng dụng không rõ nguồn gốc* khi được hỏi.
 2. Menu bên trái: Tìm kiếm (có tìm bằng giọng nói), Trang chủ, Shorts, Kênh đăng ký, Thư viện, Tài khoản, Cài đặt.
 3. Khi xem: **OK** phát/tạm dừng, **◀ ▶** tua 10 giây (giữ để tua nhanh), **▲** hiện nút điều khiển (phụ đề,
    chất lượng, tốc độ, chỉ âm thanh, bản âm thanh, EQ, hẹn giờ tắt, thích, đăng ký…), **▼** video tiếp theo.
@@ -154,14 +163,14 @@ Android Auto nếu DVDTube chưa hiện.
 
 ## Cài đặt lên Windows
 
-Windows 10 / 11 (64-bit). Tải **bộ cài** bản mới nhất:
-**https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-Setup.exe**
-(hoặc `DVDTube-Windows-portable.zip` trong mục **Releases**: giải nén rồi chạy `DVDTube.exe`, không cần cài).
+Windows 10 / 11 (64-bit).
 
-1. Mở `DVDTube-Setup.exe`. Vì bộ cài chưa ký số, Windows SmartScreen có thể báo *"Windows đã bảo vệ
-   PC của bạn"*: bấm **Thông tin bổ sung** → **Vẫn chạy**.
-2. Chọn thư mục cài (mặc định trong tài khoản người dùng, không cần quyền quản trị) → **Cài đặt**.
-   Bộ cài tạo lối tắt trên Desktop và Start menu; bản sau cài đè lên, giữ nguyên dữ liệu.
+1. Tải bộ cài [DVDTube-Setup.exe](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-Setup.exe) và mở. Vì bộ cài chưa ký số, Windows SmartScreen có thể
+   báo *"Windows đã bảo vệ PC của bạn"*: bấm **Thông tin bổ sung** → **Vẫn chạy**.
+2. Chọn thư mục cài (mặc định trong tài khoản người dùng, không cần quyền quản trị) → **Cài đặt**. Bộ cài tạo
+   lối tắt trên Desktop và Start menu.
+3. Không muốn cài: tải [DVDTube-Windows-portable.zip](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-Windows-portable.zip), giải nén rồi chạy `DVDTube.exe`.
+4. Cập nhật: ứng dụng báo có bản mới, bấm **Cập nhật ngay** là tự tải và cài đè (bản portable thì tải zip mới).
 
 Bản Windows có các tính năng như bản điện thoại, giao diện theo YouTube trên máy tính: trang chủ theo
 chủ đề, tìm kiếm có bộ lọc, kênh, danh sách phát, Shorts, kênh đăng ký, nhật ký xem, Xem sau, tải video /
@@ -177,30 +186,33 @@ Phím tắt giống YouTube: `Space`/`K` phát–tạm dừng (giữ `Space` đ�
 `C` phụ đề, `Shift`+`<`/`>` tốc độ, `0`–`9` nhảy tới 0–90 %, `Shift`+`N`/`P` video tiếp theo / trước,
 `Ctrl`+`K` hoặc `/` tìm kiếm, dán (`Ctrl`+`V`) một link YouTube ở bất kỳ đâu để mở ngay.
 
-### macOS và Linux
+## Cài đặt lên macOS
 
-Cùng mã nguồn với bản Windows, có trong mục **Releases**:
-- **macOS** (11 trở lên): `DVDTube-mac-arm64.dmg` cho Mac chip Apple (M1…), `DVDTube-mac-x64.dmg` cho Mac Intel.
-  Ứng dụng chưa ký số: lần đầu mở, nhấn chuột phải (hoặc Control + bấm) vào DVDTube trong *Ứng dụng* → **Mở** → **Mở**
-  (hoặc *Cài đặt hệ thống › Quyền riêng tư & Bảo mật* → **Vẫn mở**).
-- **Linux** (x86-64): `DVDTube-linux-x86_64.AppImage` (cho quyền chạy: `chmod +x`, rồi mở) hoặc
-  `DVDTube-linux-amd64.deb` (`sudo apt install ./DVDTube-linux-amd64.deb`).
+macOS 11 trở lên. Tải [DVDTube-mac-arm64.dmg](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-mac-arm64.dmg) cho Mac chip Apple (M1, M2…) hoặc
+[DVDTube-mac-x64.dmg](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-mac-x64.dmg) cho Mac Intel, mở tệp dmg và kéo DVDTube vào *Ứng dụng*.
+Ứng dụng chưa ký số: lần đầu mở, nhấn chuột phải (hoặc Control + bấm) vào DVDTube trong *Ứng dụng* → **Mở** →
+**Mở** (hoặc *Cài đặt hệ thống › Quyền riêng tư & Bảo mật* → **Vẫn mở**).
+
+## Cài đặt lên Linux
+
+x86-64. Tải [DVDTube-linux-x86_64.AppImage](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-linux-x86_64.AppImage) (cho quyền chạy bằng
+`chmod +x DVDTube-linux-x86_64.AppImage` rồi mở) hoặc [DVDTube-linux-amd64.deb](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-linux-amd64.deb)
+(`sudo apt install ./DVDTube-linux-amd64.deb` trên Ubuntu / Debian).
 
 ## Cài đặt lên TV LG (webOS)
 
-TV LG chạy **webOS 5.0 trở lên** (đa số TV LG từ 2020). Tệp cài: `DVDTube-webOS.ipk` trong mục **Releases**
-(tải thẳng: https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-webOS.ipk).
-LG chỉ cho cài ứng dụng ngoài kho bằng **chế độ nhà phát triển (Developer Mode)**:
+TV LG chạy **webOS 5.0 trở lên** (đa số TV LG từ 2020). LG chỉ cho cài ứng dụng ngoài kho bằng **chế độ nhà phát
+triển (Developer Mode)**:
 
 1. Tạo tài khoản LG Developer miễn phí tại https://webostv.developer.lge.com (mục *Sign up*).
-2. Trên TV: mở **LG Content Store**, tìm và cài ứng dụng **Developer Mode**. Mở ứng dụng, đăng nhập tài
-   khoản vừa tạo, bật **Dev Mode Status** — TV sẽ khởi động lại.
+2. Trên TV: mở **LG Content Store**, tìm và cài ứng dụng **Developer Mode**. Mở ứng dụng, đăng nhập tài khoản vừa
+   tạo, bật **Dev Mode Status** — TV sẽ khởi động lại.
 3. Mở lại **Developer Mode**, bật **Key Server**, ghi lại **địa chỉ IP** của TV và **Passphrase** (6 ký tự).
 4. Trên máy tính (Windows / macOS / Linux) cùng mạng Wi-Fi với TV: cài **webOS Dev Manager**
    (https://github.com/webosbrew/dev-manager-desktop/releases), chọn *Add device* → nhập IP của TV, chọn
    *Developer Mode*, nhập Passphrase.
-5. Trong Dev Manager: **Apps** → **Install** → chọn tệp `DVDTube-webOS.ipk`. DVDTube xuất hiện trong danh
-   sách ứng dụng của TV (nhấn nút Home trên điều khiển).
+5. Tải [DVDTube-webOS.ipk](https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-webOS.ipk). Trong Dev Manager: **Apps** → **Install** → chọn tệp ipk.
+   DVDTube xuất hiện trong danh sách ứng dụng của TV (nhấn nút Home trên điều khiển).
 
 Lưu ý:
 - Chế độ nhà phát triển có **thời hạn** (số giờ còn lại hiện trong ứng dụng Developer Mode). Hãy bấm
@@ -261,9 +273,13 @@ Bản Android dùng Media3 ExoPlayer thay cho AVPlayer, WebView cho trình phát
 nhập, Google Cast SDK cho Chromecast. Build bằng `cd android && ./gradlew assembleRelease`
 (JDK 17, Android SDK 35).
 
-Bản Windows dựng luồng DASH (VP9/AV1/H.264 + AAC/Opus) từ phản hồi InnerTube và phát bằng
-shaka-player trong Chromium của Electron; build bằng `cd windows && npm ci && npm run dist:win`
-(Node 22, chạy trên Windows) — CI tạo bộ cài NSIS và bản zip.
+Bản máy tính (Windows / macOS / Linux) dựng luồng DASH (VP9/AV1/H.264 + AAC/Opus) từ phản hồi InnerTube và phát
+bằng shaka-player trong Chromium của Electron; build bằng `cd windows && npm ci && npm run dist:win`
+(hoặc `dist:mac`, `dist:linux`; Node 22). Bản TV LG build bằng `cd webos && npm ci && npm run build && npm run package`.
+
+**Bản dựng thử:** mỗi lần đẩy mã, GitHub Actions build lại các ứng dụng có thay đổi; tệp build nằm ở mục
+*Artifacts* của lần chạy *Build apps* trong tab **Actions** (cần đăng nhập GitHub, giữ 7 ngày). Bản phát hành
+(Releases) được tạo khi dòng đầu commit có `[release]` hoặc khi chạy workflow thủ công.
 
 Dự án iOS dùng *thư mục đồng bộ* của Xcode 16: thêm tệp `.swift` mới vào `DVDYoutube/` là Xcode tự
 nhận, không phải sửa `project.pbxproj`.
@@ -280,7 +296,8 @@ nhận, không phải sửa `project.pbxproj`.
 - Với địa chỉ IP bị YouTube đánh dấu (VPN, máy chủ, mạng công ty…), YouTube có thể từ chối luồng
   phát với thông báo *"Đăng nhập để xác nhận bạn không phải là robot"*. Khi đó hãy đăng nhập tài khoản
   Google trong ứng dụng (ứng dụng tự chuyển sang luồng phát của tài khoản) hoặc tắt VPN.
-- Bộ cài Windows chưa ký số nên SmartScreen cảnh báo ở lần chạy đầu (xem *Cài đặt lên Windows*).
+- Bộ cài Windows và bản macOS chưa ký số nên hệ điều hành cảnh báo ở lần mở đầu (xem phần cài đặt tương ứng).
+- TV LG: ứng dụng cài bằng Developer Mode bị gỡ nếu để phiên nhà phát triển hết hạn; nhớ gia hạn định kỳ.
 - YouTube thay đổi API thường xuyên; khi có lỗi phát hàng loạt, hãy cập nhật `remote-config.json`
   hoặc mã nguồn.
 - Chặn quảng cáo vi phạm Điều khoản dịch vụ của YouTube. Chỉ nên dùng cho mục đích cá nhân.
