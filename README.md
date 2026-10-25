@@ -1,4 +1,4 @@
-# DVDTube — xem YouTube không quảng cáo trên iPhone, Android và Windows
+# DVDTube — xem YouTube không quảng cáo trên iPhone, Android, TV và máy tính
 
 Ứng dụng iOS (SwiftUI), Android (Kotlin + Jetpack Compose) và Windows (Electron) cùng tính năng, giao diện theo phong
 cách ứng dụng YouTube chính thức nhưng **không có quảng cáo** và mở sẵn các tính năng của YouTube Premium: phát trong nền,
@@ -186,6 +186,33 @@ Cùng mã nguồn với bản Windows, có trong mục **Releases**:
 - **Linux** (x86-64): `DVDTube-linux-x86_64.AppImage` (cho quyền chạy: `chmod +x`, rồi mở) hoặc
   `DVDTube-linux-amd64.deb` (`sudo apt install ./DVDTube-linux-amd64.deb`).
 
+## Cài đặt lên TV LG (webOS)
+
+TV LG chạy **webOS 5.0 trở lên** (đa số TV LG từ 2020). Tệp cài: `DVDTube-webOS.ipk` trong mục **Releases**
+(tải thẳng: https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-webOS.ipk).
+LG chỉ cho cài ứng dụng ngoài kho bằng **chế độ nhà phát triển (Developer Mode)**:
+
+1. Tạo tài khoản LG Developer miễn phí tại https://webostv.developer.lge.com (mục *Sign up*).
+2. Trên TV: mở **LG Content Store**, tìm và cài ứng dụng **Developer Mode**. Mở ứng dụng, đăng nhập tài
+   khoản vừa tạo, bật **Dev Mode Status** — TV sẽ khởi động lại.
+3. Mở lại **Developer Mode**, bật **Key Server**, ghi lại **địa chỉ IP** của TV và **Passphrase** (6 ký tự).
+4. Trên máy tính (Windows / macOS / Linux) cùng mạng Wi-Fi với TV: cài **webOS Dev Manager**
+   (https://github.com/webosbrew/dev-manager-desktop/releases), chọn *Add device* → nhập IP của TV, chọn
+   *Developer Mode*, nhập Passphrase.
+5. Trong Dev Manager: **Apps** → **Install** → chọn tệp `DVDTube-webOS.ipk`. DVDTube xuất hiện trong danh
+   sách ứng dụng của TV (nhấn nút Home trên điều khiển).
+
+Lưu ý:
+- Chế độ nhà phát triển có **thời hạn** (số giờ còn lại hiện trong ứng dụng Developer Mode). Hãy bấm
+  **Extend** trước khi hết hạn (Dev Manager cũng gia hạn được); nếu để hết hạn, TV sẽ gỡ các ứng dụng đã cài
+  theo cách này và phải cài lại. TV đã cài *Homebrew Channel* (root) thì không bị giới hạn này — cài tệp ipk
+  qua Homebrew Channel.
+- Đăng nhập: *Tài khoản* → **Đăng nhập bằng điện thoại**, quét mã QR bằng DVDTube trên iPhone/Android.
+- Truyền video: trên điện thoại bấm nút **Truyền** và chọn TV LG (DVDTube phải đang mở trên TV).
+- Điều khiển bằng các phím mũi tên / OK / Back hoặc con trỏ của Magic Remote; phím ⏯ ⏪ ⏩ để phát và tua.
+- Cập nhật: *Cài đặt › Giới thiệu › Kiểm tra cập nhật* báo khi có bản mới; cài bản mới bằng Dev Manager như
+  bước 5 (dữ liệu trong ứng dụng được giữ nguyên).
+
 ## Cách hoạt động
 
 ```
@@ -226,6 +253,8 @@ android/           Ứng dụng Android (Gradle): cùng cấu trúc core/ (Inner
                    player/ (Media3 ExoPlayer, MediaSession), cast/ (Google Cast + relay), ui/ (Compose)
 windows/           Ứng dụng Windows (Electron + React + TypeScript): src/main (InnerTube, tài khoản,
                    tải xuống, cửa sổ), src/renderer (giao diện, trình phát shaka-player DASH/HLS)
+webos/             Ứng dụng TV LG webOS: app/ (giao diện TV, Preact) + service/ (dịch vụ Node chạy trên
+                   TV: InnerTube dùng chung với bản máy tính, proxy HLS, nhận truyền video, đăng nhập QR)
 ```
 
 Bản Android dùng Media3 ExoPlayer thay cho AVPlayer, WebView cho trình phát web dự phòng và đăng

@@ -1,0 +1,7 @@
+{
+  "name": "com.dangdvd.dvdtube.service",
+  "version": "1.0.0",
+  "description": "DVDTube service for LG webOS TV",
+  "main": "service.js",
+  "private": true
+}

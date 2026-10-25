@@ -1,0 +1,18 @@
+{
+  "id": "com.dangdvd.dvdtube",
+  "version": "1.0.0",
+  "vendor": "dangdvd",
+  "type": "web",
+  "main": "index.html",
+  "title": "DVDTube",
+  "appDescription": "Xem YouTube không quảng cáo",
+  "icon": "icon80.png",
+  "largeIcon": "icon130.png",
+  "splashBackground": "splash.png",
+  "bgColor": "#0F0F0F",
+  "iconColor": "#FF3D5A",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true,
+  "requiredMemory": 300
+}

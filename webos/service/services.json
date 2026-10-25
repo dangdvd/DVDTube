@@ -1,0 +1,10 @@
+{
+  "id": "com.dangdvd.dvdtube.service",
+  "description": "DVDTube service: YouTube access, stream relay, cast and sync receivers",
+  "services": [
+    {
+      "name": "com.dangdvd.dvdtube.service",
+      "description": "DVDTube service"
+    }
+  ]
+}

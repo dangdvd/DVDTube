@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1920, height=1080, initial-scale=1, user-scalable=no" />
+    <title>DVDTube</title>
+    <link rel="stylesheet" href="app.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #0f0f0f;
+      }
+      #boot {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 1920px;
+        height: 1080px;
+        background: #0f0f0f url('splash.png') center / cover no-repeat;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="boot"></div>
+    <div id="app"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

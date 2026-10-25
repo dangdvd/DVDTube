@@ -1,0 +1,28 @@
+{
+  "name": "dvdtube-webos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DVDTube cho LG webOS TV: xem YouTube không quảng cáo trên TV",
+  "author": "dangdvd",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.service.json",
+    "icons": "python3 scripts/make-icons.py",
+    "shots": "node scripts/shots.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "@types/qrcode": "1.5.6",
+    "@webos-tools/cli": "3.2.6",
+    "acorn": "8.19.0",
+    "esbuild": "0.28.2",
+    "playwright": "1.56.1",
+    "preact": "10.29.8",
+    "qrcode": "1.5.4",
+    "typescript": "5.9.3"
+  }
+}
