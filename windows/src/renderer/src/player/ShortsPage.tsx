@@ -19,6 +19,8 @@ import { MenuItem, Popover, useMenu } from './ui/Popover'
 import { Spinner } from './ui/Overlays'
 import { Comments } from './watch/Comments'
 import { ChannelAvatar, useRating, useSubscription } from './watch/VideoInfo'
+import { EmptyState } from '@/components/States'
+import { useParentalFlags } from '@/state/parental'
 
 const QUERIES_VI = ['shorts', 'shorts việt nam', 'hài hước shorts', 'âm nhạc shorts', 'ẩm thực shorts', 'thể thao shorts']
 const QUERIES_EN = ['shorts', 'funny shorts', 'music shorts', 'food shorts', 'sports shorts']
@@ -211,6 +213,18 @@ function ShortSlide({
 }
 
 export function ShortsPage() {
+  const hidden = useParentalFlags().hideShorts
+  if (hidden) {
+    return (
+      <div className="page page-pad" data-testid="shorts-page">
+        <EmptyState icon="shorts" title="Shorts đã bị ẩn" message="Kiểm soát của phụ huynh đang ẩn Shorts trên máy này." />
+      </div>
+    )
+  }
+  return <ShortsFeed />
+}
+
+function ShortsFeed() {
   const { id } = useParams()
   const location = useLocation()
   const navigate = useNavigate()

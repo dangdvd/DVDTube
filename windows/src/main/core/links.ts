@@ -49,8 +49,17 @@ export function parseLink(input: string): ParsedLink | null {
   let text = input.trim()
   if (!text) return null
   if (/^dvdtube:\/\//i.test(text)) {
-    if (/^dvdtube:\/\/tv-login/i.test(text)) return null
-    text = 'https://www.youtube.com/' + text.replace(/^dvdtube:\/\//i, '')
+    if (/^dvdtube:\/\/(tv-login|sync)\b/i.test(text)) return null
+    const rest = text.replace(/^dvdtube:\/\//i, '')
+    const query = rest.indexOf('?') >= 0 ? rest.slice(rest.indexOf('?') + 1) : ''
+    const page = (query ? rest.slice(0, rest.indexOf('?')) : rest).replace(/\/+$/, '').toLowerCase()
+    if (page === 'shorts') return { type: 'app', page: 'shorts' }
+    if (page === 'music') return { type: 'app', page: 'music' }
+    if (page === 'search') {
+      const q = new URLSearchParams(query).get('q')?.trim()
+      return q ? { type: 'search', query: q } : { type: 'app', page: 'search' }
+    }
+    text = 'https://www.youtube.com/' + rest
   }
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text) && /^(www\.|m\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)\//i.test(text)) {
     text = 'https://' + text

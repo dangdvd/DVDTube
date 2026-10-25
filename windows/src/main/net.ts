@@ -214,12 +214,24 @@ function setupRendererSession(): void {
   })
 }
 
+/** Ad servers the web player's embed would call (never used by the app itself). */
+const AD_URLS = [
+  '*://*.doubleclick.net/*',
+  '*://*.googlesyndication.com/*',
+  '*://*.googleadservices.com/*',
+  '*://www.youtube.com/pagead/*',
+  '*://www.youtube-nocookie.com/pagead/*',
+  '*://www.youtube.com/api/stats/ads*',
+  '*://www.youtube-nocookie.com/api/stats/ads*',
+]
+
 /** Call once the app is ready. */
 export function setupNetwork(): void {
   const ua = chromeUA()
   for (const ses of [ytSession(), anonSession()]) {
     ses.setUserAgent(ua)
     restoreInjectedHeaders(ses)
+    ses.webRequest.onBeforeRequest({ urls: AD_URLS }, (_details, callback) => callback({ cancel: true }))
   }
   ytSession().cookies.on('changed', (_event, cookie) => {
     if (!cookie.domain || !/(^|\.)(youtube|google)\.com$/.test(cookie.domain.replace(/^\./, ''))) return

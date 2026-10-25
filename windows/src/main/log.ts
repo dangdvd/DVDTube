@@ -62,6 +62,12 @@ function write(level: string, message: string): void {
   }
 }
 
+/** The persistent log files, newest last (main.old.log, main.log). */
+export function logFiles(): string[] {
+  if (!mainFile) return []
+  return [mainFile.replace(/\.log$/, '.old.log'), mainFile]
+}
+
 export const log = {
   info: (message: string) => write('INFO', message),
   warn: (message: string) => write('WARN', message),

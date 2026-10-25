@@ -142,14 +142,18 @@ export async function runSmoke(navigate: NavigateFunction): Promise<void> {
     await waitFor('trang xem video', () => location.hash.startsWith('#/watch'), 10_000)
     await waitFor('video phát được 5 giây', () => {
       const s = usePlayer.getState()
-      if (s.status === 'error' && isBotCheck(s.error)) {
+      // The web player (YouTube's embed) takes over after a bot check; if the embed fails too,
+      // the bot check is still the reason.
+      const reason = s.source === 'web' ? s.fallbackReason : s.error
+      if (s.status === 'error' && (isBotCheck(s.error) || isBotCheck(reason))) {
         botBlocked = true
-        throw new SkipStep(`${s.error} — ${BOT_CHECK_SKIP}`)
+        throw new SkipStep(`${reason ?? s.error} — ${BOT_CHECK_SKIP}`)
       }
       if (s.status === 'error') throw new Error(s.error ?? 'Lỗi trình phát')
       return s.status === 'playing' && s.currentTime >= 5
     })
-    return playbackDetail()
+    const s = usePlayer.getState()
+    return playbackDetail() + (s.source === 'web' ? ` • trình phát web (luồng gốc: ${s.fallbackReason ?? '?'})` : '')
   })
 
   await step('watch-details', async () => {

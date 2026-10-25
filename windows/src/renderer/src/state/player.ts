@@ -21,6 +21,10 @@ export interface PlayOptions {
   playlistId?: string | null
   /** Seconds; null / undefined = resume where the video stopped last time (when enabled). */
   startAt?: number | null
+  /** "Nghe nhạc": audio only by default, songs follow each other without a countdown. */
+  music?: boolean
+  /** Alarms ("Hẹn giờ phát"): the volume rises from 0 over this many seconds. */
+  fadeIn?: number
 }
 
 export type { AudioTrackOption, QualityOption, SourceKind }
@@ -129,8 +133,17 @@ export interface PlayerStore extends PlayerDriver {
   windowMini: boolean
   stats: boolean
   chaptersOpen: boolean
+  /** Restored from the last session (paused, nothing loaded yet): "Tiếp tục phát…". */
+  restored: boolean
+  /** Playing from "Nghe nhạc". */
+  musicMode: boolean
+  /** The watch page's "Lời bài hát" panel. */
+  lyricsOpen: boolean
+  /** Why native playback failed when the web player took over (diagnostics, smoke test). */
+  fallbackReason: string | null
 
   setStats(on: boolean): void
+  setLyricsOpen(on: boolean): void
   setChaptersOpen(on: boolean): void
 }
 
@@ -179,6 +192,7 @@ export const INITIAL_PLAYBACK = {
   loop: false,
   upNext: null,
   upNextEndsAt: null,
+  fallbackReason: null,
 } satisfies Partial<PlayerStore>
 
 export const usePlayer = create<PlayerStore>((set) => ({
@@ -199,6 +213,9 @@ export const usePlayer = create<PlayerStore>((set) => ({
   windowMini: false,
   stats: false,
   chaptersOpen: false,
+  restored: false,
+  musicMode: false,
+  lyricsOpen: false,
 
   play: delegate('play'),
   addToQueue: delegate('addToQueue'),
@@ -242,5 +259,8 @@ export const usePlayer = create<PlayerStore>((set) => ({
   },
   setChaptersOpen(on) {
     set({ chaptersOpen: on })
+  },
+  setLyricsOpen(on) {
+    set({ lyricsOpen: on })
   },
 }))

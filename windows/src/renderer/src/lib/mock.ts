@@ -6,7 +6,7 @@
 // (history, playlists, subscriptions…) for screenshots.
 
 import QRCode from 'qrcode'
-import type { DvdApi, DvdEventName, DvdEvents, PairingInfo } from '@shared/api'
+import type { DvdApi, PairingInfo } from '@shared/api'
 import type {
   AccountIdentity,
   AccountState,
@@ -41,22 +41,12 @@ import {
   random,
   searchItems,
 } from './mockData'
+import { mockEmit as emit } from './mockEvents'
+import { mockFeatureApi } from './mockFeatures'
 
 // MARK: Events
 
-type Handler = (payload: unknown) => void
-const handlers = new Map<string, Set<Handler>>()
-
-export function mockOn<K extends DvdEventName>(event: K, handler: (payload: DvdEvents[K]) => void): () => void {
-  const set = handlers.get(event) ?? new Set<Handler>()
-  set.add(handler as Handler)
-  handlers.set(event, set)
-  return () => set.delete(handler as Handler)
-}
-
-function emit<K extends DvdEventName>(event: K, payload: DvdEvents[K]): void {
-  handlers.get(event)?.forEach((h) => h(payload))
-}
+export { mockOn } from './mockEvents'
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const flag = (name: string) => {
@@ -160,6 +150,7 @@ const downloadsList: DownloadedVideo[] = [0, 1, 2, 3, 4].map((i) => {
     qualityLabel: audioOnly ? null : ['1080p', '720p', '', '1080p', '480p'][i],
     downloadedAt: Date.now() - (i + 1) * 26 * 3_600_000,
     isAudioOnly: audioOnly,
+    isAuto: i === 1 || i === 3,
   }
 })
 const timers = new Map<string, ReturnType<typeof setInterval>>()
@@ -435,6 +426,7 @@ function resolve(text: string): ResolvedLink | null {
 
 export const mockApi: Partial<DvdApi> = {
   ...mockPlayerApi,
+  ...mockFeatureApi,
 
   appInfo: async () => ({
     version: '1.0.0',
@@ -444,6 +436,8 @@ export const mockApi: Partial<DvdApi> = {
     userDataPath: 'C:\\Users\\MinhAnh\\AppData\\Roaming\\DVDTube',
     smoke: flag('mockSmoke') === '1',
     hidden: false,
+    deviceName: 'DESKTOP-MINHANH',
+    arch: 'x64',
   }),
   configure: async () => {},
 
@@ -705,8 +699,11 @@ export const mockApi: Partial<DvdApi> = {
     return {
       version: '1.0.42',
       url: 'https://github.com/dangdvd/DVDTube/releases/latest',
-      notes: 'Sửa lỗi và cải thiện hiệu năng',
+      notes: 'Truyền tới TV, nghe nhạc có lời bài hát, đồng bộ thư viện',
       downloadUrl: 'https://github.com/dangdvd/DVDTube/releases/latest/download/DVDTube-Setup.exe',
+      assetName: 'DVDTube-Setup.exe',
+      size: 98_000_000,
+      installable: true,
     }
   },
   openStudio: async () => {

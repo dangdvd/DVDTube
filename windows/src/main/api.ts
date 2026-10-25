@@ -1,10 +1,19 @@
 // The main-process implementation of every `DvdApi` method.
 
-import { app, Notification, powerSaveBlocker, shell, nativeImage } from 'electron'
-import type { DvdApi, PairingInfo } from '@shared/api'
+import { randomUUID } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
+import { readFile, stat, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
+import { app, dialog, Notification, powerSaveBlocker, shell, nativeImage } from 'electron'
+import type { DvdApi, FileKind, PairingInfo, SyncInfo } from '@shared/api'
+import { parseLibraryExport, type LibraryExport } from '@shared/library'
 import {
   DEFAULT_SEARCH_FILTERS,
+  MUSIC_SEARCH_KINDS,
+  cleanVideoItem,
   type CaptionTrack,
+  type CastAction,
+  type CastDevice,
   type ChannelTab,
   type ContinuationKind,
   type HomeCategory,
@@ -14,7 +23,12 @@ import {
 } from '@shared/models'
 import type { CoreConfig } from '@shared/settings'
 import * as accounts from './accounts'
+import { runAutoDownloads, configureAutoDownload } from './autodownload'
+import type { CastService } from './cast'
+import { CAST_ACTIONS } from './cast/receiver'
 import { AuthSession } from './core/auth'
+import { DeArrow } from './core/dearrow'
+import { lyrics, musicBrowse, musicSearch } from './core/music'
 import { dislikes, loadCaptions, sponsorSegments } from './core/extras'
 import { refreshRemoteConfig } from './core/clients'
 import { coreState } from './core/config'
@@ -27,13 +41,18 @@ import { parseLiveChat } from './core/parsers/livechat'
 import * as service from './core/services'
 import * as downloads from './downloads'
 import { emit } from './ipc'
+import { setRecentVideos } from './jumplist'
+import { deviceName } from './lan'
 import { log } from './log'
+import { buildLog } from './logexport'
 import { PairingServer } from './pairing'
 import { openStudio, signIn } from './signin'
 import { smokeStep } from './smoke'
-import { storeRead, storeWrite } from './store'
-import { setThumbar, setTrayEnabled } from './tray'
-import { checkUpdate } from './updates'
+import { storeRead, storeWrite, userDataFile, writeFileAtomic } from './store'
+import { SyncServer } from './sync'
+import { markQuitting, setThumbar, setTrayEnabled } from './tray'
+import { checkUpdate, installUpdate } from './updates'
+import { webPlayerSource } from './webplayer'
 import { getMainWindow, setWindowMode, showMainWindow } from './windows'
 
 const CHANNEL_TABS: ChannelTab[] = ['videos', 'shorts', 'streams', 'playlists', 'posts', 'about']
@@ -62,7 +81,22 @@ async function requireSignedIn(): Promise<void> {
 export interface ApiContext {
   smoke: boolean
   hidden: boolean
+  cast: CastService
 }
+
+const FILE_FILTERS: Record<FileKind, Electron.FileFilter[]> = {
+  json: [{ name: 'Thư viện DVDTube (JSON)', extensions: ['json'] }],
+  txt: [{ name: 'Tệp văn bản', extensions: ['txt'] }],
+}
+
+function castDevice(value: unknown): CastDevice {
+  const d = value as CastDevice | null
+  if (!d || typeof d.host !== 'string' || typeof d.port !== 'number') throw new Error('Thiết bị không hợp lệ.')
+  return d
+}
+
+/** Renderer warnings kept in the persistent log: at most 30 a minute. */
+const rendererLogBudget = { minute: 0, count: 0 }
 
 // MARK: Live chat
 
@@ -122,8 +156,20 @@ async function notificationIcon(icon: string | null | undefined): Promise<Electr
 
 export function createApi(context: ApiContext): DvdApi {
   let pairing: PairingServer | null = null
+  let sync: SyncServer | null = null
+  const pendingSync = new Map<string, { resolve: (value: { merged: LibraryExport; summary: string }) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   let sleepBlocker: number | null = null
   let lastRemoteConfigUrl: string | null = null
+  const dearrow = new DeArrow({
+    load: () => {
+      try {
+        return readFileSync(userDataFile('dearrow-cache.json'), 'utf8')
+      } catch {
+        return null
+      }
+    },
+    save: (text) => void writeFileAtomic(userDataFile('dearrow-cache.json'), text).catch(() => {}),
+  })
 
   return {
     // App / configuration
@@ -137,6 +183,8 @@ export function createApi(context: ApiContext): DvdApi {
         userDataPath: app.getPath('userData'),
         smoke: context.smoke,
         hidden: context.hidden,
+        deviceName: deviceName(),
+        arch: process.arch,
       }
     },
 
@@ -146,7 +194,15 @@ export function createApi(context: ApiContext): DvdApi {
       coreState.gl = typeof config.region === 'string' && config.region ? config.region : 'VN'
       coreState.incognito = !!config.incognito
       coreState.remoteConfigUrl = typeof config.remoteConfigUrl === 'string' ? config.remoteConfigUrl : ''
-      downloads.configureDownloads(config.downloadFolder ?? null, Number(config.downloadQuality) || 1080)
+      coreState.restrictedMode = !!config.restrictedMode
+      downloads.configureDownloads(
+        config.downloadFolder ?? null,
+        Number(config.downloadQuality) || 1080,
+        !!config.downloadSubtitles,
+        typeof config.captionLanguage === 'string' ? config.captionLanguage : null,
+      )
+      configureAutoDownload(config.autoDownload)
+      if (!context.smoke) void context.cast.setReceiverEnabled(config.castReceiver !== false)
       setTrayEnabled(!!config.minimizeToTray || context.hidden)
       if (lastRemoteConfigUrl !== null && lastRemoteConfigUrl !== coreState.remoteConfigUrl) void refreshRemoteConfig()
       lastRemoteConfigUrl = coreState.remoteConfigUrl
@@ -466,7 +522,8 @@ export function createApi(context: ApiContext): DvdApi {
     },
 
     async setStartWithWindows(enabled: boolean) {
-      if (context.smoke || !app.isPackaged) return
+      // Login items exist on Windows and macOS only.
+      if (context.smoke || !app.isPackaged || (process.platform !== 'win32' && process.platform !== 'darwin')) return
       app.setLoginItemSettings({ openAtLogin: !!enabled, args: ['--hidden'] })
     },
 
@@ -480,6 +537,203 @@ export function createApi(context: ApiContext): DvdApi {
 
     async smokeStep(step) {
       await smokeStep(step)
+    },
+
+    async showWindow() {
+      showMainWindow()
+    },
+
+    async installUpdate(info) {
+      await installUpdate(info, (progress) => emit('updateProgress', progress), () => {
+        markQuitting()
+        app.quit()
+      })
+    },
+
+    async setRecentVideos(videos) {
+      setRecentVideos(videos, (link) => {
+        showMainWindow()
+        emit('openLink', link)
+      })
+    },
+
+    // Files
+
+    async saveTextFile(defaultName: string, text: string, kind: FileKind) {
+      if (typeof text !== 'string') throw new Error('Dữ liệu không hợp lệ.')
+      const name = basename(String(defaultName || 'DVDTube.txt')).replace(/[/\\?%*|"<>:]/g, '-')
+      const options: Electron.SaveDialogOptions = {
+        title: kind === 'json' ? 'Xuất thư viện' : 'Lưu nhật ký lỗi',
+        defaultPath: join(app.getPath('documents'), name),
+        filters: FILE_FILTERS[kind] ?? FILE_FILTERS.txt,
+      }
+      const parent = getMainWindow()
+      const result = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options)
+      if (result.canceled || !result.filePath) return null
+      await writeFile(result.filePath, text, 'utf8')
+      return result.filePath
+    },
+
+    async openTextFile(kind: FileKind) {
+      const options: Electron.OpenDialogOptions = {
+        title: kind === 'json' ? 'Nhập thư viện' : 'Mở tệp',
+        properties: ['openFile'],
+        filters: FILE_FILTERS[kind] ?? FILE_FILTERS.txt,
+      }
+      const parent = getMainWindow()
+      const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+      const file = result.filePaths[0]
+      if (result.canceled || !file) return null
+      if ((await stat(file)).size > 64 * 1024 * 1024) throw new Error('Tệp quá lớn.')
+      return { name: basename(file), text: await readFile(file, 'utf8') }
+    },
+
+    async showFile(path: string) {
+      if (typeof path === 'string' && existsSync(path)) shell.showItemInFolder(path)
+    },
+
+    // Error log
+
+    async buildLog(logContext) {
+      return buildLog(logContext)
+    },
+
+    async logRenderer(level, message) {
+      const minute = Math.floor(Date.now() / 60_000)
+      if (rendererLogBudget.minute !== minute) {
+        rendererLogBudget.minute = minute
+        rendererLogBudget.count = 0
+      }
+      if (++rendererLogBudget.count > 30) return
+      const text = `renderer: ${String(message).slice(0, 1000).replace(/[\r\n]+/g, ' ')}`
+      if (level === 'error') log.error(text)
+      else log.warn(text)
+    },
+
+    // Cast to DVDTube
+
+    async castDevices() {
+      return context.cast.devices()
+    },
+
+    async castScan() {
+      await context.cast.scan()
+    },
+
+    async castAddDevice(address: string) {
+      return context.cast.addManual(str(address, 'Địa chỉ').slice(0, 100))
+    },
+
+    async castForgetDevice(id: string) {
+      context.cast.forget(str(id, 'Thiết bị'))
+    },
+
+    async castPlay(device, request) {
+      const video = cleanVideoItem(request?.video)
+      if (!video) throw new Error('Video không hợp lệ.')
+      const queue = Array.isArray(request.queue) ? request.queue.map(cleanVideoItem).filter((v): v is NonNullable<typeof v> => v !== null).slice(0, 500) : null
+      await context.cast.play(castDevice(device), {
+        video,
+        startSeconds: typeof request.startSeconds === 'number' && request.startSeconds > 0 ? request.startSeconds : null,
+        queue,
+        index: typeof request.index === 'number' ? request.index : null,
+        playlistId: optionalString(request.playlistId),
+        sender: deviceName(),
+      })
+    },
+
+    async castQueue(device, video, next) {
+      const item = cleanVideoItem(video)
+      if (!item) throw new Error('Video không hợp lệ.')
+      await context.cast.queue(castDevice(device), item, !!next)
+    },
+
+    async castControl(device, action: CastAction, value?: number | null) {
+      if (!CAST_ACTIONS.includes(action)) throw new Error('Lệnh điều khiển không hợp lệ.')
+      await context.cast.control(castDevice(device), action, typeof value === 'number' && Number.isFinite(value) ? value : null)
+    },
+
+    async castStatus(device) {
+      return context.cast.remoteStatus(castDevice(device))
+    },
+
+    async castReceiverStatus(status) {
+      context.cast.setStatus(status)
+    },
+
+    // Library sync (receiving side)
+
+    async startSyncReceiver(): Promise<SyncInfo> {
+      sync?.stop()
+      const server = new SyncServer({
+        merge: (library, device) =>
+          new Promise((resolve, reject) => {
+            const requestId = randomUUID()
+            const timer = setTimeout(() => {
+              pendingSync.delete(requestId)
+              reject(new Error('Máy tính không gộp kịp thư viện. Vui lòng thử lại.'))
+            }, 30_000)
+            pendingSync.set(requestId, { resolve, reject, timer })
+            emit('syncIncoming', { requestId, device, library })
+          }),
+        onStatus: (status) => emit('syncStatus', status),
+        log: (message) => log.info(message),
+      })
+      sync = server
+      return server.start()
+    },
+
+    async stopSyncReceiver() {
+      sync?.stop()
+      sync = null
+    },
+
+    async syncReply(requestId: string, merged: LibraryExport | null, summary: string) {
+      const pending = pendingSync.get(requestId)
+      if (!pending) return
+      pendingSync.delete(requestId)
+      clearTimeout(pending.timer)
+      const library = merged ? parseLibraryExport(merged) : null
+      if (!library) pending.reject(new Error(typeof summary === 'string' && summary ? summary : 'Không gộp được thư viện.'))
+      else pending.resolve({ merged: library, summary: String(summary ?? '') })
+    },
+
+    // Music
+
+    async musicSearch(query: string, kind, continuation?: string | null) {
+      const k = MUSIC_SEARCH_KINDS.some((x) => x.id === kind) ? kind : 'songs'
+      return musicSearch(str(query, 'Từ khóa').slice(0, 300), k, optionalString(continuation))
+    },
+
+    async musicBrowse(browseId: string) {
+      const id = str(browseId, 'Mã trang')
+      if (!/^[A-Za-z0-9_-]{2,100}$/.test(id)) throw new Error('Mã trang không hợp lệ.')
+      return musicBrowse(id)
+    },
+
+    async lyrics(id: string) {
+      return lyrics(videoId(id))
+    },
+
+    // DeArrow
+
+    async dearrow(videoIds: string[]) {
+      if (!Array.isArray(videoIds)) return {}
+      const ids = videoIds.filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{6,20}$/.test(id)).slice(0, 200)
+      return dearrow.branding(ids)
+    },
+
+    // Automatic downloads
+
+    async runAutoDownloads() {
+      await runAutoDownloads()
+    },
+
+    // Web player fallback
+
+    async webPlayerSource(id: string, startSeconds: number, loop: boolean) {
+      const start = typeof startSeconds === 'number' && Number.isFinite(startSeconds) ? startSeconds : 0
+      return webPlayerSource(videoId(id), start, !!loop, accounts.isSignedIn() && !coreState.incognito)
     },
   }
 }

@@ -175,3 +175,54 @@ export function bestAudio(info: PlayerInfo): StreamFormat | null {
   const pick = (list: StreamFormat[]) => list.reduce<StreamFormat | null>((a, b) => (!a || b.bitrate > a.bitrate ? b : a), null)
   return pick(aac.filter((f) => f.isDefaultAudio)) ?? pick(aac)
 }
+
+function isSdr(f: StreamFormat): boolean {
+  return !f.colorInfo
+}
+
+/** Tallest stream ≤ maxHeight (SDR first, then higher fps, then bitrate). */
+function tallest(formats: StreamFormat[], maxHeight: number): StreamFormat | null {
+  const fitting = formats.filter((f) => (f.height ?? 0) <= maxHeight && f.url)
+  const pool = fitting.some(isSdr) ? fitting.filter(isSdr) : fitting
+  return pool.reduce<StreamFormat | null>((best, f) => {
+    if (!best) return f
+    const dh = (f.height ?? 0) - (best.height ?? 0)
+    if (dh !== 0) return dh > 0 ? f : best
+    const df = (f.fps ?? 0) - (best.fps ?? 0)
+    if (df !== 0) return df > 0 ? f : best
+    return f.bitrate > best.bitrate ? f : best
+  }, null)
+}
+
+/** The best Opus stream of the original language (VP9 downloads go into a .webm). */
+export function bestOpus(info: PlayerInfo): StreamFormat | null {
+  const opus = info.adaptiveFormats.filter((f) => f.mimeType.startsWith('audio/webm') && f.mimeType.includes('opus') && f.url)
+  const pick = (list: StreamFormat[]) => list.reduce<StreamFormat | null>((a, b) => (!a || b.bitrate > a.bitrate ? b : a), null)
+  return pick(opus.filter((f) => f.isDefaultAudio)) ?? pick(opus)
+}
+
+export interface DownloadPlan {
+  video: StreamFormat | null
+  audio: StreamFormat | null
+  container: 'mp4' | 'webm' | 'm4a'
+}
+
+/**
+ * Which streams a download uses. Above 1080p: an AV1 MP4 stream (+ AAC, merged into .mp4) when
+ * it is taller than the best H.264 one, else VP9 WebM + Opus (.webm), else H.264 ≤ 1080p.
+ */
+export function downloadPlan(info: PlayerInfo, maxHeight: number, audioOnly: boolean): DownloadPlan {
+  const aac = info.adaptiveFormats.find((f) => f.itag === 140 && f.isDefaultAudio && f.url) ?? bestAudio(info)
+  if (audioOnly) return { video: null, audio: aac, container: 'm4a' }
+  const h264 = bestVideo(info, Math.min(maxHeight, 1080))
+  if (maxHeight > 1080) {
+    const h264Height = h264?.height ?? 0
+    const video = info.adaptiveFormats.filter((f) => f.mimeType.startsWith('video/'))
+    const av1 = tallest(video.filter((f) => f.mimeType.startsWith('video/mp4') && f.mimeType.includes('av01')), maxHeight)
+    if (av1 && (av1.height ?? 0) > h264Height && aac) return { video: av1, audio: aac, container: 'mp4' }
+    const vp9 = tallest(video.filter((f) => f.mimeType.startsWith('video/webm') && /vp0?9/.test(f.mimeType)), maxHeight)
+    const opus = bestOpus(info)
+    if (vp9 && opus && (vp9.height ?? 0) > h264Height) return { video: vp9, audio: opus, container: 'webm' }
+  }
+  return { video: h264, audio: aac, container: 'mp4' }
+}

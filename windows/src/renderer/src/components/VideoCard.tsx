@@ -2,12 +2,14 @@
 // sách phát, Tải xuống, Chia sẻ, Không quan tâm…). The player module uses it for the related
 // list and the queue, so the props below stay compatible (new ones are optional).
 
-import { memo, useState, type MouseEvent } from 'react'
+import { memo, useRef, useState, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import type { VideoItem } from '@shared/models'
 import { paths, watchPath } from '@/lib/nav'
 import { addToQueue, copyVideoLink, dontRecommendChannel, downloadVideo, notInterested, playNext, toggleWatchLater } from '@/lib/actions'
+import { useBranding, useSeen } from '@/lib/dearrow'
 import { useDownloads } from '@/lib/downloads'
+import { useCast } from '@/state/cast'
 import { useLibrary } from '@/state/library'
 import { useSettings } from '@/state/settings'
 import { Avatar } from './Avatar'
@@ -76,11 +78,29 @@ export function videoMenuEntries(video: VideoItem, onSave: () => void, extra?: {
           },
         },
     { label: 'Chia sẻ', icon: 'share', onSelect: () => void copyVideoLink(video) },
+    ...castMenuEntries(video),
     'divider',
     { label: 'Không quan tâm', icon: 'block', onSelect: () => notInterested(video) },
   )
   if (video.channelId) entries.push({ label: 'Không đề xuất kênh này', icon: 'minusCircle', onSelect: () => dontRecommendChannel(video) })
   return entries
+}
+
+/** "Truyền tới TV" / "Thêm vào hàng đợi trên TV" (straight to the connected receiver, if any). */
+export function castMenuEntries(video: VideoItem): MenuEntry[] {
+  if (video.isLive && !video.id) return []
+  const cast = useCast.getState()
+  const device = cast.connected
+  if (device) {
+    return [
+      { label: `Phát trên ${device.name}`, icon: 'cast', onSelect: () => void cast.send(video), testId: 'menu-cast' },
+      { label: `Thêm vào hàng đợi trên ${device.name}`, icon: 'tv', onSelect: () => void cast.queue(video, false) },
+    ]
+  }
+  return [
+    { label: 'Truyền tới TV', icon: 'cast', onSelect: () => cast.openPicker(video, 'play'), testId: 'menu-cast' },
+    { label: 'Thêm vào hàng đợi trên TV', icon: 'tv', onSelect: () => cast.openPicker(video, 'queue') },
+  ]
 }
 
 function statsLine(video: VideoItem): string {
@@ -102,6 +122,10 @@ export const VideoCard = memo(function VideoCard({
   hideChannel,
 }: VideoCardProps) {
   const [saving, setSaving] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const seen = useSeen(root)
+  const branding = useBranding(video, seen)
+  const tooltip = branding.originalTitle ? `${branding.title}\nTiêu đề gốc: ${branding.originalTitle}` : video.title
   const href = to ?? (video.isShort && !onClick ? paths.shorts(video.id) : watchPath(video.id))
   const state = linkState ?? { video }
   const handle = (e: MouseEvent) => {
@@ -144,12 +168,12 @@ export const VideoCard = memo(function VideoCard({
 
   const thumbnail = (
     <Link to={href} state={state} className="vcard-thumb" onClick={handle} data-testid="video-link" tabIndex={-1} aria-hidden>
-      <Thumbnail video={video} />
+      <Thumbnail video={video} replacement={branding.thumbnail} />
     </Link>
   )
   const title = (
-    <Link to={href} state={state} className="vcard-title" title={video.title} onClick={handle}>
-      {video.title}
+    <Link to={href} state={state} className="vcard-title" title={tooltip} onClick={handle}>
+      {branding.title}
     </Link>
   )
 
@@ -217,7 +241,7 @@ export const VideoCard = memo(function VideoCard({
   }
 
   return (
-    <div className={`vcard vcard--${layout}` + (active ? ' is-active' : '')} data-testid="video-card" data-video-id={video.id} data-layout={layout}>
+    <div ref={root} className={`vcard vcard--${layout}` + (active ? ' is-active' : '')} data-testid="video-card" data-video-id={video.id} data-layout={layout}>
       {body}
       {saving && <SaveToPlaylistDialog video={video} onClose={() => setSaving(false)} />}
     </div>

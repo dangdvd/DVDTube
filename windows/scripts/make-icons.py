@@ -3,7 +3,9 @@
 
   build/icon.ico              16…256 px, used by electron-builder for the exe / installer
   resources/icon.png          512 px window / notification icon
+  build/icon.png              1024 px, macOS (icns) / Linux icons made by electron-builder
   resources/tray.png|.ico     tray icon
+  resources/trayTemplate.png  macOS menu bar "template" icon (black + alpha, 16 px and @2x)
   resources/thumbar/*.png     white 32 px glyphs for the taskbar thumbnail buttons
 
 Run from `windows/`: python3 scripts/make-icons.py
@@ -59,6 +61,21 @@ def glyph(kind: str, size: int = 32) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
+def template_glyph(size: int) -> Image.Image:
+    """macOS menu bar icon: a rounded "screen" with the play mark cut out, black on transparent."""
+    scale = 8
+    s = size * scale
+    img = Image.new('L', (s, s), 0)
+    d = ImageDraw.Draw(img)
+    u = s / 16
+    d.rounded_rectangle((1 * u, 3 * u, 15 * u, 13 * u), radius=3 * u, fill=255)
+    d.polygon([(6.4 * u, 5.6 * u), (11 * u, 8 * u), (6.4 * u, 10.4 * u)], fill=0)
+    alpha = img.resize((size, size), Image.LANCZOS)
+    out = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    out.putalpha(alpha)
+    return out
+
+
 def main() -> None:
     os.makedirs(os.path.join(ROOT, 'build'), exist_ok=True)
     os.makedirs(os.path.join(ROOT, 'resources', 'thumbar'), exist_ok=True)
@@ -70,13 +87,15 @@ def main() -> None:
     frames = [rounded_icon(n) for n in ico_sizes]
     frames[-1].save(os.path.join(ROOT, 'build', 'icon.ico'), format='ICO', sizes=[(n, n) for n in ico_sizes],
                     append_images=frames[:-1])
-    master.resize((256, 256), Image.LANCZOS).save(os.path.join(ROOT, 'build', 'icon.png'))
+    master.save(os.path.join(ROOT, 'build', 'icon.png'))
 
     tray_sizes = [16, 20, 24, 32, 40, 48]
     tray = [rounded_icon(n) for n in tray_sizes]
     tray[-1].save(os.path.join(ROOT, 'resources', 'tray.ico'), format='ICO', sizes=[(n, n) for n in tray_sizes],
                   append_images=tray[:-1])
     rounded_icon(32).save(os.path.join(ROOT, 'resources', 'tray.png'))
+    template_glyph(16).save(os.path.join(ROOT, 'resources', 'trayTemplate.png'))
+    template_glyph(32).save(os.path.join(ROOT, 'resources', 'trayTemplate@2x.png'))
 
     for kind in ('prev', 'play', 'pause', 'next'):
         glyph(kind).save(os.path.join(ROOT, 'resources', 'thumbar', kind + '.png'))

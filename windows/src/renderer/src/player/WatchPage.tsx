@@ -7,9 +7,12 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import type { VideoItem } from '@shared/models'
 import type { WatchState } from '@/lib/nav'
 import { watchPath } from '@/lib/nav'
+import { useBranding } from '@/lib/dearrow'
+import { useParentalFlags } from '@/state/parental'
 import { usePlayer } from '@/state/player'
 import { useSettings } from '@/state/settings'
 import { mainVideo } from './controller'
+import { LyricsPanel } from './music/LyricsPanel'
 import { PlayerSlot } from './ui/PlayerSlot'
 import { Comments } from './watch/Comments'
 import { Description, seekAndShow } from './watch/Description'
@@ -87,7 +90,10 @@ export function WatchPage() {
   const watchError = usePlayer((s) => s.watchError)
   const live = usePlayer((s) => s.live)
   const theater = useSettings((s) => s.settings.theaterMode)
-  const showComments = useSettings((s) => s.settings.showComments)
+  const commentsSetting = useSettings((s) => s.settings.showComments)
+  const parentalHidesComments = useParentalFlags().hideComments
+  const showComments = commentsSetting && !parentalHidesComments
+  const lyricsOpen = usePlayer((s) => s.lyricsOpen)
   const lastStart = useRef<number | null>(null)
 
   // Start (or keep) playing what the URL says. A new `t` on the same video seeks (timestamp
@@ -125,10 +131,11 @@ export function WatchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id])
 
+  const branded = useBranding(current ?? { id: '', title: '' }, !!current).title
   useEffect(() => {
-    const title = current?.title
+    const title = current ? branded : null
     document.title = title ? `${title} - DVDTube` : 'DVDTube'
-  }, [current?.title])
+  }, [current, branded])
   useEffect(() => () => void (document.title = 'DVDTube'), [])
 
   return (
@@ -165,6 +172,17 @@ export function WatchPage() {
           ) : null}
         </div>
         <aside className="dp-side">
+          {lyricsOpen && current ? (
+            <div className="dp-lyrics-card">
+              <div className="dp-lyrics-head">
+                <span>Lời bài hát</span>
+                <button type="button" className="dp-text-button" onClick={() => usePlayer.getState().setLyricsOpen(false)}>
+                  Đóng
+                </button>
+              </div>
+              <LyricsPanel videoId={current.id} compact />
+            </div>
+          ) : null}
           <ChaptersPanel />
           {watch?.liveChat ? <LiveChat info={watch.liveChat} videoId={watch.videoId} /> : null}
           <QueuePanel />

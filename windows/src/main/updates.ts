@@ -1,29 +1,20 @@
-// "Kiểm tra cập nhật": the latest GitHub release vs. the running version (CI sets it to
-// 1.0.<run number>); the Windows installer asset is `DVDTube-Setup.exe`.
+// "Cập nhật": the latest GitHub release vs. the running version (CI sets it to 1.0.<run number>).
+// Installed with the Windows installer: "Cập nhật ngay" downloads `DVDTube-Setup.exe` to the temp
+// folder and runs it silently (`/S --force-run`, the NSIS installer of electron-builder), then
+// quits. Portable zip / macOS / Linux: the download link of the matching asset is opened.
 
-import { app } from 'electron'
-import type { UpdateInfo } from '@shared/api'
+import { spawn } from 'node:child_process'
+import { open, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { app, net } from 'electron'
+import type { UpdateInfo, UpdateProgress } from '@shared/api'
 import { requestText } from './core/http'
+import { installKind, updateFrom, type Release } from './core/versions'
+
+export { compareVersions } from './core/versions'
 
 const RELEASES_URL = 'https://api.github.com/repos/dangdvd/DVDTube/releases/latest'
-
-/** Compares dotted versions ("1.0.42" vs "v1.0.7"); positive when `a` is newer. */
-export function compareVersions(a: string, b: string): number {
-  const parse = (v: string) =>
-    v
-      .trim()
-      .replace(/^v/i, '')
-      .split(/[-+]/)[0]
-      .split('.')
-      .map((part) => parseInt(part, 10) || 0)
-  const x = parse(a)
-  const y = parse(b)
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const diff = (x[i] ?? 0) - (y[i] ?? 0)
-    if (diff !== 0) return diff
-  }
-  return 0
-}
 
 export async function checkUpdate(): Promise<UpdateInfo | null> {
   let response
@@ -38,19 +29,66 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
   }
   if (response.status === 404) return null
   if (response.status !== 200) throw new Error(`Không kiểm tra được bản cập nhật (HTTP ${response.status}).`)
-  let release: { tag_name?: string; html_url?: string; body?: string; assets?: { name?: string; browser_download_url?: string }[] }
+  let release: Release
   try {
     release = JSON.parse(response.text)
   } catch {
     throw new Error('Không kiểm tra được bản cập nhật.')
   }
-  const version = (release.tag_name ?? '').replace(/^v/i, '')
-  if (!version || compareVersions(version, app.getVersion()) <= 0) return null
-  const installer = release.assets?.find((asset) => asset.name === 'DVDTube-Setup.exe')
-  return {
-    version,
-    url: release.html_url ?? 'https://github.com/dangdvd/DVDTube/releases/latest',
-    notes: release.body ?? null,
-    downloadUrl: installer?.browser_download_url ?? null,
+  return updateFrom(release, app.getVersion(), installKind())
+}
+
+function trustedDownload(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' && (u.hostname === 'github.com' || u.hostname.endsWith('.githubusercontent.com'))
+  } catch {
+    return false
+  }
+}
+
+let installing = false
+
+/** Downloads the installer (with progress) and runs it silently; the app quits right after. */
+export async function installUpdate(info: UpdateInfo, progress: (p: UpdateProgress) => void, quit: () => void): Promise<void> {
+  if (process.platform !== 'win32' || installKind() !== 'nsis') throw new Error('Bản cài đặt này không tự cập nhật được. Hãy tải bản mới từ trang phát hành.')
+  if (!info?.downloadUrl || !trustedDownload(info.downloadUrl)) throw new Error('Liên kết tải bản cập nhật không hợp lệ.')
+  if (installing) return
+  installing = true
+  const file = join(tmpdir(), `DVDTube-Setup-${String(info.version).replace(/[^0-9.]/g, '')}.exe`)
+  try {
+    const response = await net.fetch(info.downloadUrl)
+    if (!response.ok || !response.body) throw new Error(`Không tải được bản cập nhật (HTTP ${response.status}).`)
+    const total = info.size ?? (Number(response.headers.get('content-length')) || 0)
+    const out = await open(file, 'w')
+    let received = 0
+    let lastReport = 0
+    try {
+      const reader = response.body.getReader()
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        await out.write(value)
+        received += value.length
+        const now = Date.now()
+        if (total > 0 && now - lastReport > 250) {
+          lastReport = now
+          progress({ state: 'downloading', progress: Math.min(1, received / total) })
+        }
+      }
+    } finally {
+      await out.close()
+    }
+    if (received === 0 || (info.size && received !== info.size)) throw new Error('Tệp cập nhật tải về không đầy đủ. Vui lòng thử lại.')
+    progress({ state: 'installing' })
+    const child = spawn(file, ['/S', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: false })
+    child.unref()
+    setTimeout(quit, 800)
+  } catch (error) {
+    installing = false
+    await rm(file, { force: true }).catch(() => {})
+    const message = error instanceof Error && /[à-ỹ]/i.test(error.message) ? error.message : 'Không tải được bản cập nhật. Kiểm tra mạng và thử lại.'
+    progress({ state: 'failed', message })
+    throw new Error(message)
   }
 }

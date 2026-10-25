@@ -10,20 +10,35 @@ import './styles/shell.css'
 import './styles/cards.css'
 import './styles/pages.css'
 import { PlayerHost, ShortsPage, WatchPage } from './player'
+import './styles/features.css'
+import { CastBar } from './components/cast/CastBar'
+import { CastPicker } from './components/cast/CastPicker'
 import { DialogHost } from './components/DialogHost'
+import { ParentalLock } from './components/ParentalLock'
+import { SyncDialog } from './components/SyncDialog'
+import { UpdateBanner } from './components/UpdateBanner'
 import { Icon } from './components/Icon'
 import { ScrollRootContext } from './components/InfiniteScroll'
 import { Drawer, MiniRail, Sidebar } from './components/shell/Sidebar'
 import { TopBar } from './components/shell/TopBar'
 import { Toaster } from './components/Toaster'
+import { startAlarms } from './lib/alarms'
 import { api, onEvent } from './lib/api'
+import { startCastReceiver } from './lib/castReceiver'
 import { startDownloadSync } from './lib/downloads'
 import { openLink } from './lib/links'
 import { startNotifier } from './lib/notifier'
+import { restorePlayerSession, startPlayerSessionSaving } from './lib/playerSession'
+import { loadPrefs, usePrefs } from './lib/prefs'
+import { startRecentVideos } from './lib/recentVideos'
+import { startSyncListener } from './lib/sync'
 import { useGlobalShortcuts } from './lib/shortcuts'
 import { runSmoke } from './lib/smoke'
 import { useMediaQuery, useTheme } from './lib/theme'
 import { useUi } from './lib/ui'
+import { startCastDiscovery, useCast } from './state/cast'
+import { startParentalWatch } from './state/parental'
+import { usePlayer } from './state/player'
 import { useSettings } from './state/settings'
 import { AccountPage } from './pages/AccountPage'
 import { ChannelPage } from './pages/ChannelPage'
@@ -33,6 +48,7 @@ import { HomePage } from './pages/HomePage'
 import { LibraryPage } from './pages/LibraryPage'
 import { LikedPage, WatchLaterPage } from './pages/LocalListPages'
 import { LocalPlaylistPage } from './pages/LocalPlaylistPage'
+import { MusicPage } from './pages/MusicPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { PlaylistPage } from './pages/PlaylistPage'
@@ -79,22 +95,17 @@ function useScrollRestoration(root: HTMLElement | null) {
   }, [root, location.key, navigationType])
 }
 
-function UpdateBanner({ info, onClose }: { info: UpdateInfo; onClose: () => void }) {
-  return (
-    <div className="update-banner" role="status" data-testid="update-banner">
-      <Icon name="download" size={20} />
-      <span>
-        Đã có phiên bản mới <b>{info.version}</b>
-        {info.notes ? ` — ${info.notes}` : ''}
-      </span>
-      <button className="btn btn-accent btn-small" onClick={() => void api.openExternal(info.downloadUrl ?? info.url)}>
-        Tải bản mới
-      </button>
-      <button className="icon-btn" aria-label="Đóng" onClick={onClose}>
-        <Icon name="close" size={20} />
-      </button>
-    </div>
-  )
+const DAY = 24 * 60 * 60_000
+
+/** Any picture playing: the main player (also the web player and music) or a Short. */
+function anythingPlaying(): boolean {
+  if (usePlayer.getState().playing) return true
+  return Array.from(document.querySelectorAll('video')).some((v) => !v.paused && !v.ended && v.readyState > 2)
+}
+
+function stopAllPlayback(): void {
+  if (usePlayer.getState().playing) usePlayer.getState().pause()
+  document.querySelectorAll('video').forEach((v) => v.pause())
 }
 
 export function App() {
@@ -118,14 +129,25 @@ export function App() {
     if (started.current) return
     started.current = true
     startDownloadSync()
+    startCastDiscovery()
+    startCastReceiver(navigate)
+    startSyncListener()
+    startParentalWatch(anythingPlaying, stopAllPlayback)
     onEvent('openLink', (url) => void openLink(url, navigate))
-    void api.appInfo().then((info) => {
+    void api.appInfo().then(async (info) => {
       if (info.smoke) {
         void runSmoke(navigate)
         return
       }
+      await restorePlayerSession().catch(() => {})
+      startPlayerSessionSaving()
+      startRecentVideos()
+      void startAlarms(navigate)
       startNotifier()
-      if (useSettings.getState().settings.checkUpdates) {
+      await loadPrefs()
+      // Automatic checks at most once a day (a development build is older than any release).
+      if (useSettings.getState().settings.checkUpdates && Date.now() - usePrefs.getState().lastUpdateCheck > DAY) {
+        usePrefs.getState().set({ lastUpdateCheck: Date.now() })
         api
           .checkUpdate()
           .then((u) => u && setUpdate(u))
@@ -139,6 +161,7 @@ export function App() {
     useUi.getState().setDrawer(false)
   }, [location.pathname, location.search])
 
+  const casting = useCast((s) => !!s.connected)
   const layout = onWatch || narrow ? 'none' : wide && !collapsed ? 'full' : 'mini'
   const toggleMenu = () => {
     if (layout === 'full' || (wide && collapsed && !onWatch)) useUi.getState().toggleCollapsed()
@@ -146,7 +169,7 @@ export function App() {
   }
 
   return (
-    <div className={`app app--${layout}`} data-route={location.pathname.split('/')[1] || 'home'}>
+    <div className={`app app--${layout}` + (casting ? ' app--casting' : '')} data-route={location.pathname.split('/')[1] || 'home'}>
       <TopBar onMenu={toggleMenu} />
       <div className="app-body">
         {layout === 'full' && <Sidebar />}
@@ -171,6 +194,8 @@ export function App() {
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/account" element={<AccountPage />} />
+              <Route path="/music" element={<MusicPage />} />
+              <Route path="/music/browse/:id" element={<MusicPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </ScrollRootContext.Provider>
@@ -178,6 +203,10 @@ export function App() {
       </div>
       <Drawer open={drawerOpen} onClose={() => useUi.getState().setDrawer(false)} />
       <PlayerHost />
+      <CastBar />
+      <CastPicker />
+      <SyncDialog />
+      <ParentalLock />
       <Toaster />
       <DialogHost />
     </div>

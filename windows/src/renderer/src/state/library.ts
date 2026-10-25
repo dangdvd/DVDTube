@@ -5,6 +5,7 @@
 import { create } from 'zustand'
 import type { ChannelItem, HistoryEntry, LocalPlaylist, VideoItem } from '@shared/models'
 import { load, saveSoon } from '@/lib/persist'
+import { blockedByKeywords } from './parental'
 import { settings } from './settings'
 
 export interface Progress {
@@ -68,6 +69,11 @@ interface LibraryStore extends LibraryData {
   unblockChannel(channelId: string): void
   /** Hides "not interested" videos and blocked channels from feeds. */
   isHidden(video: VideoItem): boolean
+  /** Library sync: the merged lists, plus newer resume positions. */
+  applySync(
+    content: Pick<LibraryData, 'subscriptions' | 'history' | 'watchLater' | 'liked' | 'playlists' | 'searchHistory'>,
+    progress: { videoId: string; position: number; duration: number; updatedAt: number }[],
+  ): void
 }
 
 const EMPTY: LibraryData = {
@@ -83,7 +89,7 @@ const EMPTY: LibraryData = {
   blockedChannelNames: {},
 }
 
-const MAX_HISTORY = 2000
+export const MAX_HISTORY = 2000
 const MAX_SEARCHES = 50
 
 function data(state: LibraryStore): LibraryData {
@@ -256,9 +262,17 @@ export const useLibrary = create<LibraryStore>((set, get) => {
       delete names[channelId]
       change({ blockedChannels: get().blockedChannels.filter((id) => id !== channelId), blockedChannelNames: names })
     },
+    applySync(content, progress) {
+      const merged = { ...get().progress }
+      for (const p of progress) {
+        const local = merged[p.videoId]
+        if (!local || p.updatedAt > local.updatedAt) merged[p.videoId] = { position: p.position, duration: p.duration, updatedAt: p.updatedAt }
+      }
+      change({ ...content, history: content.history.slice(0, MAX_HISTORY), progress: merged })
+    },
     isHidden(video) {
       const s = get()
-      return s.notInterested.includes(video.id) || (!!video.channelId && s.blockedChannels.includes(video.channelId))
+      return s.notInterested.includes(video.id) || (!!video.channelId && s.blockedChannels.includes(video.channelId)) || blockedByKeywords(video)
     },
   }
 })

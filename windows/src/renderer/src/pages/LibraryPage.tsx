@@ -263,6 +263,10 @@ export function LibraryPage() {
         empty="Tải video xuống để xem khi không có mạng."
       />
       <div className="library-links">
+        <Link to={paths.music} className="library-link">
+          <Icon name="music" />
+          <span>Nghe nhạc</span>
+        </Link>
         <Link to={paths.subscriptions + '?view=manage'} className="library-link">
           <Icon name="subscriptions" />
           <span>Quản lý kênh đăng ký</span>

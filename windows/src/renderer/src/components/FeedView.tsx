@@ -6,6 +6,7 @@ import type { FeedItem, VideoItem } from '@shared/models'
 import { feedItemKey } from '@shared/models'
 import type { Feed } from '@/lib/feed'
 import { useLibrary } from '@/state/library'
+import { blockedByKeywords, useParental } from '@/state/parental'
 import { useSettings } from '@/state/settings'
 import { ChannelCard, PlaylistCard, ShortsCard, ShortsShelf } from './Cards'
 import { Icon, type IconName } from './Icon'
@@ -17,8 +18,10 @@ import { SkeletonGrid, VideoCard } from './VideoCard'
 export function useVisibleItems(items: FeedItem[]): FeedItem[] {
   const notInterested = useLibrary((s) => s.notInterested)
   const blocked = useLibrary((s) => s.blockedChannels)
-  const hideShorts = useSettings((s) => s.settings.hideShorts)
-  const hidden = (v: VideoItem) => notInterested.includes(v.id) || (!!v.channelId && blocked.includes(v.channelId)) || (hideShorts && !!v.isShort)
+  const parental = useParental((s) => s.config)
+  const hideShorts = useSettings((s) => s.settings.hideShorts) || (parental.enabled && parental.hideShorts)
+  const hidden = (v: VideoItem) =>
+    notInterested.includes(v.id) || (!!v.channelId && blocked.includes(v.channelId)) || (hideShorts && !!v.isShort) || blockedByKeywords(v)
   const result: FeedItem[] = []
   for (const item of items) {
     if (item.type === 'video') {
@@ -28,7 +31,9 @@ export function useVisibleItems(items: FeedItem[]): FeedItem[] {
       const shorts = item.items.filter((v) => !hidden(v))
       if (shorts.length) result.push({ type: 'shorts', items: shorts })
     } else if (item.type === 'channel') {
-      if (!blocked.includes(item.channel.id)) result.push(item)
+      if (!blocked.includes(item.channel.id) && !blockedByKeywords({ title: item.channel.name, channelName: item.channel.name })) result.push(item)
+    } else if (item.type === 'playlist') {
+      if (!blockedByKeywords({ title: item.playlist.title, channelName: item.playlist.channelName })) result.push(item)
     } else {
       result.push(item)
     }

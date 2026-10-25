@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { watchPath } from '@/lib/nav'
+import { useCast } from '@/state/cast'
 import { usePlayer, type PlayerMode } from '@/state/player'
 import { getStage } from './stage'
 import { MiniPlayer } from './ui/MiniPlayer'
@@ -41,6 +42,9 @@ export function PlayerHost() {
   const windowMini = usePlayer((s) => s.windowMini)
   const onWatch = location.pathname === '/watch'
   const onShorts = location.pathname.startsWith('/shorts')
+  // The music pages have their own player bar; while casting, the cast bar is the player.
+  const onMusic = location.pathname.startsWith('/music')
+  const casting = useCast((s) => !!s.connected)
   const mode: PlayerMode = !hasCurrent ? 'hidden' : onWatch ? 'page' : 'mini'
   const stage = getStage()
 
@@ -70,7 +74,7 @@ export function PlayerHost() {
   return (
     <>
       {createPortal(<PlayerOverlay variant={mode === 'page' ? 'page' : 'mini'} onExpand={expand} onMiniPlayer={miniPlayer} />, stage.overlay)}
-      {mode === 'mini' && !onShorts && !windowMini ? <MiniPlayer onExpand={expand} /> : null}
+      {mode === 'mini' && !onShorts && !onMusic && !casting && !windowMini ? <MiniPlayer onExpand={expand} /> : null}
       {windowMini && hasCurrent ? <WindowMiniPlayer /> : null}
     </>
   )

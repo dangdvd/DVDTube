@@ -104,6 +104,11 @@ function FinishedRow({ item }: { item: DownloadedVideo }) {
             <Icon name="headphones" size={16} />
           </span>
         )}
+        {item.isAuto && (
+          <span className="dl-auto-badge" title="Tự động tải từ kênh đăng ký" data-testid="download-auto-badge">
+            Tự động
+          </span>
+        )}
       </button>
       <div className="dl-text">
         <button className="dl-title" onClick={play} title={item.video.title}>

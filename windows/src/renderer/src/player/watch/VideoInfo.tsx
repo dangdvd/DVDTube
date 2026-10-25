@@ -7,6 +7,8 @@ import type { ChannelItem, VideoItem, WatchInfo } from '@shared/models'
 import { SaveToPlaylistDialog } from '@/components/SaveToPlaylistDialog'
 import { api, errorMessage } from '@/lib/api'
 import { copyVideoLink, downloadVideo } from '@/lib/actions'
+import { useBranding } from '@/lib/dearrow'
+import { useCast } from '@/state/cast'
 import { paths } from '@/lib/nav'
 import { toast } from '@/lib/toast'
 import { useAccount } from '@/state/account'
@@ -105,13 +107,17 @@ export function VideoInfo({ video, watch }: { video: VideoItem; watch: WatchInfo
   const more = useMenu()
   const sleep = useMenu()
   const [saving, setSaving] = useState(false)
-  const title = info?.title || video.title
+  const branding = useBranding({ id: video.id, title: info?.title || video.title })
+  const title = branding.title
+  const lyricsOpen = usePlayer((s) => s.lyricsOpen)
+  const castDevice = useCast((s) => s.connected)
 
   return (
     <div className="dp-info">
-      <h1 className="dp-title" data-testid="watch-title">
+      <h1 className="dp-title" data-testid="watch-title" title={branding.originalTitle ? `Tiêu đề gốc: ${branding.originalTitle}` : undefined}>
         {title || 'Đang tải…'}
       </h1>
+      {branding.originalTitle ? <div className="dp-original-title">Tiêu đề gốc: {branding.originalTitle}</div> : null}
       <div className="dp-info-row">
         {channel ? (
           <div className="dp-channel">
@@ -155,6 +161,25 @@ export function VideoInfo({ video, watch }: { video: VideoItem; watch: WatchInfo
           </button>
           <button type="button" className="dp-pill" onClick={() => setSaving(true)}>
             <PIcon name="save" size={22} /> Lưu
+          </button>
+          <button
+            type="button"
+            className={'dp-pill' + (lyricsOpen ? ' dp-pill--on' : '')}
+            aria-pressed={lyricsOpen}
+            onClick={() => usePlayer.getState().setLyricsOpen(!lyricsOpen)}
+            data-testid="watch-lyrics"
+          >
+            <PIcon name="mic" size={22} /> Lời bài hát
+          </button>
+          <button
+            type="button"
+            className={'dp-pill dp-pill--icon' + (castDevice ? ' dp-pill--on' : '')}
+            title={castDevice ? `Đang phát trên ${castDevice.name}` : 'Truyền tới TV'}
+            aria-label="Truyền tới TV"
+            onClick={() => useCast.getState().openPicker(castDevice ? null : video, 'play')}
+            data-testid="watch-cast"
+          >
+            <PIcon name={castDevice ? 'castConnected' : 'cast'} size={22} />
           </button>
           <button
             type="button"

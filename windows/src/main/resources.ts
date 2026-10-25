@@ -28,5 +28,14 @@ export function appIcon(): NativeImage {
 }
 
 export function trayIcon(): NativeImage {
-  return process.platform === 'win32' ? image('tray.ico') : image('tray.png')
+  if (process.platform === 'win32') return image('tray.ico')
+  if (process.platform === 'darwin') {
+    // A "template" image: macOS draws it black or white to match the menu bar.
+    const template = image('trayTemplate.png')
+    if (!template.isEmpty()) {
+      template.setTemplateImage(true)
+      return template
+    }
+  }
+  return image('tray.png')
 }

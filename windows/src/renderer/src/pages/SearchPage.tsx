@@ -16,6 +16,7 @@ import { looksLikeLink, openLink } from '@/lib/links'
 import { QUICK_FILTERS, activeFilterCount, filtersFromParams, filtersKey, isQuickSelected, searchUrl, toggleQuick } from '@/lib/searchFilters'
 import { usePageTitle } from '@/lib/title'
 import { useLibrary } from '@/state/library'
+import { useParentalFlags } from '@/state/parental'
 
 function FilterGroup<T extends string>({
   title,
@@ -102,6 +103,18 @@ function FilterPanel({ filters, onChange }: { filters: SearchFilters; onChange: 
 }
 
 export function SearchPage() {
+  const searchOff = useParentalFlags().disableSearch
+  if (searchOff) {
+    return (
+      <div className="page page-pad" data-testid="search-results">
+        <EmptyState icon="lock" title="Tìm kiếm đã bị tắt" message="Kiểm soát của phụ huynh đang tắt tìm kiếm trên máy này." />
+      </div>
+    )
+  }
+  return <SearchResultsPage />
+}
+
+function SearchResultsPage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const query = (params.get('q') ?? '').trim()

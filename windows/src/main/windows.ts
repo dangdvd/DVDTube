@@ -8,6 +8,7 @@ import { emit, registerAppWindow } from './ipc'
 import { log } from './log'
 import { appIcon } from './resources'
 import { readJsonSync, userDataFile, writeJson } from './store'
+import { guardWebviews } from './webplayer'
 
 interface WindowState {
   x?: number
@@ -108,6 +109,8 @@ export function createMainWindow(options: { smoke: boolean; hidden: boolean }): 
       nodeIntegration: false,
       backgroundThrottling: false,
       spellcheck: false,
+      // Only for the web player fallback; every <webview> is checked by guardWebviews().
+      webviewTag: true,
     },
   })
   mainWindow = window
@@ -143,7 +146,7 @@ export function createMainWindow(options: { smoke: boolean; hidden: boolean }): 
     event.preventDefault()
     openExternalSafe(url)
   })
-  contents.on('will-attach-webview', (event) => event.preventDefault())
+  guardWebviews(contents)
   contents.on('render-process-gone', (_event, details) => log.error(`renderer gone: ${details.reason} (${details.exitCode})`))
   contents.on('unresponsive', () => log.warn('renderer unresponsive'))
 

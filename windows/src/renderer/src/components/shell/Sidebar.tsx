@@ -8,6 +8,7 @@ import { HOME_CATEGORIES } from '@shared/models'
 import { paths } from '@/lib/nav'
 import { useAccount } from '@/state/account'
 import { useLibrary } from '@/state/library'
+import { useParentalFlags } from '@/state/parental'
 import { Avatar } from '../Avatar'
 import { Icon, type IconName } from '../Icon'
 import { Logo } from './TopBar'
@@ -67,6 +68,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation()
   const subscriptions = useLibrary((s) => s.subscriptions)
   const signedIn = useAccount((s) => s.signedIn)
+  const hideShorts = useParentalFlags().hideShorts
   const [expanded, setExpanded] = useState(false)
   const shown = expanded ? subscriptions : subscriptions.slice(0, 7)
 
@@ -82,7 +84,8 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           onNavigate={onNavigate}
           testId="nav-home"
         />
-        <Item to={paths.shorts()} icon="shorts" label="Shorts" active={active(paths.shorts())} onNavigate={onNavigate} testId="nav-shorts" />
+        {!hideShorts && <Item to={paths.shorts()} icon="shorts" label="Shorts" active={active(paths.shorts())} onNavigate={onNavigate} testId="nav-shorts" />}
+        <Item to={paths.music} icon="music" label="Nghe nhạc" active={location.pathname.startsWith('/music')} onNavigate={onNavigate} testId="nav-music" />
         <Item
           to={paths.subscriptions}
           icon="subscriptions"
@@ -172,11 +175,16 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <Item to={paths.account} icon="account" label={signedIn ? 'Tài khoản' : 'Đăng nhập'} active={active(paths.account)} onNavigate={onNavigate} />
       </div>
       <div className="side-footer">
-        <div>DVDTube cho Windows</div>
+        <div>{platformTitle()}</div>
         <div>Xem YouTube không quảng cáo. Ứng dụng không liên kết với Google.</div>
       </div>
     </div>
   )
+}
+
+function platformTitle(): string {
+  const p = navigator.userAgent
+  return /Mac OS X/.test(p) ? 'DVDTube cho macOS' : /Linux/.test(p) && !/Windows/.test(p) ? 'DVDTube cho Linux' : 'DVDTube cho Windows'
 }
 
 export function Sidebar() {
@@ -192,6 +200,7 @@ export function MiniRail() {
   const items: { to: string; icon: IconName; activeIcon?: IconName; label: string }[] = [
     { to: paths.home, icon: 'home', activeIcon: 'homeFilled', label: 'Trang chủ' },
     { to: paths.shorts(), icon: 'shorts', label: 'Shorts' },
+    { to: paths.music, icon: 'music', label: 'Nghe nhạc' },
     { to: paths.subscriptions, icon: 'subscriptions', activeIcon: 'subscriptionsFilled', label: 'Kênh đăng ký' },
     { to: paths.library, icon: 'you', label: 'Bạn' },
     { to: paths.downloads, icon: 'download', label: 'Tải xuống' },

@@ -49,10 +49,11 @@ export function planSources(info: PlayerInfo, options: { audioOnly: boolean }): 
   return sources
 }
 
-/** A finished download (`.m4a` = audio only). */
+/** A finished download (`.m4a` = audio only, `.webm` = VP9 + Opus 1440p / 2160p). */
 export function downloadSource(fileUrl: string): PlaybackSource {
   const audioOnly = /\.m4a($|\?)/i.test(fileUrl)
-  return { kind: 'download', uri: fileUrl, mimeType: audioOnly ? 'audio/mp4' : 'video/mp4', audioOnly }
+  const webm = /\.webm($|\?)/i.test(fileUrl)
+  return { kind: 'download', uri: fileUrl, mimeType: audioOnly ? 'audio/mp4' : webm ? 'video/webm' : 'video/mp4', audioOnly }
 }
 
 export const SOURCE_LABELS: Record<PlaybackSource['kind'], string> = {
@@ -61,4 +62,5 @@ export const SOURCE_LABELS: Record<PlaybackSource['kind'], string> = {
   hls: 'HLS',
   'dash-live': 'DASH của YouTube',
   progressive: 'MP4 ghép sẵn',
+  web: 'Trình phát web (YouTube nhúng)',
 }

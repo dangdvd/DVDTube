@@ -12,11 +12,13 @@ import { useAccount } from '@/state/account'
 import { useSettings } from '@/state/settings'
 import { Avatar } from '../Avatar'
 import { Icon } from '../Icon'
+import { requireParentalPin } from '@/lib/parental'
 import { Menu, type MenuEntry } from '../Menu'
 
 export const THEME_TITLES: Record<ThemeMode, string> = { system: 'Theo hệ thống', dark: 'Tối', light: 'Sáng' }
 
 export async function signIn(addAccount = false): Promise<void> {
+  if (!(await requireParentalPin('Đăng nhập được bảo vệ bởi kiểm soát của phụ huynh.'))) return
   try {
     const state = await api.signIn(addAccount)
     useAccount.setState({ ...state, loaded: true })
@@ -27,6 +29,7 @@ export async function signIn(addAccount = false): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
+  if (!(await requireParentalPin('Đăng xuất được bảo vệ bởi kiểm soát của phụ huynh.'))) return
   if (
     !(await confirmDialog({
       title: 'Đăng xuất khỏi tài khoản Google?',

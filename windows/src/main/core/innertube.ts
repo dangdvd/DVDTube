@@ -24,6 +24,8 @@ interface PostOptions {
   visitorData?: string | null
   auth?: AuthMode
   retry?: boolean
+  /** Origin the SAPISIDHASH is computed for (music.youtube.com for YouTube Music). */
+  origin?: string
 }
 
 /** When the anonymous player request last met YouTube's bot check (iOS `BotCheck`). */
@@ -39,12 +41,12 @@ const BotCheck = {
 
 const visitors = new Map<string, { value: string; at: number }>()
 
-function cachedVisitor(client: string): string | null {
+export function cachedVisitor(client: string): string | null {
   const entry = visitors.get(client)
   return entry && Date.now() - entry.at < 3_600_000 ? entry.value : null
 }
 
-function storeVisitor(client: string, value: string): void {
+export function storeVisitor(client: string, value: string): void {
   visitors.set(client, { value, at: Date.now() })
 }
 
@@ -79,14 +81,24 @@ function context(profile: ClientProfile, visitorData: string | null | undefined)
   return {
     client,
     request: { internalExperimentFlags: [], useSsl: true },
-    user: { lockedSafetyMode: false },
+    // Parental controls' "Chế độ hạn chế" (every client, every request).
+    user: { lockedSafetyMode: coreState.restrictedMode },
   }
 }
 
-async function authFor(mode: AuthMode, url: string): Promise<Record<string, string> | null> {
+export function requestContext(profile: ClientProfile, visitorData: string | null | undefined): Record<string, unknown> {
+  return context(profile, visitorData)
+}
+
+async function authFor(mode: AuthMode, url: string, origin?: string): Promise<Record<string, string> | null> {
   if (mode === 'none') return null
   if (mode === 'auto' && coreState.incognito) return null
-  return AuthSession.headers(url)
+  return AuthSession.headers(url, origin)
+}
+
+/** With restricted mode on, YouTube's own content / age checks stay in place. */
+function contentChecks(): Record<string, boolean> {
+  return coreState.restrictedMode ? {} : { contentCheckOk: true, racyCheckOk: true }
 }
 
 export async function post(
@@ -114,7 +126,7 @@ export async function post(
   }
   if (opts.visitorData) headers['X-Goog-Visitor-Id'] = opts.visitorData
   for (const [key, value] of Object.entries(profile.extraHeaders ?? {})) headers[key] = value
-  const auth = await authFor(opts.auth ?? 'none', href)
+  const auth = await authFor(opts.auth ?? 'none', href, opts.origin)
   if (auth) Object.assign(headers, auth)
   const transport: Transport = auth ? 'auth' : 'anon'
 
@@ -194,7 +206,7 @@ export async function player(videoId: string): Promise<PlayerInfo> {
           const json = await post(
             'player',
             profile,
-            { videoId, cpn: randomToken(16), contentCheckOk: true, racyCheckOk: true },
+            { videoId, cpn: randomToken(16), ...contentChecks() },
             { query: { t: randomToken(12), id: videoId }, visitorData: visitor },
           )
           return parsePlayer(json, videoId, profile.name)
@@ -237,8 +249,7 @@ async function signedInPlayer(videoId: string): Promise<PlayerInfo> {
     'player',
     {
       videoId,
-      contentCheckOk: true,
-      racyCheckOk: true,
+      ...contentChecks(),
       playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' } },
     },
     'account',
@@ -280,7 +291,7 @@ export function searchContinuation(token: string): Promise<JNode> {
  * ("Danh sách kết hợp") this is the only way to get their videos (they have no playlist page).
  */
 export function next(videoId: string | null, playlistId: string | null = null): Promise<JNode> {
-  const body: Record<string, unknown> = { contentCheckOk: true, racyCheckOk: true }
+  const body: Record<string, unknown> = { ...contentChecks() }
   if (videoId) body.videoId = videoId
   if (playlistId) body.playlistId = playlistId
   return web('next', body)

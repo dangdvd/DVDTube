@@ -465,6 +465,10 @@ export interface DownloadedVideo {
   downloadedAt: number
   /** Only the sound, as an `.m4a` file. */
   isAudioOnly: boolean
+  /** Downloaded by "Tự động tải video mới" (cleaned up automatically, never manual downloads). */
+  isAuto?: boolean
+  /** Captions saved next to the video (`.srt`), when "Tải kèm phụ đề" was on. */
+  subtitlePath?: string | null
 }
 
 export type DownloadState =
@@ -572,6 +576,8 @@ export type ResolvedLink =
   | { type: 'channel'; channelId: string }
   | { type: 'playlist'; playlistId: string }
   | { type: 'search'; query: string }
+  /** `dvdtube://shorts`, `dvdtube://music`, `dvdtube://search` (no query): a page of the app. */
+  | { type: 'app'; page: 'shorts' | 'music' | 'search' }
 
 // MARK: Formatting helpers (same output as the mobile apps)
 
@@ -642,4 +648,177 @@ export function feedItemKey(item: FeedItem): string {
 /** Mixes ("RD…") are endless radio playlists generated per video. */
 export function isMix(playlistId: string): boolean {
   return playlistId.startsWith('RD') && !playlistId.startsWith('RDCLAK')
+}
+
+// MARK: Cast to DVDTube ("Truyền tới DVDTube", protocol 1 — shared with the phone and TV apps)
+
+export type CastDeviceKind = 'tv' | 'desktop'
+
+/** A DVDTube receiver on the local network (found with DNS-SD `_dvdtube._tcp` or added by IP). */
+export interface CastDevice {
+  /** The receiver's stable id (TXT `id`), or `manual:<host>:<port>` until it answered /api/info. */
+  id: string
+  name: string
+  kind: CastDeviceKind
+  /** Private IPv4 address. */
+  host: string
+  port: number
+  version?: string | null
+  /** Added with "Thêm thiết bị bằng địa chỉ IP" (remembered). */
+  manual?: boolean
+  /** Seen on the network recently / answered the last /api/info. */
+  online?: boolean
+}
+
+export type CastPlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'ended' | 'error'
+
+/** `GET /api/status` of a receiver (without the `ok` flag). */
+export interface CastStatus {
+  state: CastPlaybackState
+  video: VideoItem | null
+  position: number
+  duration: number
+  volume: number
+  muted: boolean
+  queue: VideoItem[]
+  index: number
+  error: string | null
+}
+
+export type CastAction = 'play' | 'pause' | 'toggle' | 'seek' | 'skip' | 'next' | 'previous' | 'stop' | 'volume' | 'mute'
+
+/** Body of `POST /api/play`. */
+export interface CastPlayRequest {
+  video: VideoItem
+  startSeconds?: number | null
+  queue?: VideoItem[] | null
+  index?: number | null
+  playlistId?: string | null
+  /** Name of the sending device ("Đang phát từ <sender>"). */
+  sender?: string | null
+}
+
+/** What a receiver's window is asked to do (from its HTTP API). */
+export type CastCommand =
+  | { type: 'play'; request: CastPlayRequest }
+  | { type: 'queue'; video: VideoItem; next: boolean }
+  | { type: 'control'; action: CastAction; value: number | null }
+
+/** VideoItem as it travels in the cast / sync JSON: known fields only, `id` required. */
+export function cleanVideoItem(value: unknown): VideoItem | null {
+  if (typeof value !== 'object' || value === null) return null
+  const v = value as Record<string, unknown>
+  if (typeof v.id !== 'string' || !/^[A-Za-z0-9_-]{6,20}$/.test(v.id)) return null
+  const text = (key: string, max = 2000): string | null => (typeof v[key] === 'string' ? (v[key] as string).slice(0, max) : null)
+  const number = (key: string): number | null => (typeof v[key] === 'number' && Number.isFinite(v[key]) ? (v[key] as number) : null)
+  const url = (key: string): string | null => {
+    const u = text(key, 4000)
+    return u && /^(https?:|data:image\/)/i.test(u) ? u : null
+  }
+  return {
+    id: v.id,
+    title: text('title', 500) ?? '',
+    channelName: text('channelName', 300),
+    channelId: text('channelId', 100),
+    channelAvatar: url('channelAvatar'),
+    thumbnail: url('thumbnail'),
+    durationText: text('durationText', 40),
+    durationSeconds: number('durationSeconds'),
+    viewCountText: text('viewCountText', 100),
+    publishedText: text('publishedText', 100),
+    publishedDate: number('publishedDate'),
+    isLive: v.isLive === true,
+    isShort: v.isShort === true,
+  }
+}
+
+export function cleanChannelItem(value: unknown): ChannelItem | null {
+  if (typeof value !== 'object' || value === null) return null
+  const v = value as Record<string, unknown>
+  if (typeof v.id !== 'string' || !v.id || v.id.length > 100) return null
+  const text = (key: string, max = 500): string | null => (typeof v[key] === 'string' ? (v[key] as string).slice(0, max) : null)
+  const avatar = text('avatar', 4000)
+  return {
+    id: v.id,
+    name: text('name') ?? v.id,
+    avatar: avatar && /^(https?:|data:image\/)/i.test(avatar) ? avatar : null,
+    handle: text('handle', 100),
+    subscriberText: text('subscriberText', 100),
+    videoCountText: text('videoCountText', 100),
+  }
+}
+
+// MARK: Music ("Nghe nhạc", YouTube Music client)
+
+export type MusicSearchKind = 'songs' | 'videos' | 'albums' | 'artists' | 'playlists'
+
+export const MUSIC_SEARCH_KINDS: { id: MusicSearchKind; title: string }[] = [
+  { id: 'songs', title: 'Bài hát' },
+  { id: 'videos', title: 'Video' },
+  { id: 'albums', title: 'Album' },
+  { id: 'artists', title: 'Nghệ sĩ' },
+  { id: 'playlists', title: 'Danh sách phát' },
+]
+
+export interface MusicItem {
+  type: 'song' | 'video' | 'album' | 'artist' | 'playlist'
+  /** Video id (songs, videos) or browse id (MPRE… albums, UC… artists, VL… playlists). */
+  id: string
+  title: string
+  /** "Nghệ sĩ • Album • 3:45" as YouTube Music shows it. */
+  subtitle?: string | null
+  artists?: string | null
+  album?: string | null
+  durationText?: string | null
+  thumbnail?: string | null
+  /** Playlist / album queue to play this item in. */
+  playlistId?: string | null
+  /** Songs and videos: ready to play. */
+  video?: VideoItem | null
+}
+
+export interface MusicShelf {
+  title: string
+  items: MusicItem[]
+}
+
+export interface MusicSearchPage {
+  items: MusicItem[]
+  continuation?: string | null
+}
+
+/** An album, artist or playlist page of YouTube Music. */
+export interface MusicBrowsePage {
+  kind: 'album' | 'artist' | 'playlist' | 'other'
+  title: string
+  subtitle?: string | null
+  description?: string | null
+  thumbnail?: string | null
+  /** Plays the whole album / playlist. */
+  playlistId?: string | null
+  shelves: MusicShelf[]
+}
+
+export interface LyricLine {
+  startMs: number
+  endMs?: number | null
+  text: string
+}
+
+export interface Lyrics {
+  videoId: string
+  text: string
+  /** "Nguồn: LyricFind" etc. */
+  source?: string | null
+  /** Timed lines (karaoke highlighting) when YouTube has them. */
+  lines?: LyricLine[] | null
+}
+
+// MARK: DeArrow (crowd-sourced titles and thumbnails, sponsor.ajay.app)
+
+export interface DeArrowBranding {
+  /** Replacement title (already without the leading ">"). */
+  title?: string | null
+  /** Replacement thumbnail URL (dearrow-thumb.ajay.app). */
+  thumbnail?: string | null
 }

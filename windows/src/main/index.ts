@@ -3,11 +3,13 @@
 
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { app, Menu, session, type BrowserWindow } from 'electron'
+import { app, Menu, session, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import { DEFAULT_SEARCH_FILTERS, feedVideos } from '@shared/models'
 import type { AppSettings } from '@shared/settings'
 import { initAccounts, flushAccounts } from './accounts'
 import { createApi } from './api'
+import { configureAutoDownload, initAutoDownloads } from './autodownload'
+import { CastService } from './cast'
 import { APIConfig, refreshRemoteConfig, setRemoteConfigPersistence } from './core/clients'
 import { coreState, setCoreLogger } from './core/config'
 import { describeError } from './core/errors'
@@ -49,6 +51,9 @@ if (savedSettings.hardwareAcceleration === false) app.disableHardwareAcceleratio
 if (typeof savedSettings.language === 'string') coreState.hl = savedSettings.language
 if (typeof savedSettings.region === 'string') coreState.gl = savedSettings.region
 if (typeof savedSettings.remoteConfigUrl === 'string') coreState.remoteConfigUrl = savedSettings.remoteConfigUrl
+// Parental controls' restricted mode applies from the very first request.
+const savedParental = readJsonSync<{ config?: { enabled?: boolean; restricted?: boolean } }>(userDataFile('store', 'parental.json'))
+coreState.restrictedMode = savedParental?.config?.enabled === true && savedParental.config.restricted === true
 setUserAgentFallback()
 
 log.info(`DVDTube ${app.getVersion()} (Electron ${process.versions.electron}, ${process.platform})${isSmoke() ? ' — smoke mode' : ''}`)
@@ -58,7 +63,7 @@ process.on('unhandledRejection', (reason) => log.error(`unhandled rejection: ${d
 
 // MARK: Links opened from outside
 
-const LINK_PATTERN = /^(dvdtube:\/\/(?!tv-login)|https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\/)/i
+const LINK_PATTERN = /^(dvdtube:\/\/(?!tv-login|sync)|https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\/)/i
 const pendingLinks: string[] = []
 let rendererReady = false
 
@@ -104,28 +109,65 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function applicationMenu(): Menu {
+  const edit: MenuItemConstructorOptions = {
+    label: 'Sửa',
+    submenu: [
+      { role: 'undo', label: 'Hoàn tác' },
+      { role: 'redo', label: 'Làm lại' },
+      { type: 'separator' },
+      { role: 'cut', label: 'Cắt' },
+      { role: 'copy', label: 'Sao chép' },
+      { role: 'paste', label: 'Dán' },
+      ...(process.platform === 'darwin' ? [{ role: 'pasteAndMatchStyle' as const, label: 'Dán và khớp kiểu' }, { role: 'delete' as const, label: 'Xóa' }] : []),
+      { role: 'selectAll', label: 'Chọn tất cả' },
+    ],
+  }
+  const view: MenuItemConstructorOptions = {
+    label: 'Xem',
+    submenu: [
+      { role: 'zoomIn', label: 'Phóng to' },
+      { role: 'zoomOut', label: 'Thu nhỏ' },
+      { role: 'resetZoom', label: 'Cỡ mặc định' },
+      { type: 'separator' },
+      ...(process.platform === 'darwin' ? [{ role: 'togglefullscreen' as const, label: 'Toàn màn hình' }, { type: 'separator' as const }] : []),
+      { role: 'toggleDevTools', label: 'Công cụ nhà phát triển' },
+    ],
+  }
+  if (process.platform !== 'darwin') return Menu.buildFromTemplate([edit, view])
+  // macOS: the app menu and standard Edit / Window menus (copy / paste shortcuts need them).
   return Menu.buildFromTemplate([
     {
-      label: 'Sửa',
+      label: app.name,
       submenu: [
-        { role: 'undo', label: 'Hoàn tác' },
-        { role: 'redo', label: 'Làm lại' },
+        { role: 'about', label: 'Giới thiệu DVDTube' },
         { type: 'separator' },
-        { role: 'cut', label: 'Cắt' },
-        { role: 'copy', label: 'Sao chép' },
-        { role: 'paste', label: 'Dán' },
-        { role: 'selectAll', label: 'Chọn tất cả' },
+        { label: 'Cài đặt…', accelerator: 'Cmd+,', click: () => openLink('dvdtube://app/settings') },
+        { type: 'separator' },
+        { role: 'services', label: 'Dịch vụ' },
+        { type: 'separator' },
+        { role: 'hide', label: 'Ẩn DVDTube' },
+        { role: 'hideOthers', label: 'Ẩn các ứng dụng khác' },
+        { role: 'unhide', label: 'Hiện tất cả' },
+        { type: 'separator' },
+        { role: 'quit', label: 'Thoát DVDTube' },
+      ],
+    },
+    edit,
+    view,
+    {
+      label: 'Cửa sổ',
+      role: 'windowMenu',
+      submenu: [
+        { role: 'minimize', label: 'Thu nhỏ' },
+        { role: 'zoom', label: 'Phóng to cửa sổ' },
+        { type: 'separator' },
+        { role: 'front', label: 'Đưa tất cả lên trước' },
       ],
     },
     {
-      label: 'Xem',
-      submenu: [
-        { role: 'zoomIn', label: 'Phóng to' },
-        { role: 'zoomOut', label: 'Thu nhỏ' },
-        { role: 'resetZoom', label: 'Cỡ mặc định' },
-        { type: 'separator' },
-        { role: 'toggleDevTools', label: 'Công cụ nhà phát triển' },
-      ],
+      label: 'Trợ giúp',
+      role: 'help',
+      submenu: [{ label: 'Trang DVDTube trên GitHub', click: () => void shell.openExternal('https://github.com/dangdvd/DVDTube') }],
     },
   ])
 }
@@ -157,7 +199,20 @@ async function start(): Promise<void> {
     log.error(`accounts init failed: ${describeError(error)}`)
   }
   await initDownloads().catch((error) => log.error(`downloads init failed: ${describeError(error)}`))
-  registerApi(createApi({ smoke: isSmoke(), hidden: startHidden }))
+  initAutoDownloads()
+  configureAutoDownload(savedSettings.autoDownload)
+  cast = new CastService({
+    version: app.getVersion(),
+    onCommand: (command) => {
+      if (command.type === 'play') showMainWindow()
+      emit('castCommand', command)
+    },
+    onDevices: (devices) => emit('castDevices', devices),
+    log: (message) => log.info(message),
+  })
+  // Receivers must be findable even while the window is hidden in the tray.
+  if (!isSmoke() && savedSettings.castReceiver !== false) void cast.setReceiverEnabled(true)
+  registerApi(createApi({ smoke: isSmoke(), hidden: startHidden, cast }))
 
   const window = createMainWindow({ smoke: isSmoke(), hidden: startHidden })
   attachWindowBehaviour(window)
@@ -224,15 +279,21 @@ async function coreDiagnostics(): Promise<void> {
 }
 
 let flushedBeforeQuit = false
+let cast: CastService | null = null
 
-/** Keeps the newest cookie values of the account and pending store writes (at most 2 s). */
+/**
+ * Lets the renderer save what it has pending (queue, positions), then keeps the newest cookie
+ * values of the account and the store writes (at most 2.5 s); says goodbye on the network.
+ */
 app.on('before-quit', (event) => {
   markQuitting()
   if (flushedBeforeQuit) return
   flushedBeforeQuit = true
   event.preventDefault()
-  const timeout = new Promise((resolve) => setTimeout(resolve, 2000))
-  void Promise.race([Promise.all([flushAccounts(), flushStore()]), timeout]).finally(() => app.quit())
+  emit('beforeQuit', true)
+  const timeout = new Promise((resolve) => setTimeout(resolve, 2500))
+  const work = new Promise((resolve) => setTimeout(resolve, 400)).then(() => Promise.all([flushAccounts(), flushStore(), cast?.stop()]))
+  void Promise.race([work, timeout]).finally(() => app.quit())
 })
 
 app.on('window-all-closed', () => {

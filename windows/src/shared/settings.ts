@@ -16,6 +16,20 @@ export interface EqualizerSettings {
   preamp: number
 }
 
+/** "Tự động tải video mới" of subscribed channels. */
+export interface AutoDownloadSettings {
+  enabled: boolean
+  /** Channels picked in Settings (from local subscriptions and the account's). */
+  channels: { id: string; name: string; avatar?: string | null }[]
+  /** "Giữ tối đa N video mỗi kênh". */
+  keep: number
+  /** "Chỉ khi dùng Wi-Fi" (on a PC: not over a mobile / cellular connection). */
+  wifiOnly: boolean
+  audioOnly: boolean
+}
+
+export type DownloadQuality = 360 | 480 | 720 | 1080 | 1440 | 2160
+
 export interface AppSettings {
   // Region / language for InnerTube ("hl" / "gl").
   language: string
@@ -72,7 +86,29 @@ export interface AppSettings {
 
   // Downloads
   downloadFolder: string | null
-  downloadQuality: 360 | 480 | 720 | 1080
+  /** Above 1080p: AV1 (.mp4) or VP9 + Opus (.webm) when YouTube has them. */
+  downloadQuality: DownloadQuality
+  /** "Tải kèm phụ đề (.srt)". */
+  downloadSubtitles: boolean
+  autoDownload: AutoDownloadSettings
+
+  // Cast ("Cho phép truyền video tới máy tính này")
+  castReceiver: boolean
+
+  // Music mode
+  /** "Nghe nhạc" plays only the sound (saves data); the picture can be turned on per song. */
+  musicAudioOnly: boolean
+
+  // DeArrow
+  dearrow: boolean
+  dearrowTitles: boolean
+  dearrowThumbnails: boolean
+
+  /** "Dùng trình phát web khi lỗi": YouTube's embed when every native source fails. */
+  webPlayerFallback: boolean
+
+  /** "Hẹn giờ phát": bring the window to the front when an alarm starts. */
+  alarmShowWindow: boolean
 
   // App
   minimizeToTray: boolean
@@ -146,6 +182,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   downloadFolder: null,
   downloadQuality: 1080,
+  downloadSubtitles: false,
+  autoDownload: { enabled: false, channels: [], keep: 3, wifiOnly: true, audioOnly: false },
+
+  castReceiver: true,
+
+  musicAudioOnly: true,
+
+  dearrow: true,
+  dearrowTitles: true,
+  dearrowThumbnails: true,
+
+  webPlayerFallback: true,
+
+  alarmShowWindow: true,
 
   minimizeToTray: false,
   notifyNewVideos: true,
@@ -165,9 +215,18 @@ export interface CoreConfig {
   minimizeToTray: boolean
   backgroundPlayback: boolean
   hardwareAcceleration: boolean
+  /** Runs the cast receiver (HTTP API + DNS-SD advertisement). */
+  castReceiver: boolean
+  /** Parental controls' "Chế độ hạn chế": `lockedSafetyMode` on every InnerTube request. */
+  restrictedMode: boolean
+  downloadSubtitles: boolean
+  /** Preferred caption language (subtitle downloads). */
+  captionLanguage: string | null
+  autoDownload: AutoDownloadSettings
 }
 
-export function coreConfig(s: AppSettings): CoreConfig {
+/** `restrictedMode` comes from the parental controls, which are stored apart from the settings. */
+export function coreConfig(s: AppSettings, restrictedMode = false): CoreConfig {
   return {
     language: s.language,
     region: s.region,
@@ -178,5 +237,10 @@ export function coreConfig(s: AppSettings): CoreConfig {
     minimizeToTray: s.minimizeToTray,
     backgroundPlayback: s.backgroundPlayback,
     hardwareAcceleration: s.hardwareAcceleration,
+    castReceiver: s.castReceiver,
+    restrictedMode,
+    downloadSubtitles: s.downloadSubtitles,
+    captionLanguage: s.captionLanguage,
+    autoDownload: s.autoDownload,
   }
 }

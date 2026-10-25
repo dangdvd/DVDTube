@@ -6,6 +6,8 @@ import { load, saveSoon } from './persist'
 
 interface Prefs {
   startWithWindows: boolean
+  /** Last automatic update check (at most once a day). */
+  lastUpdateCheck: number
 }
 
 interface PrefsStore extends Prefs {
@@ -15,11 +17,12 @@ interface PrefsStore extends Prefs {
 
 export const usePrefs = create<PrefsStore>((set, get) => ({
   startWithWindows: false,
+  lastUpdateCheck: 0,
   loaded: false,
   set(patch) {
     set(patch)
-    const { startWithWindows } = { ...get(), ...patch }
-    saveSoon('prefs', { startWithWindows })
+    const { startWithWindows, lastUpdateCheck } = { ...get(), ...patch }
+    saveSoon('prefs', { startWithWindows, lastUpdateCheck })
   },
 }))
 

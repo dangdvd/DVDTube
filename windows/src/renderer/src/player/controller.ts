@@ -1,12 +1,17 @@
-// Drives the main player: queue, loading with source fallback, history, captions,
-// SponsorBlock, sleep timer, autoplay countdown, audio processing. The UI talks to it only
-// through `usePlayer` (state/player.ts); Media Session / taskbar wiring lives in session.ts.
+// Drives the main player: queue, loading with source fallback (native → YouTube's embed in the
+// web player), history, captions, SponsorBlock, sleep timer, autoplay countdown, audio
+// processing, music mode (audio only, next song prefetched and started without a countdown),
+// alarms' fade-in, and casting (while connected to a DVDTube receiver everything played is sent
+// there and the controls drive it). The UI talks to it only through `usePlayer`
+// (state/player.ts); Media Session / taskbar wiring lives in session.ts.
 
 import type { CaptionTrack, PlayerInfo, SponsorSegment, VideoItem, WatchInfo } from '@shared/models'
-import { SPONSOR_CATEGORIES, feedVideos, formatDuration } from '@shared/models'
+import { SPONSOR_CATEGORIES, feedVideos, formatDuration, isMix } from '@shared/models'
 import { api, errorMessage, isElectron } from '@/lib/api'
+import { noteRendererLine } from '@/lib/rendererLog'
 import { toast } from '@/lib/toast'
 import { useAccount } from '@/state/account'
+import { castTarget, useCast } from '@/state/cast'
 import { useLibrary } from '@/state/library'
 import { INITIAL_PLAYBACK, registerPlayerDriver, usePlayer, type PlayOptions, type PlayerDriver, type PlayerMode, type PlayerStore } from '@/state/player'
 import { settings, useSettings } from '@/state/settings'
@@ -16,6 +21,7 @@ import { shakaSupported } from './engine/shaka'
 import { downloadSource, planSources } from './engine/sources'
 import { noteMockVideo } from './mock'
 import { getStage } from './stage'
+import { createWebPlayback, webLayer, type WebPlayback, type WebPlayerState } from './web/webPlayer'
 
 const get = () => usePlayer.getState()
 const set = (patch: Partial<PlayerStore>) => usePlayer.setState(patch)
@@ -56,6 +62,18 @@ let markedWatched = false
 let lastSaved = 0
 let upNextTimer: ReturnType<typeof setTimeout> | null = null
 let fade = 1
+/** Alarms: the volume rises from 0 until this moment. */
+let fadeInStart = 0
+let fadeInMs = 0
+/** "Trình phát web" is playing the current video. */
+let webActive = false
+let webPlayer: WebPlayback | null = null
+let webEnded = false
+/** Music mode: the next song's streams, fetched ahead. */
+let prefetched: { videoId: string; info: PlayerInfo; source: PlaybackSource; manager: Awaited<ReturnType<PlaybackEngine['preload']>> } | null = null
+let prefetching: string | null = null
+/** "Chỉ âm thanh" as it was before music mode turned it on. */
+let audioOnlyBeforeMusic: boolean | null = null
 /** Audio language picked in the player this session; later videos use it too. */
 let sessionAudioLanguage: string | null = null
 const skippedSegments = new Set<number>()
@@ -86,6 +104,105 @@ function applyVolume(): void {
   const v = video()
   v.volume = Math.min(1, Math.max(0, s.volume * fade))
   v.muted = s.muted
+  if (webActive) {
+    web().command('setVolume', [Math.round(Math.min(1, Math.max(0, s.volume * fade)) * 100)])
+    web().command(s.muted ? 'mute' : 'unMute')
+  }
+}
+
+/** Where playback is (the <video>, or the embed while the web player is used). */
+function position(): number {
+  return webActive ? get().currentTime : video().currentTime
+}
+
+function note(message: string): void {
+  noteRendererLine('error', message)
+}
+
+// MARK: Web player (YouTube's embed, when every native source failed)
+
+function web(): WebPlayback {
+  if (!webPlayer) {
+    webPlayer = createWebPlayback()
+    webPlayer.onState = onWebState
+    webPlayer.onReady = () => {
+      if (!webActive) return
+      applyVolume()
+      const rate = get().boosted ? 2 : get().rate
+      if (rate !== 1) web().command('setPlaybackRate', [rate])
+    }
+    webPlayer.onError = (message) => {
+      if (!webActive) return
+      note(`web player: ${message} (${get().current?.id ?? ''})`)
+      set({ status: 'error', error: message, errorDetail: 'Trình phát web (YouTube nhúng)', playing: false })
+    }
+  }
+  return webPlayer
+}
+
+function onWebState(state: WebPlayerState): void {
+  if (!webActive || state.ad) {
+    if (state.ad && get().status !== 'loading') set({ status: 'loading' })
+    return
+  }
+  const status = state.s === 1 ? 'playing' : state.s === 2 ? 'paused' : state.s === 3 ? 'buffering' : state.s === 0 ? 'ended' : get().status
+  const patch: Partial<PlayerStore> = { playing: state.s === 1 || state.s === 3 }
+  if (status !== get().status) patch.status = status
+  if (Number.isFinite(state.t) && Math.abs(state.t - get().currentTime) >= 0.2) patch.currentTime = state.t
+  if (state.d > 0 && !get().live && Math.abs(state.d - get().duration) > 0.5) patch.duration = state.d
+  set(patch)
+  if (state.s === 0 && !webEnded) {
+    webEnded = true
+    if (get().loop) {
+      webEnded = false
+      web().command('seekTo', [0, true])
+      web().command('playVideo')
+    } else handleEnded()
+  } else if (state.s !== 0) webEnded = false
+}
+
+/** Native playback is impossible here (bot check, 403, no streams) — not for offline / gone videos. */
+function webFallbackAllowed(message: string | null | undefined): boolean {
+  if (!settings().webPlayerFallback) return false
+  // In the mock (no Electron) only when asked for (`localStorage.mockWebPlayer = '1'`).
+  if (!isElectron) {
+    try {
+      if (localStorage.getItem('mockWebPlayer') !== '1') return false
+    } catch {
+      return false
+    }
+  }
+  const text = message ?? ''
+  return !/Kiểm tra mạng|Không có kết nối mạng|phản hồi quá chậm|Không kết nối được|Hết thời gian chờ|riêng tư|private|đã bị xóa|removed|không tồn tại|does not exist/i.test(text)
+}
+
+async function startWeb(my: number, startAt: number | null, reason: string): Promise<void> {
+  const item = get().current
+  if (!item || my !== token) return
+  console.warn(`switching to the web player: ${reason}`)
+  note(`player: native playback failed (${reason}); using the web player for ${item.id}`)
+  if (engineInstance?.source) await engineInstance.unload()
+  if (my !== token) return
+  webActive = true
+  webEnded = false
+  set({ source: 'web', status: 'loading', error: null, errorDetail: null, pictureless: false, qualities: [], audioTracks: [], waitSeconds: 0, fallbackReason: reason })
+  try {
+    await web().load(item.id, startAt ?? 0, get().loop)
+  } catch (error) {
+    if (my === token) fail(errorMessage(error), 'Trình phát web (YouTube nhúng)')
+  }
+}
+
+function stopWeb(): void {
+  if (!webActive) return
+  webActive = false
+  webPlayer?.unload()
+}
+
+// MARK: Casting (the connected DVDTube receiver plays instead)
+
+function remote(): boolean {
+  return !!castTarget()
 }
 
 function applyAudio(): void {
@@ -126,7 +243,8 @@ async function start(item: VideoItem, startAt: number | null): Promise<void> {
   playedSeconds = 0
   markedWatched = false
   skippedSegments.clear()
-  fade = 1
+  fade = fadeInMs > 0 && Date.now() - fadeInStart < fadeInMs ? 0 : 1
+  stopWeb()
   const v = video()
   const e = engine()
   v.loop = false
@@ -140,7 +258,16 @@ async function start(item: VideoItem, startAt: number | null): Promise<void> {
     duration: item.isLive ? 0 : (item.durationSeconds ?? 0),
     live: !!item.isLive,
     rate: get().rate,
+    restored: false,
   })
+  // Connected to a DVDTube receiver: it plays the video, this computer is the remote.
+  if (remote()) {
+    const s = get()
+    set({ status: 'paused', playing: false })
+    void loadWatch(item.id, s.playlistId, my)
+    void useCast.getState().send(item, { startSeconds: startAt, queue: s.queue, index: s.queueIndex, playlistId: s.playlistId })
+    return
+  }
   applyVolume()
   void loadWatch(item.id, get().playlistId, my)
   try {
@@ -153,22 +280,34 @@ async function start(item: VideoItem, startAt: number | null): Promise<void> {
       return
     }
     if (!shakaSupported()) throw new Error('Trình phát video không được hỗ trợ trên máy này')
-    const info = await loadInfo(item, my)
+    const ready = prefetched?.videoId === item.id && !get().audioOnly === !prefetched.source.audioOnly ? prefetched : null
+    prefetched = null
+    const info = ready ? ready.info : await loadInfo(item, my)
+    if (ready) applyInfo(item, ready.info, my)
     if (my !== token) return
     await waitUntilAvailable(info, my)
     if (my !== token) return
     sources = planSources(info, { audioOnly: get().audioOnly })
     if (!sources.length) throw new Error('Không tìm thấy luồng phát nào cho video này')
-    await loadSource(my, 0, startAt)
+    if (ready?.manager && sources[0]?.uri === ready.source.uri) await loadSource(my, 0, startAt, ready.manager)
+    else await loadSource(my, 0, startAt)
   } catch (error) {
     if (my !== token) return
-    fail(errorMessage(error), null)
+    const message = errorMessage(error)
+    if (webFallbackAllowed(message)) return startWeb(my, startAt, message)
+    note(`player: ${item.id} failed before playback: ${message}`)
+    fail(message, null)
   }
 }
 
 async function loadInfo(item: VideoItem, my: number): Promise<PlayerInfo> {
   const info = await api.player(item.id)
-  if (my !== token) return info
+  applyInfo(item, info, my)
+  return info
+}
+
+function applyInfo(item: VideoItem, info: PlayerInfo, my: number): void {
+  if (my !== token) return
   set({
     info,
     live: info.isLive,
@@ -179,7 +318,6 @@ async function loadInfo(item: VideoItem, my: number): Promise<PlayerInfo> {
   applyAudio()
   autoSelectCaptions(info.captions)
   if (settings().sponsorBlock && !info.isLive) void loadSponsorSegments(item.id, my)
-  return info
 }
 
 async function loadSponsorSegments(videoId: string, my: number): Promise<void> {
@@ -202,7 +340,7 @@ async function waitUntilAvailable(info: PlayerInfo, my: number): Promise<void> {
   if (my === token) set({ waitSeconds: 0 })
 }
 
-async function loadSource(my: number, index: number, startAt: number | null): Promise<void> {
+async function loadSource(my: number, index: number, startAt: number | null, preloaded?: Awaited<ReturnType<PlaybackEngine['preload']>>): Promise<void> {
   const source = sources[index]
   if (!source) return
   sourceIndex = index
@@ -211,7 +349,12 @@ async function loadSource(my: number, index: number, startAt: number | null): Pr
   set({ source: source.kind, pictureless: !!source.audioOnly, status: 'loading', error: null, errorDetail: null, quality: 0 })
   loadingSource = true
   try {
-    await e.load(source, startAt)
+    if (preloaded) {
+      await e.loadPreloaded(source, preloaded)
+      if (startAt != null && startAt > 0) video().currentTime = startAt
+    } else {
+      await e.load(source, startAt)
+    }
   } catch (error) {
     loadingSource = false
     if (my !== token || isInterruption(error)) return
@@ -233,6 +376,60 @@ async function loadSource(my: number, index: number, startAt: number | null): Pr
     if (my !== token) return
     if ((error as DOMException)?.name !== 'AbortError') set({ status: 'paused', playing: false })
   }
+  if (get().musicMode) void prefetchNext(my)
+}
+
+/** Music mode: fetches the next song's streams now so it starts without a gap. */
+async function prefetchNext(my: number): Promise<void> {
+  const s = get()
+  extendRadio()
+  const next = s.queue[s.queueIndex + 1] ?? (s.loopQueue && s.queue.length > 1 ? s.queue[0] : null)
+  if (!next || next.isLive || prefetched?.videoId === next.id || prefetching === next.id) return
+  prefetching = next.id
+  try {
+    const downloaded = await api.downloadFileUrl(next.id).catch(() => null)
+    if (downloaded || my !== token) return
+    const info = await api.player(next.id)
+    if (my !== token || info.availableAt > Date.now() + 1000) return
+    const source = planSources(info, { audioOnly: get().audioOnly })[0]
+    if (!source) return
+    const manager = await engine().preload(source)
+    if (my !== token) {
+      void manager?.destroy()
+      return
+    }
+    prefetched = { videoId: next.id, info, source, manager }
+  } catch {
+    // The next song simply loads normally.
+  } finally {
+    prefetching = null
+  }
+}
+
+let extendingRadio = false
+
+/** "Radio từ bài này" (RDAMVM… mixes) is endless: more songs are appended near the end. */
+function extendRadio(): void {
+  const s = get()
+  if (!s.musicMode || !s.playlistId || !isMix(s.playlistId) || extendingRadio) return
+  if (s.queueIndex < s.queue.length - 3) return
+  const last = s.queue[s.queue.length - 1]
+  if (!last) return
+  extendingRadio = true
+  const playlistId = s.playlistId
+  api
+    .watchInfo(last.id, playlistId)
+    .then((watch) => {
+      const now = get()
+      if (now.playlistId !== playlistId || !watch.playlist) return
+      const known = new Set(now.queue.map((v) => v.id))
+      const extra = watch.playlist.videos.filter((v) => !known.has(v.id) && !v.isLive)
+      if (extra.length) set({ queue: [...now.queue, ...extra] })
+    })
+    .catch(() => {})
+    .finally(() => {
+      extendingRadio = false
+    })
 }
 
 async function handleFailure(my: number, error: EngineError, resumeAt?: number | null): Promise<void> {
@@ -272,13 +469,17 @@ async function handleFailure(my: number, error: EngineError, resumeAt?: number |
 
   if (sourceIndex + 1 < sources.length) {
     console.warn(`playback via ${source?.kind} failed (${error.detail}); trying ${sources[sourceIndex + 1].kind}`)
+    note(`player: ${current.id} via ${source?.kind} failed (${error.detail}, client ${get().info?.client ?? '?'}); trying ${sources[sourceIndex + 1].kind}`)
     return loadSource(my, sourceIndex + 1, at)
   }
+  note(`player: ${current.id} failed on every source (${error.detail}, client ${get().info?.client ?? '?'}, last ${source?.kind})`)
+  if (source?.kind !== 'download' && webFallbackAllowed(error.detail)) return startWeb(my, at, error.detail)
   fail(error.message, error.detail)
 }
 
 function fail(message: string, detail: string | null): void {
   set({ status: 'error', error: message || 'Không phát được video', errorDetail: detail, playing: false })
+  note(`player error: ${message}${detail ? ` — ${detail}` : ''} (source ${get().source ?? '-'}, client ${get().info?.client ?? '-'})`)
 }
 
 async function loadWatch(videoId: string, playlistId: string | null, my: number): Promise<void> {
@@ -374,7 +575,9 @@ function wireVideo(v: HTMLVideoElement): void {
   v.addEventListener('ended', handleEnded)
   v.addEventListener('enterpictureinpicture', () => set({ pip: true }))
   v.addEventListener('leavepictureinpicture', () => set({ pip: false }))
-  document.addEventListener('fullscreenchange', () => set({ fullscreen: document.fullscreenElement === getStage().root }))
+  document.addEventListener('fullscreenchange', () =>
+    set({ fullscreen: !!document.fullscreenElement && (document.fullscreenElement === getStage().root || document.fullscreenElement === webLayer()) }),
+  )
 }
 
 function handleEnded(): void {
@@ -389,6 +592,11 @@ function handleEnded(): void {
   }
   set({ status: 'ended', playing: false })
   const queued = s.queueIndex + 1 < s.queue.length || (s.loopQueue && s.queue.length > 1)
+  // Music: the next song follows right away (it was fetched ahead).
+  if (s.musicMode) {
+    if (queued) goNext()
+    return
+  }
   const next = queued ? s.queue[(s.queueIndex + 1) % s.queue.length] : relatedCandidate(true)
   if (next) startUpNext(next)
 }
@@ -461,12 +669,13 @@ function saveProgress(completed = false): void {
   const s = get()
   const item = s.current
   if (!item || s.live) return
+  if (s.restored || remote()) return
   const v = video()
-  const duration = s.duration || (Number.isFinite(v.duration) ? v.duration : 0)
-  const position = completed ? duration : v.currentTime
-  if (!completed && (!(position > 0) || s.status === 'loading' || s.status === 'error')) return
+  const duration = s.duration || (!webActive && Number.isFinite(v.duration) ? v.duration : 0)
+  const at = completed ? duration : position()
+  if (!completed && (!(at > 0) || s.status === 'loading' || s.status === 'error')) return
   lastSaved = Date.now()
-  useLibrary.getState().recordWatch(item, position, duration)
+  useLibrary.getState().recordWatch(item, at, duration)
 }
 
 function markWatched(): void {
@@ -486,6 +695,16 @@ function tick(): void {
   lastTick = now
   const s = get()
   const e = engineInstance
+  if (s.current && webActive) {
+    if (s.playing) {
+      playedSeconds += Math.min(dt, 1) * (s.boosted ? 2 : s.rate)
+      if (playedSeconds >= 30 && !markedWatched) markWatched()
+      if (Date.now() - lastSaved > 5000) saveProgress()
+    }
+    sponsorTick(s.currentTime)
+    sleepTick(null)
+    return
+  }
   if (!s.current || !e?.source) return
   const v = video()
   const buffered = e.bufferedEnd()
@@ -529,7 +748,7 @@ export function sponsorTitle(segment: SponsorSegment): string {
   return SPONSOR_CATEGORIES.find((c) => c.id === segment.category)?.title ?? segment.category
 }
 
-function sleepTick(v: HTMLVideoElement): void {
+function sleepTick(v: HTMLVideoElement | null): void {
   const s = get()
   let target = 1
   if (s.sleepEndsAt) {
@@ -545,10 +764,17 @@ function sleepTick(v: HTMLVideoElement): void {
     // The sound fades out over the last 10 seconds.
     if (remaining < 10_000) target = remaining / 10_000
   } else if (s.sleepAtEnd && s.duration > 0) {
-    const left = s.duration - v.currentTime
+    const left = s.duration - (v ? v.currentTime : s.currentTime)
     if (left < 10) target = Math.max(0, left / 10)
   }
-  if (Math.abs(target - fade) > 0.01) {
+  // Alarms: fade in.
+  if (fadeInMs > 0) {
+    const elapsed = Date.now() - fadeInStart
+    if (elapsed >= fadeInMs) fadeInMs = 0
+    else if (s.playing) target = Math.min(target, elapsed / fadeInMs)
+    else target = Math.min(target, fade)
+  }
+  if (Math.abs(target - fade) > 0.01 || (target === 1 && fade !== 1)) {
     fade = target
     applyVolume()
   }
@@ -558,8 +784,16 @@ function sleepTick(v: HTMLVideoElement): void {
 
 function play(item: VideoItem, options: PlayOptions = {}): void {
   const s = get()
+  applyMusicMode(!!options.music)
+  if (options.fadeIn && options.fadeIn > 0) {
+    fadeInStart = Date.now()
+    fadeInMs = options.fadeIn * 1000
+    fade = 0
+    applyVolume()
+  }
+  const loaded = !!engineInstance?.source || webActive || remote()
   // Same video already loaded (e.g. expanding the mini player): keep it going.
-  if (s.current?.id === item.id && s.status !== 'error' && !options.queue?.length) {
+  if (s.current?.id === item.id && s.status !== 'error' && !options.queue?.length && loaded && !s.restored) {
     if (options.startAt != null) seek(options.startAt)
     if (options.playlistId && options.playlistId !== s.playlistId) {
       set({ playlistId: options.playlistId })
@@ -591,6 +825,20 @@ function play(item: VideoItem, options: PlayOptions = {}): void {
   void start(item, options.startAt ?? resumePosition(item.id))
 }
 
+/** Music mode turns "Chỉ âm thanh" on (setting); leaving it restores the previous choice. */
+function applyMusicMode(music: boolean): void {
+  const s = get()
+  if (music === s.musicMode) return
+  if (music) {
+    audioOnlyBeforeMusic = s.audioOnly
+    set({ musicMode: true, audioOnly: settings().musicAudioOnly ? true : s.audioOnly })
+  } else {
+    set({ musicMode: false, audioOnly: audioOnlyBeforeMusic ?? false })
+    audioOnlyBeforeMusic = null
+    prefetched = null
+  }
+}
+
 function addToQueue(item: VideoItem): void {
   const s = get()
   if (!s.current) return play(item)
@@ -619,22 +867,33 @@ function close(): void {
   saveProgress()
   token++
   cancelUpNext()
+  stopWeb()
+  prefetched = null
+  if (remote()) useCast.getState().control('stop')
   if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
   if (document.pictureInPictureElement) void document.exitPictureInPicture().catch(() => {})
   sources = []
   fade = 1
   void engineInstance?.unload()
-  set({ ...INITIAL_PLAYBACK, current: null, queue: [], queueIndex: 0, playlistId: null, mode: 'hidden', sleepEndsAt: null, sleepAtEnd: false, stats: false, chaptersOpen: false })
+  set({ ...INITIAL_PLAYBACK, current: null, queue: [], queueIndex: 0, playlistId: null, mode: 'hidden', sleepEndsAt: null, sleepAtEnd: false, stats: false, chaptersOpen: false, restored: false, musicMode: false })
 }
 
 function pause(): void {
+  if (remote()) return useCast.getState().control('pause')
+  if (webActive) return web().command('pauseVideo')
   video().pause()
 }
 
 function resume(): void {
   const s = get()
   if (!s.current) return
-  if (s.status === 'error' || !engineInstance?.source) {
+  if (remote()) return useCast.getState().control('play')
+  if (webActive && s.status !== 'error') {
+    if (s.status === 'ended') return replay()
+    web().command('playVideo')
+    return
+  }
+  if (s.status === 'error' || !engineInstance?.source || webActive) {
     void start(s.current, s.currentTime > 0 ? s.currentTime : null)
     return
   }
@@ -648,14 +907,20 @@ function resume(): void {
 
 function togglePlay(): void {
   const s = get()
+  if (remote()) return useCast.getState().control('toggle')
   if (s.status === 'ended') return replay()
-  if (video().paused || s.status === 'error') resume()
+  const paused = webActive ? !s.playing : video().paused
+  if (paused || s.status === 'error') resume()
   else pause()
 }
 
 function replay(): void {
   cancelUpNext()
   seek(get().live ? get().seekStart : 0)
+  if (webActive) {
+    web().command('playVideo')
+    return
+  }
   video()
     .play()
     .catch(() => {})
@@ -664,6 +929,17 @@ function replay(): void {
 function seek(seconds: number): void {
   const s = get()
   const v = video()
+  if (remote()) {
+    useCast.getState().control('seek', Math.max(0, seconds))
+    return
+  }
+  if (webActive) {
+    const target = Math.max(0, s.duration > 0 ? Math.min(seconds, s.duration - 0.5) : seconds)
+    if (s.upNext) cancelUpNext()
+    web().command('seekTo', [target, true])
+    set({ currentTime: target, ...(s.status === 'ended' ? { status: 'paused' as const } : {}) })
+    return
+  }
   if (!engineInstance?.source) {
     set({ currentTime: Math.max(0, seconds) })
     return
@@ -677,10 +953,15 @@ function seek(seconds: number): void {
 }
 
 function seekBy(delta: number): void {
-  seek(video().currentTime + delta)
+  if (remote()) {
+    useCast.getState().control('skip', delta)
+    return
+  }
+  seek(position() + delta)
 }
 
 function frameStep(direction: 1 | -1): void {
+  if (webActive || remote()) return
   const v = video()
   if (!v.paused) v.pause()
   const fps = get().activeFps || 30
@@ -689,12 +970,14 @@ function frameStep(direction: 1 | -1): void {
 
 function next(): void {
   cancelUpNext()
+  if (remote()) return useCast.getState().control('next')
   goNext()
 }
 
 function previous(): void {
   const s = get()
-  if (video().currentTime > 5 || s.queueIndex === 0) seek(0)
+  if (remote()) return useCast.getState().control('previous')
+  if (position() > 5 || s.queueIndex === 0) seek(0)
   else playQueueItem(s.queueIndex - 1)
 }
 
@@ -724,22 +1007,25 @@ function setLoopQueue(on: boolean): void {
 
 function setLoop(on: boolean): void {
   set({ loop: on })
-  video().loop = on
+  if (!webActive) video().loop = on
   toast(on ? 'Đã bật phát lặp lại' : 'Đã tắt phát lặp lại')
 }
 
 function setRate(rate: number): void {
   const value = Math.min(4, Math.max(0.25, Math.round(rate * 100) / 100))
   set({ rate: value })
-  if (!get().boosted) video().playbackRate = value
+  if (get().boosted) return
+  if (webActive) web().command('setPlaybackRate', [value])
+  else video().playbackRate = value
 }
 
 function setBoost(on: boolean): void {
   const s = get()
   if (on === s.boosted) return
-  if (on && (video().paused || s.live)) return
+  if (on && ((webActive ? !s.playing : video().paused) || s.live || remote())) return
   set({ boosted: on })
-  video().playbackRate = on ? 2 : s.rate
+  if (webActive) web().command('setPlaybackRate', [on ? 2 : s.rate])
+  else video().playbackRate = on ? 2 : s.rate
 }
 
 function setQuality(height: number): void {
@@ -819,10 +1105,15 @@ function toggleCaptions(): void {
 
 function setVolume(volume: number): void {
   const value = Math.min(1, Math.max(0, volume))
+  if (remote()) return useCast.getState().control('volume', value)
   useSettings.getState().update({ volume: value, muted: value === 0 })
 }
 
 function toggleMute(): void {
+  if (remote()) {
+    const status = useCast.getState().status
+    return useCast.getState().control('mute', status?.muted ? 0 : 1)
+  }
   const s = settings()
   if (s.muted && s.volume === 0) useSettings.getState().update({ muted: false, volume: 0.5 })
   else useSettings.getState().update({ muted: !s.muted })
@@ -831,6 +1122,10 @@ function toggleMute(): void {
 function setAudioOnly(on: boolean): void {
   const s = get()
   if (on === s.audioOnly) return
+  if (webActive) {
+    toast('Trình phát web không hỗ trợ chỉ phát âm thanh')
+    return
+  }
   set({ audioOnly: on })
   toast(on ? 'Chỉ phát âm thanh — không tải hình, tiết kiệm dữ liệu' : 'Đã bật lại hình')
   const e = engineInstance
@@ -868,11 +1163,18 @@ function setSleepTimer(minutes: number | null): void {
 function retry(): void {
   const s = get()
   if (!s.current) return
+  if (webActive) {
+    const my = token
+    void web()
+      .load(s.current.id, s.currentTime, s.loop)
+      .then(() => my === token && set({ status: 'loading', error: null, errorDetail: null }))
+    return
+  }
   void start(s.current, s.currentTime > 0 ? s.currentTime : null)
 }
 
 function toggleFullscreen(): void {
-  const root = getStage().root
+  const root = webActive ? webLayer() : getStage().root
   if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
   else void root.requestFullscreen().catch(() => toast('Không mở được chế độ toàn màn hình'))
 }
@@ -886,7 +1188,7 @@ function togglePip(): void {
   // Without a native Picture-in-Picture window, the app window itself becomes the small
   // always-on-top player.
   const fallback = () => api.setWindowMode('mini').catch(() => toast('Không mở được chế độ hình trong hình'))
-  if (!document.pictureInPictureEnabled || get().audioOnly || get().pictureless) {
+  if (!document.pictureInPictureEnabled || get().audioOnly || get().pictureless || webActive) {
     void fallback()
     return
   }

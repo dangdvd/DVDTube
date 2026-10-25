@@ -4,6 +4,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { VideoItem } from '@shared/models'
 import { displayThumbnail, formatDuration, shortsThumbnail } from '@shared/models'
+import { useLoadedImage } from '@/lib/dearrow'
 import { useLibrary } from '@/state/library'
 import { Icon } from './Icon'
 
@@ -30,8 +31,11 @@ export function Thumbnail({
   hideBadge,
   overlay,
   className,
+  replacement,
 }: {
   video: VideoItem
+  /** DeArrow thumbnail: shown instead once it has loaded. */
+  replacement?: string | null
   /** 9:16 Shorts thumbnail. */
   vertical?: boolean
   showProgress?: boolean
@@ -48,7 +52,8 @@ export function Thumbnail({
   const progress = useLibrary((s) => (showProgress ? s.progress[video.id] : undefined))
   const percent = progress && progress.duration > 0 ? Math.min(100, (progress.position / progress.duration) * 100) : 0
   const duration = durationLabel(video)
-  const src = sources[index]
+  const branded = useLoadedImage(vertical ? null : (replacement ?? null))
+  const src = branded ?? sources[index]
 
   return (
     <div className={'thumb' + (vertical ? ' thumb--vertical' : '') + (className ? ' ' + className : '')}>
@@ -60,7 +65,7 @@ export function Thumbnail({
           decoding="async"
           referrerPolicy="no-referrer"
           draggable={false}
-          onError={() => setFailed({ key, index: index + 1 })}
+          onError={() => !branded && setFailed({ key, index: index + 1 })}
         />
       ) : (
         <div className="thumb-placeholder">

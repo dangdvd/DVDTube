@@ -36,4 +36,7 @@ export const paths = {
   notifications: '/notifications',
   settings: '/settings',
   account: '/account',
+  /** "Nghe nhạc" (YouTube Music search, now playing, lyrics). */
+  music: '/music',
+  musicBrowse: (browseId: string) => `/music/browse/${encodeURIComponent(browseId)}`,
 }

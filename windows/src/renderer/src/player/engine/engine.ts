@@ -5,7 +5,7 @@ import type { AppSettings } from '@shared/settings'
 import { googlevideoRequestFilter } from './network'
 import { setupShaka, shaka } from './shaka'
 
-export type SourceKind = 'download' | 'dash' | 'hls' | 'dash-live' | 'progressive'
+export type SourceKind = 'download' | 'dash' | 'hls' | 'dash-live' | 'progressive' | 'web'
 
 export interface PlaybackSource {
   kind: SourceKind

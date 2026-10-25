@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { formatTime } from '@shared/models'
+import { useCast } from '@/state/cast'
 import { usePlayer } from '@/state/player'
 import { useSettings } from '@/state/settings'
 import { nextVideo } from '../controller'
@@ -180,6 +181,7 @@ export function Controls({
   onMiniPlayer: () => void
 }) {
   const p = usePlayer()
+  const castDevice = useCast((s) => s.connected)
   const theater = useSettings((s) => s.settings.theaterMode)
   const sleep = useSleepRemaining()
   const [, setTick] = useState(0)
@@ -232,6 +234,13 @@ export function Controls({
               onClick={() => p.toggleCaptions()}
             />
           ) : null}
+          <ControlButton
+            icon={castDevice ? 'castConnected' : 'cast'}
+            tip={castDevice ? `Đang phát trên ${castDevice.name}` : 'Truyền tới TV'}
+            active={!!castDevice}
+            testId="player-cast"
+            onClick={() => useCast.getState().openPicker(castDevice ? null : p.current, 'play')}
+          />
           <ControlButton icon="settings" tip="Cài đặt" active={menuOpen} testId="player-settings-button" onClick={() => setMenuOpen(!menuOpen)} />
           <ControlButton icon="miniplayer" tip="Trình phát thu nhỏ (i)" onClick={onMiniPlayer} />
           {!p.fullscreen ? (

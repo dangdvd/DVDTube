@@ -6,6 +6,7 @@ import { isMix } from '@shared/models'
 import { api, errorMessage } from './api'
 import { paths, watchPath } from './nav'
 import { toast } from './toast'
+import { useUi } from './ui'
 
 /** `dvdtube://app/<route>` opens a page of the app directly (used by our own notifications). */
 export const APP_ROUTE_PREFIX = 'dvdtube://app/'
@@ -31,6 +32,8 @@ export function routeFor(link: ResolvedLink): string {
         : paths.playlist(link.playlistId)
     case 'search':
       return paths.search(link.query)
+    case 'app':
+      return link.page === 'shorts' ? paths.shorts() : link.page === 'music' ? paths.music : paths.home
   }
 }
 
@@ -45,6 +48,11 @@ export async function openLink(text: string, navigate: NavigateFunction, options
     if (!link) {
       if (!options?.quiet) toast('Không mở được liên kết')
       return false
+    }
+    // "Tìm kiếm" (Jump List / Dock menu): the search box of the current page.
+    if (link.type === 'app' && link.page === 'search') {
+      useUi.getState().focusSearch()
+      return true
     }
     navigate(routeFor(link), { replace: options?.replace })
     return true

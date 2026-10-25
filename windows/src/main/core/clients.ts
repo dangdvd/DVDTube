@@ -88,10 +88,27 @@ export const CHARTS: ClientProfile = {
   extraHeaders: { Origin: 'https://charts.youtube.com', Referer: 'https://charts.youtube.com' },
 }
 
+/** YouTube Music's web client ("Nghe nhạc": lyrics, music search, albums / artists). */
+export const WEB_REMIX: ClientProfile = {
+  name: 'WEB_REMIX',
+  id: 67,
+  version: '1.20261020.01.00',
+  host: 'music.youtube.com',
+  userAgent:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+  platform: 'DESKTOP',
+  sendClientHeaders: true,
+  extraHeaders: { Origin: 'https://music.youtube.com', Referer: 'https://music.youtube.com/' },
+}
+
+export const MUSIC_ORIGIN = 'https://music.youtube.com'
+
 export interface RemoteConfig {
   web?: ClientProfile | null
   playerClients?: ClientProfile[] | null
   charts?: ClientProfile | null
+  /** Optional override of the YouTube Music client. */
+  music?: ClientProfile | null
   message?: string | null
 }
 
@@ -147,6 +164,7 @@ export function parseRemoteConfig(text: string): RemoteConfig | null {
     web: parseProfile(v.web),
     playerClients: players,
     charts: parseProfile(v.charts),
+    music: parseProfile(v.music),
     message: typeof v.message === 'string' ? v.message : null,
   }
 }
@@ -182,6 +200,10 @@ export const APIConfig = {
   },
   get chartsProfile(): ClientProfile {
     return remote()?.charts ?? CHARTS
+  },
+  get musicProfile(): ClientProfile {
+    const music = remote()?.music
+    return music ? { ...music, extraHeaders: { ...WEB_REMIX.extraHeaders, ...(music.extraHeaders ?? {}) } } : WEB_REMIX
   },
   get playerProfiles(): ClientProfile[] {
     const list = remote()?.playerClients

@@ -2,6 +2,7 @@
 // The same <video> keeps playing; it is just shown here. Drag the title row to move it.
 
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useBranding } from '@/lib/dearrow'
 import { usePlayer } from '@/state/player'
 import { nextVideo } from '../controller'
 import { PIcon } from './icons'
@@ -19,6 +20,8 @@ export function MiniPlayer({ onExpand }: { onExpand: () => void }) {
   const queueIndex = usePlayer((s) => s.queueIndex)
   const queueLength = usePlayer((s) => s.queue.length)
   const progress = usePlayer((s) => (s.duration > 0 && !s.live ? Math.min(1, s.currentTime / s.duration) : 0))
+  const restored = usePlayer((s) => s.restored)
+  const title = useBranding(current ?? { id: '', title: '' }, !!current).title
   const ref = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState(offset)
   const drag = useRef<{ x: number; y: number; start: typeof offset } | null>(null)
@@ -82,8 +85,9 @@ export function MiniPlayer({ onExpand }: { onExpand: () => void }) {
       </div>
       <div className="dp-mini-info" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
         <div className="dp-mini-text" onDoubleClick={onExpand} title="Kéo để di chuyển · nhấp đúp để mở rộng">
-          <div className="dp-mini-title">{current.title || 'Đang tải…'}</div>
+          <div className="dp-mini-title">{title || 'Đang tải…'}</div>
           <div className="dp-mini-channel">
+            {restored ? 'Tiếp tục phát… • ' : ''}
             {queueLength > 1 ? `${queueIndex + 1}/${queueLength} • ` : ''}
             {current.channelName}
           </div>

@@ -1,21 +1,26 @@
-// Offline downloads (port of `DownloadManager.kt`): one at a time from a queue, the H.264 video
-// (≤ the download quality) + AAC audio streams fetched in 10 MB `&range=` chunks, then merged into
-// a regular `.mp4` by the TypeScript muxer; "audio only" keeps just the AAC track as `.m4a`.
+// Offline downloads (port of `DownloadManager.kt`): one at a time from a queue, the video
+// (≤ the download quality) + audio streams fetched in 10 MB `&range=` chunks, then merged without
+// re-encoding: H.264 or AV1 + AAC into a regular `.mp4` (mp4mux), VP9 + Opus into a `.webm`
+// (webmmux, for 1440p / 2160p); "audio only" keeps just the AAC track as `.m4a`. Optionally the
+// captions are saved next to the video as `.srt`.
 
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, open, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, open, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, dialog, shell, type BrowserWindow } from 'electron'
 import { formatDuration, type DownloadState, type DownloadedVideo, type PlayerInfo, type StreamFormat, type VideoItem } from '@shared/models'
 import { describeError, Errors, isCoreError } from './core/errors'
+import { loadCaptions } from './core/extras'
 import { requestBytes } from './core/http'
 import { player } from './core/innertube'
-import { bestAudio, bestVideo } from './core/parsers/player'
+import { downloadPlan } from './core/parsers/player'
+import { cuesToSrt } from './core/srt'
 import { emit } from './ipc'
 import { log } from './log'
 import { muxMp4 } from './mp4mux'
+import { muxWebm } from './webmmux'
 import { streamHeaders } from './net'
 import { readJson, userDataFile, writeJson } from './store'
 
@@ -23,6 +28,8 @@ interface Job {
   video: VideoItem
   audioOnly: boolean
   quality: number | null
+  /** Started by "Tự động tải video mới". */
+  auto: boolean
   controller: AbortController
 }
 
@@ -36,14 +43,18 @@ const states = new Map<string, DownloadState>()
 const videos = new Map<string, VideoItem>()
 let folderSetting: string | null = null
 let qualitySetting = 1080
+let subtitlesSetting = false
+let captionLanguage: string | null = null
 
 function indexFile(): string {
   return userDataFile('downloads.json')
 }
 
-export function configureDownloads(folder: string | null, quality: number): void {
+export function configureDownloads(folder: string | null, quality: number, subtitles = false, language: string | null = null): void {
   folderSetting = folder && folder.trim() ? folder : null
-  qualitySetting = quality > 0 ? quality : 1080
+  qualitySetting = quality > 0 ? Math.min(quality, 2160) : 1080
+  subtitlesSetting = subtitles
+  captionLanguage = language
 }
 
 export function defaultDownloadFolder(): string {
@@ -59,7 +70,23 @@ function save(): void {
   void writeJson(indexFile(), entries).catch((error) => log.warn(`downloads: index not saved (${describeError(error)})`))
 }
 
+const finishListeners: ((videoId: string, status: DownloadState) => void)[] = []
+
+/** Called when a download ends (done / failed / cancelled). */
+export function onDownloadEnded(listener: (videoId: string, status: DownloadState) => void): void {
+  finishListeners.push(listener)
+}
+
 function setState(videoId: string, status: DownloadState): void {
+  if (status.state === 'done' || status.state === 'failed' || status.state === 'cancelled') {
+    for (const listener of finishListeners) {
+      try {
+        listener(videoId, status)
+      } catch {
+        // listeners must not break the queue
+      }
+    }
+  }
   const video = status.state === 'done' ? status.entry.video : (videos.get(videoId) ?? null)
   if (status.state === 'done' || status.state === 'cancelled') {
     states.delete(videoId)
@@ -104,11 +131,16 @@ export async function chooseDownloadFolder(parent: BrowserWindow | null): Promis
   return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
 }
 
-function isBusy(videoId: string): boolean {
+export function isBusy(videoId: string): boolean {
   return running?.video.id === videoId || queue.some((j) => j.video.id === videoId)
 }
 
-export function startDownload(video: VideoItem, options: { audioOnly: boolean; quality?: number | null }): void {
+/** Finished downloads (newest first). */
+export function allDownloads(): DownloadedVideo[] {
+  return listDownloads()
+}
+
+export function startDownload(video: VideoItem, options: { audioOnly: boolean; quality?: number | null; auto?: boolean }): void {
   if (!video || typeof video.id !== 'string' || !/^[A-Za-z0-9_-]{6,20}$/.test(video.id)) throw new Error('Video không hợp lệ.')
   if (isBusy(video.id)) return
   const existing = downloadEntry(video.id)
@@ -118,7 +150,7 @@ export function startDownload(video: VideoItem, options: { audioOnly: boolean; q
   }
   if (video.isLive) throw new Error('Không thể tải xuống video trực tiếp.')
   videos.set(video.id, video)
-  queue.push({ video, audioOnly: !!options.audioOnly, quality: options.quality ?? null, controller: new AbortController() })
+  queue.push({ video, audioOnly: !!options.audioOnly, quality: options.quality ?? null, auto: !!options.auto, controller: new AbortController() })
   setState(video.id, { state: 'queued' })
   void drain()
 }
@@ -137,6 +169,7 @@ export async function deleteDownload(videoId: string): Promise<void> {
   cancelDownload(videoId)
   const entry = entries.find((e) => e.video.id === videoId)
   if (entry) await rm(entry.filePath, { force: true }).catch(() => {})
+  if (entry?.subtitlePath) await rm(entry.subtitlePath, { force: true }).catch(() => {})
   entries = entries.filter((e) => e.video.id !== videoId)
   save()
 }
@@ -267,15 +300,16 @@ async function run(job: Job): Promise<void> {
     const folder = folderSetting ?? defaultDownloadFolder()
     await mkdir(folder, { recursive: true })
     await mkdir(temp, { recursive: true })
-    const output = join(folder, fileName(item, audioOnly ? 'm4a' : 'mp4'))
-    await rm(output, { force: true })
     const maxHeight = job.quality && job.quality > 0 ? job.quality : qualitySetting
-    // itag 140 (AAC 128 kbps) in the original language plays everywhere.
-    const audio = info.adaptiveFormats.find((f) => f.itag === 140 && f.isDefaultAudio) ?? bestAudio(info)
+    const plan = downloadPlan(info, maxHeight, audioOnly)
+    let output: string
     let qualityLabel: string | null
 
     if (audioOnly) {
+      const audio = plan.audio
       if (!audio) throw Errors.noStreams()
+      output = join(folder, fileName(item, 'm4a'))
+      await rm(output, { force: true })
       const raw = join(temp, 'audio.m4a')
       const total = Math.max(audio.contentLength ?? 1, 1)
       await fetchFormat(audio, raw, signal, (done) => report(done / total))
@@ -288,27 +322,43 @@ async function run(job: Job): Promise<void> {
         await copyFile(raw, output)
       }
       qualityLabel = `Âm thanh ${Math.round(audio.bitrate / 1000)} kbps`
+    } else if (plan.video && plan.audio) {
+      const videoFormat = plan.video
+      const audio = plan.audio
+      const webm = plan.container === 'webm'
+      output = join(folder, fileName(item, webm ? 'webm' : 'mp4'))
+      await rm(output, { force: true })
+      const videoFile = join(temp, webm ? 'video.webm' : 'video.mp4')
+      const audioFile = join(temp, webm ? 'audio.webm' : 'audio.m4a')
+      const videoLength = videoFormat.contentLength ?? 0
+      const total = Math.max(videoLength + (audio.contentLength ?? 0), 1)
+      await fetchFormat(videoFormat, videoFile, signal, (done) => report(done / total))
+      await fetchFormat(audio, audioFile, signal, (done) => report((videoLength + done) / total))
+      setState(video.id, { state: 'merging' })
+      if (webm) await muxWebm([videoFile, audioFile], output, { signal })
+      else await muxMp4([videoFile, audioFile], output, { signal })
+      const codec = videoFormat.mimeType.includes('av01') ? ' AV1' : webm ? ' VP9' : ''
+      qualityLabel = (videoFormat.qualityLabel ?? (videoFormat.height ? `${videoFormat.height}p` : '')) + codec || null
+      log.info(`downloads: ${video.id} as ${plan.container} (${videoFormat.mimeType.split(';')[0]} ${videoFormat.height ?? '?'}p)`)
     } else {
-      const videoFormat = bestVideo(info, maxHeight)
-      if (videoFormat && audio) {
-        const videoFile = join(temp, 'video.mp4')
-        const audioFile = join(temp, 'audio.m4a')
-        const videoLength = videoFormat.contentLength ?? 0
-        const total = Math.max(videoLength + (audio.contentLength ?? 0), 1)
-        await fetchFormat(videoFormat, videoFile, signal, (done) => report(done / total))
-        await fetchFormat(audio, audioFile, signal, (done) => report((videoLength + done) / total))
-        setState(video.id, { state: 'merging' })
-        await muxMp4([videoFile, audioFile], output, { signal })
-        qualityLabel = videoFormat.qualityLabel ?? (videoFormat.height ? `${videoFormat.height}p` : null)
-      } else {
-        const muxed = [...info.muxedFormats].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]
-        if (!muxed) {
-          throw new Error(info.hlsUrl ? 'Video này chỉ có luồng phát trực tuyến (HLS), không tải xuống được.' : Errors.noStreams().message)
-        }
-        const total = Math.max(muxed.contentLength ?? 1, 1)
-        await fetchFormat(muxed, output, signal, (done) => report(done / total))
-        qualityLabel = muxed.qualityLabel ?? null
+      const muxed = [...info.muxedFormats].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]
+      if (!muxed) {
+        throw new Error(info.hlsUrl ? 'Video này chỉ có luồng phát trực tuyến (HLS), không tải xuống được.' : Errors.noStreams().message)
       }
+      output = join(folder, fileName(item, 'mp4'))
+      await rm(output, { force: true })
+      const total = Math.max(muxed.contentLength ?? 1, 1)
+      await fetchFormat(muxed, output, signal, (done) => report(done / total))
+      qualityLabel = muxed.qualityLabel ?? null
+    }
+
+    // "Tải kèm phụ đề (.srt)": preferred caption language, else the video's default track.
+    let subtitlePath: string | null = null
+    if (subtitlesSetting && !audioOnly && info.captions.length) {
+      subtitlePath = await saveSubtitles(info, output).catch((error) => {
+        log.warn(`downloads: subtitles of ${video.id} not saved (${describeError(error)})`)
+        return null
+      })
     }
 
     const size = (await stat(output)).size
@@ -320,10 +370,13 @@ async function run(job: Job): Promise<void> {
       qualityLabel,
       downloadedAt: Date.now(),
       isAudioOnly: audioOnly,
+      isAuto: job.auto || undefined,
+      subtitlePath,
     }
     // A video downloaded again in the other mode (video ↔ audio) replaces the previous file.
     for (const previous of entries.filter((e) => e.video.id === video.id && e.filePath !== output)) {
       await rm(previous.filePath, { force: true }).catch(() => {})
+      if (previous.subtitlePath && previous.subtitlePath !== subtitlePath) await rm(previous.subtitlePath, { force: true }).catch(() => {})
     }
     entries = [entry, ...entries.filter((e) => e.video.id !== video.id)]
     save()
@@ -339,4 +392,24 @@ async function run(job: Job): Promise<void> {
   } finally {
     await rm(temp, { recursive: true, force: true }).catch(() => {})
   }
+}
+
+/** Saves the captions next to the video file (same name, `.srt`); returns the path. */
+async function saveSubtitles(info: PlayerInfo, videoPath: string): Promise<string | null> {
+  const tracks = info.captions
+  const language = captionLanguage
+  const track =
+    (language
+      ? tracks.find((t) => t.languageCode === language && !t.isAutoGenerated) ??
+        tracks.find((t) => t.languageCode.split('-')[0] === language.split('-')[0])
+      : null) ??
+    tracks.find((t) => !t.isAutoGenerated) ??
+    tracks[0]
+  if (!track) return null
+  const cues = await loadCaptions(track)
+  if (!cues.length) return null
+  const path = videoPath.replace(/\.[^.\\/]+$/, '') + '.srt'
+  // UTF-8 with BOM: older Windows players otherwise guess the wrong code page for Vietnamese.
+  await writeFile(path, '\ufeff' + cuesToSrt(cues), 'utf8')
+  return path
 }

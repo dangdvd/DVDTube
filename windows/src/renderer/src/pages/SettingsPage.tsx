@@ -8,16 +8,20 @@ import { SPONSOR_CATEGORIES } from '@shared/models'
 import type { AppSettings, QualityPreference } from '@shared/settings'
 import { EqualizerPanel } from '@/player/EqualizerPanel'
 import { Icon } from '@/components/Icon'
+import { startUpdate } from '@/components/UpdateBanner'
 import { ButtonRow, CheckRow, SelectRow, SettingsSection, SliderRow, ToggleRow } from '@/components/SettingRows'
 import { THEME_TITLES } from '@/components/shell/AccountMenu'
 import { useScrollRoot } from '@/components/InfiniteScroll'
 import { api, errorMessage } from '@/lib/api'
 import { confirmDialog, promptDialog } from '@/lib/dialogs'
+import { requireParentalPin } from '@/lib/parental'
 import { loadPrefs, usePrefs } from '@/lib/prefs'
 import { usePageTitle } from '@/lib/title'
 import { toast } from '@/lib/toast'
 import { useLibrary } from '@/state/library'
+import { useParentalFlags } from '@/state/parental'
 import { useSettings } from '@/state/settings'
+import { AlarmsSection, AutoDownloadRows, CastSection, DeArrowSection, ErrorLogRow, MusicSection, ParentalSection, SyncSection } from './settings/FeatureSections'
 
 export const LANGUAGES = [
   { value: 'vi', label: 'Tiếng Việt' },
@@ -80,6 +84,8 @@ const CAPTION_BACKGROUNDS = [
   { value: 1, label: 'Đen' },
 ]
 const DOWNLOAD_QUALITIES: { value: AppSettings['downloadQuality']; label: string }[] = [
+  { value: 2160, label: '2160p (4K)' },
+  { value: 1440, label: '1440p' },
   { value: 1080, label: '1080p' },
   { value: 720, label: '720p' },
   { value: 480, label: '480p' },
@@ -113,10 +119,16 @@ const SECTIONS = [
   { id: 'phat-video', title: 'Phát video', icon: 'play' },
   { id: 'phu-de', title: 'Phụ đề', icon: 'captions' },
   { id: 'sponsorblock', title: 'SponsorBlock', icon: 'shield' },
+  { id: 'dearrow', title: 'DeArrow', icon: 'sparkles' },
   { id: 'bo-chinh-am', title: 'Bộ chỉnh âm', icon: 'equalizer' },
+  { id: 'nghe-nhac', title: 'Nghe nhạc', icon: 'music' },
   { id: 'trang-chu', title: 'Trang chủ & bình luận', icon: 'home' },
   { id: 'quyen-rieng-tu', title: 'Quyền riêng tư', icon: 'lock' },
+  { id: 'phu-huynh', title: 'Kiểm soát của phụ huynh', icon: 'family' },
   { id: 'tai-xuong', title: 'Tải xuống', icon: 'download' },
+  { id: 'truyen-video', title: 'Truyền video', icon: 'cast' },
+  { id: 'dong-bo', title: 'Đồng bộ & sao lưu', icon: 'sync' },
+  { id: 'hen-gio-phat', title: 'Hẹn giờ phát', icon: 'alarm' },
   { id: 'ung-dung', title: 'Ứng dụng', icon: 'monitor' },
   { id: 'phim-tat', title: 'Phím tắt', icon: 'keyboard' },
   { id: 'gioi-thieu', title: 'Giới thiệu', icon: 'info' },
@@ -143,6 +155,7 @@ export function SettingsPage() {
   const blocked = useLibrary((st) => st.blockedChannels)
   const blockedNames = useLibrary((st) => st.blockedChannelNames)
   const startWithWindows = usePrefs((st) => st.startWithWindows)
+  const parentalFlags = useParentalFlags()
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [checking, setChecking] = useState(false)
   const [current, setCurrent] = useState<string>('chung')
@@ -182,7 +195,7 @@ export function SettingsPage() {
     setChecking(true)
     try {
       const u = await api.checkUpdate()
-      if (u) toast(`Đã có phiên bản mới ${u.version}`, { action: { label: 'Tải bản mới', run: () => void api.openExternal(u.downloadUrl ?? u.url) } })
+      if (u) toast(`Có bản mới v${u.version}`, { action: { label: u.installable ? 'Cập nhật ngay' : 'Tải bản mới', run: () => startUpdate(u) }, durationMs: 10_000 })
       else toast('Bạn đang dùng phiên bản mới nhất')
     } catch (error) {
       toast('Không kiểm tra được: ' + errorMessage(error))
@@ -297,6 +310,12 @@ export function SettingsPage() {
             options={audioLanguages()}
             onChange={(v) => update({ preferredAudioLanguage: v })}
           />
+          <ToggleRow
+            title="Dùng trình phát web khi lỗi"
+            subtitle="Khi YouTube từ chối luồng phát (xác minh robot, lỗi 403), phát bằng trình phát nhúng của YouTube (đã chặn quảng cáo)"
+            checked={s.webPlayerFallback}
+            onChange={(v) => update({ webPlayerFallback: v })}
+          />
         </SettingsSection>
 
         <SettingsSection id="phu-de" title="Phụ đề">
@@ -386,11 +405,15 @@ export function SettingsPage() {
           )}
         </SettingsSection>
 
+        <DeArrowSection />
+
         <SettingsSection id="bo-chinh-am" title="Bộ chỉnh âm" description="Áp dụng cho mọi video, kể cả khi phát trong nền.">
           <div className="settings-eq">
             <EqualizerPanel />
           </div>
         </SettingsSection>
+
+        <MusicSection />
 
         <SettingsSection id="trang-chu" title="Trang chủ & bình luận">
           <ToggleRow
@@ -399,11 +422,18 @@ export function SettingsPage() {
             checked={s.showDislikes}
             onChange={(v) => update({ showDislikes: v })}
           />
-          <ToggleRow title="Hiện bình luận" checked={s.showComments} onChange={(v) => update({ showComments: v })} />
+          <ToggleRow
+            title="Hiện bình luận"
+            subtitle={parentalFlags.hideComments ? 'Đang bị tắt bởi kiểm soát của phụ huynh' : undefined}
+            checked={s.showComments && !parentalFlags.hideComments}
+            disabled={parentalFlags.hideComments}
+            onChange={(v) => update({ showComments: v })}
+          />
           <ToggleRow
             title="Ẩn Shorts"
-            subtitle="Ẩn kệ Shorts và video Shorts khỏi trang chủ, tìm kiếm và kênh"
-            checked={s.hideShorts}
+            subtitle={parentalFlags.hideShorts ? 'Đang được bật bởi kiểm soát của phụ huynh' : 'Ẩn kệ Shorts và video Shorts khỏi trang chủ, tìm kiếm và kênh'}
+            checked={s.hideShorts || parentalFlags.hideShorts}
+            disabled={parentalFlags.hideShorts}
             onChange={(v) => update({ hideShorts: v })}
           />
         </SettingsSection>
@@ -477,7 +507,12 @@ export function SettingsPage() {
                   <div key={id} className="blocked-item">
                     <Icon name="block" size={20} />
                     <span>{blockedNames[id] ?? id}</span>
-                    <button className="btn btn-text btn-small" onClick={() => useLibrary.getState().unblockChannel(id)}>
+                    <button
+                      className="btn btn-text btn-small"
+                      onClick={async () => {
+                        if (await requireParentalPin('Kênh bị chặn được bảo vệ bởi kiểm soát của phụ huynh.')) useLibrary.getState().unblockChannel(id)
+                      }}
+                    >
                       Bỏ chặn
                     </button>
                   </div>
@@ -486,6 +521,8 @@ export function SettingsPage() {
             )}
           </div>
         </SettingsSection>
+
+        <ParentalSection />
 
         <SettingsSection id="tai-xuong" title="Tải xuống">
           <ButtonRow title="Thư mục lưu" subtitle={s.downloadFolder ?? 'Video\\DVDTube (mặc định)'}>
@@ -511,12 +548,27 @@ export function SettingsPage() {
           </ButtonRow>
           <SelectRow
             title="Chất lượng tải xuống"
-            subtitle="Video H.264 tối đa chất lượng này + âm thanh AAC"
+            subtitle={
+              s.downloadQuality > 1080
+                ? 'Trên 1080p: AV1 (.mp4) hoặc VP9 + Opus (.webm) nếu video có; nếu không thì H.264 1080p'
+                : 'Video H.264 tối đa chất lượng này + âm thanh AAC (.mp4)'
+            }
             value={s.downloadQuality}
             options={DOWNLOAD_QUALITIES}
             onChange={(v) => update({ downloadQuality: v })}
           />
+          <ToggleRow
+            title="Tải kèm phụ đề (.srt)"
+            subtitle="Ngôn ngữ phụ đề ưu tiên, nếu không có thì phụ đề mặc định của video; lưu cạnh tệp video"
+            checked={s.downloadSubtitles}
+            onChange={(v) => update({ downloadSubtitles: v })}
+          />
+          <AutoDownloadRows />
         </SettingsSection>
+
+        <CastSection deviceName={info?.deviceName ?? ''} />
+        <SyncSection />
+        <AlarmsSection />
 
         <SettingsSection id="ung-dung" title="Ứng dụng">
           <ToggleRow
@@ -525,9 +577,10 @@ export function SettingsPage() {
             checked={s.minimizeToTray}
             onChange={(v) => update({ minimizeToTray: v })}
           />
+          {info?.platform !== 'linux' && (
           <ToggleRow
-            title="Khởi động cùng Windows"
-            subtitle="Chạy ẩn dưới khay hệ thống khi mở máy"
+            title={info?.platform === 'darwin' ? 'Mở khi đăng nhập' : 'Khởi động cùng Windows'}
+            subtitle={info?.platform === 'darwin' ? 'Chạy ẩn trên thanh menu khi đăng nhập máy Mac' : 'Chạy ẩn dưới khay hệ thống khi mở máy'}
             checked={startWithWindows}
             onChange={async (v) => {
               try {
@@ -538,6 +591,7 @@ export function SettingsPage() {
               }
             }}
           />
+          )}
           <ToggleRow
             title="Thông báo video mới"
             subtitle="Video mới từ kênh đăng ký trên máy, kiểm tra khoảng mỗi giờ"
@@ -609,6 +663,7 @@ export function SettingsPage() {
               Kiểm tra cập nhật
             </button>
           </ButtonRow>
+          <ErrorLogRow />
           <ButtonRow title="Mã nguồn và bản phát hành" subtitle="github.com/dangdvd/DVDTube">
             <button className="btn btn-tonal btn-small" onClick={() => void api.openExternal('https://github.com/dangdvd/DVDTube')}>
               <Icon name="external" size={18} />

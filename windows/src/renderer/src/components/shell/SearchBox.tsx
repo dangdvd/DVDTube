@@ -9,6 +9,7 @@ import { looksLikeLink, openLink } from '@/lib/links'
 import { paths } from '@/lib/nav'
 import { useUi } from '@/lib/ui'
 import { useLibrary } from '@/state/library'
+import { useParentalFlags } from '@/state/parental'
 import { useSettings } from '@/state/settings'
 import { Icon } from '../Icon'
 
@@ -31,6 +32,7 @@ function Highlighted({ text, query }: { text: string; query: string }) {
 }
 
 export function SearchBox() {
+  const searchOff = useParentalFlags().disableSearch
   const navigate = useNavigate()
   const location = useLocation()
   const history = useLibrary((s) => s.searchHistory)
@@ -166,7 +168,8 @@ export function SearchBox() {
           ref={inputRef}
           className="searchbox-input"
           type="text"
-          placeholder="Tìm kiếm"
+          placeholder={searchOff ? 'Tìm kiếm đã bị tắt' : 'Tìm kiếm'}
+          disabled={searchOff}
           aria-label="Tìm kiếm"
           spellCheck={false}
           autoComplete="off"

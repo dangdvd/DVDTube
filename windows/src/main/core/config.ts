@@ -6,6 +6,8 @@ export interface CoreState {
   gl: string
   incognito: boolean
   remoteConfigUrl: string
+  /** Parental controls: `lockedSafetyMode` and no content-check bypass. */
+  restrictedMode: boolean
 }
 
 export const coreState: CoreState = {
@@ -13,6 +15,7 @@ export const coreState: CoreState = {
   gl: 'VN',
   incognito: false,
   remoteConfigUrl: '',
+  restrictedMode: false,
 }
 
 type Logger = (message: string) => void

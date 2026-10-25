@@ -2,6 +2,8 @@
 // moves together with the <video> (watch page ⇄ mini player ⇄ fullscreen).
 
 import { useEffect, useRef, useState } from 'react'
+import { displayThumbnail } from '@shared/models'
+import { useCast } from '@/state/cast'
 import { usePlayer } from '@/state/player'
 import { Controls } from './Controls'
 import { showFeedback } from './feedback'
@@ -56,6 +58,59 @@ function MiniControls({ visible, onExpand }: { visible: boolean; onExpand: () =>
           <PIcon name="next" size={28} />
         </button>
       </div>
+    </div>
+  )
+}
+
+/** While a DVDTube receiver plays: what plays there, over the (idle) local player. */
+function CastingOverlay() {
+  const device = useCast((s) => s.connected)
+  const video = usePlayer((s) => s.current)
+  if (!device) return null
+  return (
+    <div className="dp-casting" data-testid="player-casting" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+      {video ? <img className="dp-casting-bg" src={displayThumbnail(video)} alt="" /> : null}
+      <div className="dp-casting-text">
+        <PIcon name="castConnected" size={40} />
+        <div>Đang phát trên {device.name}</div>
+        <button type="button" className="dp-btn" onClick={() => void useCast.getState().disconnect(true)}>
+          Tiếp tục trên thiết bị này
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** Restored from the last session: the thumbnail and "Tiếp tục phát…" until play is pressed. */
+function RestoredPoster({ compact }: { compact: boolean }) {
+  const restored = usePlayer((s) => s.restored)
+  const video = usePlayer((s) => s.current)
+  if (!restored || !video) return null
+  return (
+    <div className="dp-restored" data-testid="player-restored">
+      <img src={displayThumbnail(video)} alt="" />
+      {!compact ? (
+        <button
+          type="button"
+          className="dp-restored-play"
+          onClick={(e) => {
+            e.stopPropagation()
+            usePlayer.getState().resume()
+          }}
+        >
+          <PIcon name="play" size={28} /> Tiếp tục phát…
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function WebPlayerBadge() {
+  const web = usePlayer((s) => s.source === 'web')
+  if (!web) return null
+  return (
+    <div className="dp-web-badge" title="Luồng gốc bị từ chối — đang phát bằng trình phát nhúng của YouTube" data-testid="web-player-badge">
+      <PIcon name="web" size={14} /> Trình phát web
     </div>
   )
 }
@@ -116,6 +171,8 @@ export function PlayerOverlay({ variant, onExpand, onMiniPlayer }: { variant: 'p
       onContextMenu={(e) => e.preventDefault()}
     >
       <AudioOnlyBackdrop compact={variant === 'mini'} />
+      <RestoredPoster compact={variant === 'mini'} />
+      <WebPlayerBadge />
       <CaptionOverlay raised={visible && variant === 'page'} />
       {loading ? <Spinner /> : null}
       <WaitOverlay />
@@ -132,6 +189,7 @@ export function PlayerOverlay({ variant, onExpand, onMiniPlayer }: { variant: 'p
           <div className="dp-top-channel">{channel}</div>
         </div>
       ) : null}
+      <CastingOverlay />
       {variant === 'page' ? (
         <Controls visible={visible} menuOpen={menuOpen} setMenuOpen={setMenuOpen} onScrub={setScrubbing} onBarHover={setOverBar} onMiniPlayer={onMiniPlayer} />
       ) : (

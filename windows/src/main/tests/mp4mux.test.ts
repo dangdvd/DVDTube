@@ -144,6 +144,21 @@ describe('mp4 muxer (ffmpeg inputs)', { skip: hasFfmpeg ? false : 'ffmpeg / ffpr
     })
   }
 
+  const av1 = hasFfmpeg && spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8' }).stdout.includes('libsvtav1')
+  it('AV1 video (the 1440p / 2160p downloads) + AAC', { skip: av1 ? false : 'ffmpeg without libsvtav1' }, async () => {
+    const v = join(dir, 'av1-v.mp4')
+    const a = join(dir, 'av1-a.m4a')
+    const out = join(dir, 'av1-out.mp4')
+    const flags = ['-movflags', '+dash+global_sidx+frag_keyframe+empty_moov+default_base_moof']
+    ffmpeg('-f', 'lavfi', '-i', 'testsrc2=d=6:s=320x180:r=30', '-c:v', 'libsvtav1', '-preset', '12', '-g', '60', ...flags, '-f', 'mp4', v)
+    ffmpeg('-f', 'lavfi', '-i', 'sine=d=6', '-c:a', 'aac', ...flags, '-f', 'mp4', a)
+    await muxMp4([v, a], out)
+    const info = probe(out)
+    assert.deepEqual(info.streams.map((s) => s.codec_name).sort(), ['aac', 'av1'])
+    assert.ok(Math.abs(parseFloat(info.format.duration) - 6) < 0.15, `duration ${info.format.duration}`)
+    assert.equal(decodeErrors(out), '')
+  })
+
   it('audio only from a fragmented AAC stream', async () => {
     const a = join(dir, 'only-a.m4a')
     const out = join(dir, 'only-out.m4a')
