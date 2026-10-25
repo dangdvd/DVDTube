@@ -63,6 +63,7 @@ import com.dangdvd.dvdtube.ui.Brand
 import com.dangdvd.dvdtube.ui.Route
 import com.dangdvd.dvdtube.ui.Router
 import com.dangdvd.dvdtube.ui.components.Avatar
+import com.dangdvd.dvdtube.ui.components.CastSwipe
 import com.dangdvd.dvdtube.ui.components.EmptyState
 import com.dangdvd.dvdtube.ui.components.LoadingState
 import com.dangdvd.dvdtube.ui.components.RemoteImage
@@ -254,7 +255,7 @@ fun SubscriptionsScreen() {
                     }
                     else -> {
                         val queue = videos.filter { !it.isShort }
-                        items(videos, key = { it.id }) { video -> VideoCard(video, queue) }
+                        items(videos, key = { it.id }) { video -> CastSwipe(video) { VideoCard(video, queue) } }
                     }
                 }
             }

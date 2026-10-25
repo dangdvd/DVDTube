@@ -149,6 +149,15 @@ struct PlayerContainerView: View {
 
 struct MiniPlayerBar: View {
     @Environment(PlayerManager.self) private var player
+    @State private var showQueue = false
+
+    /// Casting to DVDTube: the next video and how many wait in the TV's queue.
+    private var castQueueLine: String? {
+        guard DVDCast.shared.isConnected else { return nil }
+        let waiting = player.queue.count - player.queueIndex - 1
+        guard waiting > 0, player.queue.indices.contains(player.queueIndex + 1) else { return nil }
+        return "Tiếp theo: \(player.queue[player.queueIndex + 1].title) · \(waiting) bài đang chờ"
+    }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -158,31 +167,32 @@ struct MiniPlayerBar: View {
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
                 }
-                HStack(spacing: 4) {
-                    if player.isRestoredSession {
-                        Image(systemName: "play.circle")
-                        Text("Tiếp tục phát…")
-                        Text("•")
-                    } else if let name = player.castDeviceName, player.isCasting {
+                if let line = castQueueLine {
+                    HStack(spacing: 4) {
                         Image(systemName: "tv")
-                        Text(name)
-                        Text("•")
+                        Text(line)
                     }
-                    if let label = player.sleepTimerLabel {
-                        Label(label, systemImage: "moon.zzz.fill").monospacedDigit()
-                        Text("•")
-                    }
-                    if player.isAudioOnly {
-                        Image(systemName: "headphones")
-                    }
-                    Text(player.currentVideo?.channelName ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                } else {
+                    statusLine
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 10)
+
+            if DVDCast.shared.isConnected {
+                Button {
+                    showQueue = true
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hàng đợi trên TV")
+            }
 
             Button {
                 player.togglePlayPause()
@@ -220,6 +230,35 @@ struct MiniPlayerBar: View {
             }
             .frame(height: 2)
         }
+        .sheet(isPresented: $showQueue) {
+            QueueSheet()
+                .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var statusLine: some View {
+        HStack(spacing: 4) {
+            if player.isRestoredSession {
+                Image(systemName: "play.circle")
+                Text("Tiếp tục phát…")
+                Text("•")
+            } else if let name = player.castDeviceName, player.isCasting {
+                Image(systemName: "tv")
+                Text(name)
+                Text("•")
+            }
+            if let label = player.sleepTimerLabel {
+                Label(label, systemImage: "moon.zzz.fill").monospacedDigit()
+                Text("•")
+            }
+            if player.isAudioOnly {
+                Image(systemName: "headphones")
+            }
+            Text(player.currentVideo?.channelName ?? "")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
     }
 
     private var progress: CGFloat {

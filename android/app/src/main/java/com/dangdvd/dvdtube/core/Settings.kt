@@ -172,6 +172,9 @@ object AppSettings {
     var castReceiverEnabled: Boolean by boolPref("cast.receiver", true)
     /** Receivers added by address (JSON list kept by the cast sender). */
     var manualCastDevices: String by stringPref("cast.manualDevices", "")
+    /** "Chạm video khi TV đang phát": "ask", "playNow" or "queue". */
+    var castTapAction: String by stringPref("cast.tapAction", "ask")
+    var castSwipeHintShown: Boolean by boolPref("cast.swipeHintShown", false)
 
     // Music mode ("Nghe nhạc")
     /** Music mode plays only the sound by default. */

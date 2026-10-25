@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutoutPadding
@@ -35,6 +36,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -46,6 +48,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -154,18 +157,29 @@ fun MainScreen() {
         ) { ExpandedPlayer() }
 
         Toasts.message?.let { message ->
-            Text(
-                message,
-                color = MaterialTheme.colorScheme.inverseOnSurface,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
+            Row(
+                Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
                     .padding(start = 24.dp, end = 24.dp, bottom = if (expanded) 32.dp else 140.dp)
                     .background(MaterialTheme.colorScheme.inverseSurface, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            )
+                    .padding(start = 14.dp, end = if (Toasts.action != null) 4.dp else 14.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    message,
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    textAlign = if (Toasts.action != null) TextAlign.Start else TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 3,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Toasts.action?.let { action ->
+                    TextButton(onClick = { Toasts.runAction() }) {
+                        Text(action.label, color = MaterialTheme.colorScheme.inversePrimary, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 

@@ -221,6 +221,7 @@ struct SubscriptionsView: View {
             LazyVStack(spacing: 20) {
                 ForEach(videos) { video in
                     VideoCard(video: video, queue: videos.filter { !$0.isShort })
+                        .castSwipeActions(video)
                 }
             }
         }

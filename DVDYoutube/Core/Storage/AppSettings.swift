@@ -58,6 +58,19 @@ enum AppTheme: String, CaseIterable, Identifiable {
     }
 }
 
+/// What tapping a video does while a DVDTube TV / PC already plays something.
+enum CastTapAction: String, CaseIterable, Identifiable {
+    case ask, playNow, queue
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .ask: return "Hỏi"
+        case .playNow: return "Phát ngay"
+        case .queue: return "Thêm vào cuối hàng đợi"
+        }
+    }
+}
+
 /// User preferences, persisted in `UserDefaults`.
 @MainActor
 @Observable
@@ -141,6 +154,9 @@ final class AppSettings {
     /// Look for a new release on GitHub (at most once a day).
     var autoCheckUpdates: Bool { didSet { defaults.set(autoCheckUpdates, forKey: "settings.autoCheckUpdates") } }
 
+    /// "Chạm video khi TV đang phát" (casting to DVDTube).
+    var castTapAction: CastTapAction { didSet { defaults.set(castTapAction.rawValue, forKey: "settings.castTapAction") } }
+
     /// Incognito: nothing is added to the watch or search history (until the app restarts).
     var isIncognito = false
 
@@ -193,6 +209,7 @@ final class AppSettings {
             "settings.dearrowTitles": true,
             "settings.dearrowThumbnails": true,
             "settings.autoCheckUpdates": true,
+            "settings.castTapAction": CastTapAction.ask.rawValue,
         ])
         language = d.string(forKey: SettingsKey.language) ?? "vi"
         region = d.string(forKey: SettingsKey.region) ?? "VN"
@@ -239,6 +256,7 @@ final class AppSettings {
         deArrowTitles = d.bool(forKey: "settings.dearrowTitles")
         deArrowThumbnails = d.bool(forKey: "settings.dearrowThumbnails")
         autoCheckUpdates = d.bool(forKey: "settings.autoCheckUpdates")
+        castTapAction = CastTapAction(rawValue: d.string(forKey: "settings.castTapAction") ?? "") ?? .ask
         syncEqualizer()
     }
 

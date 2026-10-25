@@ -85,6 +85,14 @@ final class DVDCast {
     /// A moment after a queue edit from here, when statuses may still show the old queue.
     var queueEditPending: Bool { Date().timeIntervalSince(lastQueueEditAt) < 1.5 }
 
+    /// The swipe hint (a card nudging left and right) is shown once, on the first connection.
+    func claimSwipeHint() -> Bool {
+        let key = "dvdcast.swipeHintShown"
+        guard isConnected, !UserDefaults.standard.bool(forKey: key) else { return false }
+        UserDefaults.standard.set(true, forKey: key)
+        return true
+    }
+
     /// Discovered receivers first, then the ones added by address (without duplicates).
     var receivers: [Receiver] {
         let found = Set(discovered.map(\.id))
@@ -368,13 +376,17 @@ final class DVDCast {
     }
 
     /// Adds a video to the receiver's queue (`next`: play it right after the current one).
-    func enqueue(_ video: VideoItem, next: Bool) {
+    /// `announce`: say so when it is done (callers with their own message pass false).
+    func enqueue(_ video: VideoItem, next: Bool, announce: Bool = true) {
         guard isConnected, let host else { return }
+        lastQueueEditAt = Date()
         Task {
             do {
                 _ = try await call("POST", "/api/queue", host: host, body: ["video": CrossJSON.video(video), "next": next])
-                PlayerManager.shared.showToast(next ? "Sẽ phát tiếp theo trên \(receiver?.name ?? "TV")"
-                                                    : "Đã thêm vào hàng đợi trên \(receiver?.name ?? "TV")")
+                if announce {
+                    PlayerManager.shared.showToast(next ? "Sẽ phát tiếp theo trên \(receiver?.name ?? "TV")"
+                                                        : "Đã thêm vào hàng đợi trên \(receiver?.name ?? "TV")")
+                }
                 pollSoon()
             } catch {
                 PlayerManager.shared.showToast(error.localizedDescription)

@@ -178,6 +178,18 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("Chạm video khi TV đang phát", selection: $settings.castTapAction) {
+                    ForEach(CastTapAction.allCases) { action in
+                        Text(action.title).tag(action)
+                    }
+                }
+            } header: {
+                Text("Truyền tới TV / máy tính")
+            } footer: {
+                Text("Khi đang kết nối DVDTube trên TV hoặc máy tính và TV đang phát: vuốt video sang phải để phát tiếp theo, sang trái để thêm vào cuối hàng đợi (có nút Hoàn tác). Chạm vào video thì hỏi, phát ngay hoặc thêm vào cuối hàng đợi theo lựa chọn ở trên.")
+            }
+
+            Section {
                 Toggle("DeArrow: thay tiêu đề và ảnh giật tít", isOn: $settings.deArrowEnabled)
                 if settings.deArrowEnabled {
                     Toggle("Tiêu đề", isOn: $settings.deArrowTitles).padding(.leading, 12)

@@ -424,11 +424,11 @@ fun CastQueueChoiceDialog() {
                 }
                 QueueChoice(Icons.Default.QueuePlayNext, "Phát tiếp theo") {
                     close()
-                    PlayerController.playAfterCurrent(video)
+                    PlayerController.castQueue(video, next = true)
                 }
                 QueueChoice(Icons.AutoMirrored.Filled.PlaylistAdd, "Thêm vào cuối hàng đợi") {
                     close()
-                    PlayerController.addToQueue(video)
+                    PlayerController.castQueue(video, next = false)
                 }
             }
         },

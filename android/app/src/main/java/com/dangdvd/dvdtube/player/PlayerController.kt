@@ -394,14 +394,52 @@ object PlayerController {
         start(queue[index], null)
     }
 
-    fun addToQueue(video: VideoItem) {
+    /** [announce]: show "Đã thêm vào hàng đợi" (callers with their own message pass false). */
+    fun addToQueue(video: VideoItem, announce: Boolean = true) {
         if (currentVideo == null) {
             play(video)
             return
         }
         queue = queue.filter { it.id != video.id || it.id == currentVideo?.id } + video
-        if (dvdCast) DvdCastSender.queueOnReceiver(video, next = false) else Toasts.show("Đã thêm vào hàng đợi")
+        if (dvdCast) DvdCastSender.queueOnReceiver(video, next = false, announce = announce) else if (announce) Toasts.show("Đã thêm vào hàng đợi")
         SessionStore.schedule()
+    }
+
+    /**
+     * A tap on a video in a list. While a DVDTube TV / PC plays something it follows
+     * "Chạm video khi TV đang phát" instead of cutting off what plays.
+     */
+    fun openFromList(video: VideoItem, context: List<VideoItem>?) {
+        if (dvdCast && DvdCastSender.receiverBusy && video.id != currentVideo?.id) {
+            when (AppSettings.castTapAction) {
+                "playNow" -> castPlayNow(video)
+                "queue" -> castQueue(video, next = false)
+                else -> castChoice = video
+            }
+            return
+        }
+        play(video, context)
+    }
+
+    /**
+     * Queues a video on the DVDTube receiver ([next]: right after the current one) with
+     * "Hoàn tác" in the message: swipes on videos, the tap choice.
+     */
+    fun castQueue(video: VideoItem, next: Boolean) {
+        val current = currentVideo ?: return
+        if (video.id == current.id) return
+        val before = queue.indexOfFirst { it.id == video.id }.takeIf { it >= 0 }
+        if (next) playAfterCurrent(video, announce = false) else addToQueue(video, announce = false)
+        val undo = Toasts.Action("Hoàn tác") {
+            val index = queue.indexOfFirst { it.id == video.id }
+            if (index >= 0) {
+                if (before != null) moveQueueItem(index, before) else removeFromQueue(index)
+            }
+        }
+        Toasts.show(
+            if (next) "Phát tiếp theo: ${video.title}" else "Đã thêm vào cuối hàng đợi: ${video.title}",
+            undo.takeIf { !dvdCast || DvdCastSender.supportsQueueEdit },
+        )
     }
 
     fun removeFromQueue(index: Int) {
@@ -480,7 +518,7 @@ object PlayerController {
     }
 
     /** "Play next": right after the current video. */
-    fun playAfterCurrent(video: VideoItem) {
+    fun playAfterCurrent(video: VideoItem, announce: Boolean = true) {
         val current = currentVideo
         if (current == null) {
             play(video)
@@ -488,7 +526,7 @@ object PlayerController {
         }
         if (video.id == current.id) return
         insertAfterCurrent(video)
-        if (dvdCast) DvdCastSender.queueOnReceiver(video, next = true) else Toasts.show("Sẽ phát tiếp theo")
+        if (dvdCast) DvdCastSender.queueOnReceiver(video, next = true, announce = announce) else if (announce) Toasts.show("Sẽ phát tiếp theo")
         SessionStore.schedule()
     }
 

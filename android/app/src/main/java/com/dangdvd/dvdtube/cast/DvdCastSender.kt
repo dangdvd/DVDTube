@@ -333,11 +333,23 @@ object DvdCastSender {
         }
     }
 
-    fun queueOnReceiver(video: VideoItem, next: Boolean) {
+    /** [announce]: say so when it is done (callers with their own message pass false). */
+    fun queueOnReceiver(video: VideoItem, next: Boolean, announce: Boolean = true) {
         val device = connected ?: return
+        lastQueueEditAt = System.currentTimeMillis()
         send(device, "/api/queue", JSONObject().put("video", ModelJson.video(video)).put("next", next)) { ok, error ->
-            Toasts.show(if (ok) (if (next) "Sẽ phát tiếp theo trên ${device.name}" else "Đã thêm vào hàng đợi trên ${device.name}") else error ?: "Không gửi được tới ${device.name}")
+            when {
+                !ok -> Toasts.show(error ?: "Không gửi được tới ${device.name}")
+                announce -> Toasts.show(if (next) "Sẽ phát tiếp theo trên ${device.name}" else "Đã thêm vào hàng đợi trên ${device.name}")
+            }
         }
+    }
+
+    /** The swipe hint (a card nudging left and right) is shown once, on the first connection. */
+    fun claimSwipeHint(): Boolean {
+        if (connected == null || AppSettings.castSwipeHintShown) return false
+        AppSettings.castSwipeHintShown = true
+        return true
     }
 
     /** "Phát ngay" keeping the receiver's queue: the video goes next in line, then the receiver skips to it. */

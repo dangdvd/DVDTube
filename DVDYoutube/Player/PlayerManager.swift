@@ -59,6 +59,7 @@ final class PlayerManager {
 
     private(set) var sponsorSegments: [SponsorSegment] = []
     private(set) var toastMessage: String?
+    private(set) var toastAction: ToastAction?
 
     private(set) var queue: [VideoItem] = []
     private(set) var queueIndex = 0
@@ -323,7 +324,8 @@ final class PlayerManager {
         start(queue[index], startAt: nil)
     }
 
-    func addToQueue(_ video: VideoItem) {
+    /// `announce`: show "Đã thêm vào hàng đợi" (callers with their own message pass false).
+    func addToQueue(_ video: VideoItem, announce: Bool = true) {
         guard currentVideo != nil else {
             play(video)
             return
@@ -332,10 +334,38 @@ final class PlayerManager {
         queue.append(video)
         scheduleSessionSave()
         if DVDCast.shared.isConnected {
-            DVDCast.shared.enqueue(video, next: false)
-        } else {
+            DVDCast.shared.enqueue(video, next: false, announce: announce)
+        } else if announce {
             showToast("Đã thêm vào hàng đợi")
         }
+    }
+
+    /// A tap on a video in a list. While a DVDTube TV / PC plays something it follows
+    /// "Chạm video khi TV đang phát" instead of cutting off what plays.
+    func openFromList(_ video: VideoItem, queue newQueue: [VideoItem]?) {
+        if DVDCast.shared.isConnected, DVDCast.shared.receiverBusy, video.id != currentVideo?.id {
+            switch AppSettings.shared.castTapAction {
+            case .ask: castChoice = video
+            case .playNow: castPlayNow(video)
+            case .queue: castQueue(video, next: false)
+            }
+            return
+        }
+        play(video, queue: newQueue)
+    }
+
+    /// Queues a video on the DVDTube receiver (`next`: right after the current one) with
+    /// "Hoàn tác" in the message: swipes on videos, the tap choice.
+    func castQueue(_ video: VideoItem, next: Bool) {
+        guard currentVideo != nil, video.id != currentVideo?.id else { return }
+        let before = queue.firstIndex { $0.id == video.id }
+        if next { playAfterCurrent(video, announce: false) } else { addToQueue(video, announce: false) }
+        let message = next ? "Phát tiếp theo: \(video.title)" : "Đã thêm vào cuối hàng đợi: \(video.title)"
+        let undo = ToastAction(title: "Hoàn tác") { [weak self] in
+            guard let self, let index = self.queue.firstIndex(where: { $0.id == video.id }) else { return }
+            if let before { self.moveQueueItem(from: index, to: before) } else { self.removeQueueItem(at: index) }
+        }
+        showToast(message, action: DVDCast.shared.supportsQueueEdit || !DVDCast.shared.isConnected ? undo : nil)
     }
 
     /// Removes a video from the queue (on the DVDTube receiver while casting); not the current one.
@@ -392,7 +422,7 @@ final class PlayerManager {
     }
 
     /// "Play next": right after the current video.
-    func playAfterCurrent(_ video: VideoItem) {
+    func playAfterCurrent(_ video: VideoItem, announce: Bool = true) {
         guard let current = currentVideo else {
             play(video)
             return
@@ -403,8 +433,8 @@ final class PlayerManager {
         queue.insert(video, at: min(queueIndex + 1, queue.count))
         scheduleSessionSave()
         if DVDCast.shared.isConnected {
-            DVDCast.shared.enqueue(video, next: true)
-        } else {
+            DVDCast.shared.enqueue(video, next: true, announce: announce)
+        } else if announce {
             showToast("Sẽ phát tiếp theo")
         }
     }
@@ -1977,14 +2007,30 @@ final class PlayerManager {
 
     // MARK: - Toasts
 
-    func showToast(_ message: String) {
+    /// A button in a toast ("Hoàn tác").
+    struct ToastAction {
+        let title: String
+        let handler: () -> Void
+    }
+
+    func showToast(_ message: String, action: ToastAction? = nil) {
         toastMessage = message
+        toastAction = action
         toastTask?.cancel()
         toastTask = Task {
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: action == nil ? 2_500_000_000 : 5_000_000_000)
             guard !Task.isCancelled else { return }
             self.toastMessage = nil
+            self.toastAction = nil
         }
+    }
+
+    func runToastAction() {
+        let action = toastAction
+        toastTask?.cancel()
+        toastMessage = nil
+        toastAction = nil
+        action?.handler()
     }
 
     // MARK: - Player layer, background & Picture in Picture

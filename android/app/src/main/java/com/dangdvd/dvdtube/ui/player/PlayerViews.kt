@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Brightness6
@@ -1010,6 +1011,9 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
     val video = PlayerController.currentVideo ?: return
     val duration = PlayerController.duration
     val shown = com.dangdvd.dvdtube.ui.components.rememberDeArrow(video)
+    val dvdCast = com.dangdvd.dvdtube.cast.DvdCastSender.isConnected
+    var showQueue by remember { mutableStateOf(false) }
+    if (showQueue) com.dangdvd.dvdtube.ui.watch.QueueSheet { showQueue = false }
     Column(
         modifier
             .fillMaxWidth()
@@ -1040,7 +1044,11 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                 Text(shown.title.ifEmpty { PlayerController.playerInfo?.title ?: "" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                // Casting to DVDTube: the next video and how many wait in the TV's queue.
+                val waiting = PlayerController.queue.size - PlayerController.queueIndex - 1
+                val upNext = PlayerController.queue.getOrNull(PlayerController.queueIndex + 1)
                 val channel = when {
+                    dvdCast && waiting > 0 && upNext != null -> "Tiếp theo: ${upNext.title} · $waiting bài đang chờ"
                     PlayerController.isCasting -> "Đang phát trên ${PlayerController.castDeviceName ?: "TV"}"
                     PlayerController.isRestoredSession -> "Tiếp tục phát… " + (video.channelName ?: "")
                     else -> video.channelName ?: PlayerController.playerInfo?.author ?: ""
@@ -1052,6 +1060,11 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                 ).joinToString(" • ")
                 Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (dvdCast) {
+                IconButton(onClick = { showQueue = true }) {
+                    Icon(Icons.AutoMirrored.Filled.QueueMusic, "Hàng đợi trên ${PlayerController.castDeviceName ?: "TV"}")
+                }
             }
             if (PlayerController.isLoading && !PlayerController.isPlaying) {
                 CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)

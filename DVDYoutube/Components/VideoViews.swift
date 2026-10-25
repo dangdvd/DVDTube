@@ -93,7 +93,7 @@ struct VideoCard: View {
         if video.isShort {
             router.openShorts(queue?.filter(\.isShort) ?? [video], start: video)
         } else {
-            player.play(video, queue: queue)
+            player.openFromList(video, queue: queue)
         }
     }
 }
@@ -131,7 +131,7 @@ struct VideoRow: View {
             if video.isShort {
                 router.openShorts(queue?.filter(\.isShort) ?? [video], start: video)
             } else {
-                player.play(video, queue: queue)
+                player.openFromList(video, queue: queue)
             }
         }
     }
@@ -414,8 +414,10 @@ struct FeedItemView: View {
         case .video(let video):
             if compact {
                 VideoRow(video: video, queue: queue)
+                    .castSwipeActions(video)
             } else {
                 VideoCard(video: video, queue: queue)
+                    .castSwipeActions(video)
             }
         case .channel(let channel):
             ChannelRow(channel: channel)

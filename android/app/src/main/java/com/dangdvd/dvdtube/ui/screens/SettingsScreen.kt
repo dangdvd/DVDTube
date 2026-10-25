@@ -67,8 +67,12 @@ import kotlinx.coroutines.launch
 
 private val versionText: String get() = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
+/** "Chạm video khi TV đang phát" (casting to DVDTube). */
+private val CAST_TAP_OPTIONS = listOf("ask" to "Hỏi", "playNow" to "Phát ngay", "queue" to "Thêm vào cuối hàng đợi")
+
 private sealed class SettingsDialog {
     data object Language : SettingsDialog()
+    data object CastTap : SettingsDialog()
     data object Region : SettingsDialog()
     data object Theme : SettingsDialog()
     data object WifiQuality : SettingsDialog()
@@ -151,7 +155,11 @@ fun SettingsScreen() {
                     com.dangdvd.dvdtube.cast.DvdCastSender.connected?.name?.let { "Đang phát trên $it" }) {
                     com.dangdvd.dvdtube.ui.cast.CastPicker.open()
                 }
-                Text("Gửi video tới DVDTube trên Android TV hoặc máy tính cùng mạng Wi-Fi; thiết bị đó tự phát với chất lượng cao nhất.",
+                SettingRow(null, "Chạm video khi TV đang phát", CAST_TAP_OPTIONS.firstOrNull { it.first == AppSettings.castTapAction }?.second) {
+                    dialog = SettingsDialog.CastTap
+                }
+                Text("Gửi video tới DVDTube trên Android TV, TV LG hoặc máy tính cùng mạng Wi-Fi; thiết bị đó tự phát với chất lượng cao nhất. " +
+                    "Khi TV đang phát: vuốt video sang phải để phát tiếp theo, sang trái để thêm vào cuối hàng đợi (có nút Hoàn tác).",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
             }
@@ -378,6 +386,9 @@ fun SettingsScreen() {
                     }) { Text("Dùng mặc định") }
                 },
             )
+        }
+        SettingsDialog.CastTap -> ChoiceDialog("Chạm video khi TV đang phát", CAST_TAP_OPTIONS, AppSettings.castTapAction, { dialog = null }) {
+            AppSettings.castTapAction = it
         }
         SettingsDialog.DoubleTap -> ChoiceDialog("Chạm hai lần để tua", AppSettings.doubleTapOptions.map { it to "$it giây" },
             AppSettings.doubleTapSeconds, { dialog = null }) { AppSettings.doubleTapSeconds = it }

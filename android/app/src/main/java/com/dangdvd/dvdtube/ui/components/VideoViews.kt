@@ -91,7 +91,7 @@ fun openVideo(video: VideoItem, context: List<VideoItem>? = null) {
     if (video.isShort) {
         Router.openShorts(context?.filter { it.isShort }?.ifEmpty { null } ?: listOf(video), video)
     } else {
-        PlayerController.play(video, context?.filter { !it.isShort }?.takeIf { it.size > 1 })
+        PlayerController.openFromList(video, context?.filter { !it.isShort }?.takeIf { it.size > 1 })
     }
 }
 
@@ -379,7 +379,7 @@ fun PlaylistRow(playlist: PlaylistItem) {
 @Composable
 fun FeedItemView(item: FeedItem, compact: Boolean, context: List<VideoItem>) {
     when (item) {
-        is FeedItem.Video -> if (compact) VideoRow(item.video, context) else VideoCard(item.video, context)
+        is FeedItem.Video -> CastSwipe(item.video) { if (compact) VideoRow(item.video, context) else VideoCard(item.video, context) }
         is FeedItem.Channel -> ChannelRow(item.channel)
         is FeedItem.Playlist -> PlaylistRow(item.playlist)
         is FeedItem.Shorts -> ShortsShelf(item.items)

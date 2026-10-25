@@ -106,8 +106,8 @@ struct RootView: View {
             presenting: player.castChoice
         ) { video in
             Button("Phát ngay") { player.castPlayNow(video) }
-            Button("Phát tiếp theo") { player.playAfterCurrent(video) }
-            Button("Thêm vào cuối hàng đợi") { player.addToQueue(video) }
+            Button("Phát tiếp theo") { player.castQueue(video, next: true) }
+            Button("Thêm vào cuối hàng đợi") { player.castQueue(video, next: false) }
             Button("Hủy", role: .cancel) {}
         } message: { video in
             Text("\(video.title)\n\(DVDCast.shared.receiver?.name ?? "TV") đang phát video khác.")
@@ -132,18 +132,28 @@ struct ToastOverlay: View {
     var body: some View {
         VStack {
             if let message = player.toastMessage {
-                Text(message)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color.black.opacity(0.85)))
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .padding(.bottom, 120)
+                HStack(spacing: 12) {
+                    Text(message)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    if let action = player.toastAction {
+                        Button(action.title) { player.runToastAction() }
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(Color.brand)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Capsule().fill(Color.black.opacity(0.85)))
+                .padding(.horizontal, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .padding(.bottom, 120)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .allowsHitTesting(false)
+        // Only the toast's button takes touches; the rest of the screen stays usable.
+        .allowsHitTesting(player.toastAction != nil)
         .animation(.easeInOut(duration: 0.25), value: player.toastMessage)
     }
 }
