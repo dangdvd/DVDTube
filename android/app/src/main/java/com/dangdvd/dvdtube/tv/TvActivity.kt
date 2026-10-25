@@ -17,12 +17,16 @@ import androidx.media3.session.SessionToken
 import com.dangdvd.dvdtube.core.ChannelItem
 import com.dangdvd.dvdtube.core.PlaylistItem
 import com.dangdvd.dvdtube.core.VideoItem
+import com.dangdvd.dvdtube.cast.DvdCastReceiver
+import com.dangdvd.dvdtube.core.services.AppUpdater
 import com.dangdvd.dvdtube.core.services.NewVideoWorker
+import com.dangdvd.dvdtube.core.storage.LibraryStore
 import com.dangdvd.dvdtube.core.services.YouTubeService
 import com.dangdvd.dvdtube.player.PlaybackService
 import com.dangdvd.dvdtube.player.PlayerController
 import com.dangdvd.dvdtube.player.ShortsPlayer
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** DVDTube on Android TV: the 10-foot interface, driven with the remote's D-pad. */
@@ -33,6 +37,17 @@ class TvActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent { TvApp() }
         if (savedInstanceState == null) handleIntent(intent)
+        // "Truyền tới DVDTube": phones and PCs on the network can send videos to this TV.
+        DvdCastReceiver.start(this)
+        lifecycleScope.launch { AppUpdater.checkAtLaunch() }
+        // The launcher's "Xem tiếp" row follows the history.
+        lifecycleScope.launch {
+            snapshotFlow { LibraryStore.history.take(12).map { it.video.id to (it.position / 30).toInt() } }
+                .collect {
+                    delay(4000)
+                    if (isTelevision(this@TvActivity)) runCatching { TvWatchNext.sync(this@TvActivity, LibraryStore.history) }
+                }
+        }
         // Keep the screen on while a video plays.
         lifecycleScope.launch {
             snapshotFlow { PlayerController.isPlaying || ShortsPlayer.isPlaying }.collect { playing ->
@@ -40,6 +55,16 @@ class TvActivity : ComponentActivity() {
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppUpdater.resumePendingInstall(this)
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) DvdCastReceiver.stop()
+        super.onDestroy()
     }
 
     override fun onStart() {
@@ -67,6 +92,11 @@ class TvActivity : ComponentActivity() {
     /** YouTube links (from MainActivity on a TV) and shared / searched text. */
     private fun handleIntent(intent: Intent?) {
         intent ?: return
+        val data = intent.data
+        if (data != null && data.scheme == "dvdtube") {
+            handleDvdtubeLink(data)
+            return
+        }
         intent.getStringExtra(NewVideoWorker.EXTRA_VIDEO_ID)?.let { id ->
             TvNav.play(VideoItem(id = id, title = intent.getStringExtra(NewVideoWorker.EXTRA_TITLE) ?: ""))
             return
@@ -94,6 +124,27 @@ class TvActivity : ComponentActivity() {
             }
             link.contains("list=") -> TvNav.open(TvRoute.Playlist(PlaylistItem(link.substringAfter("list=").substringBefore('&'))))
             intent.action != Intent.ACTION_VIEW -> TvNav.open(TvRoute.SearchResults(text))
+        }
+    }
+
+    /** `dvdtube://watch?v=<id>[&t=<s>]` (Watch Next), `search?q=`, `shorts`, `music` and `sync` (shows the QR code). */
+    private fun handleDvdtubeLink(data: android.net.Uri) {
+        when (data.host) {
+            "watch" -> {
+                val id = data.getQueryParameter("v")?.trim()?.takeIf { it.isNotEmpty() } ?: return
+                val start = data.getQueryParameter("t")?.trim()?.removeSuffix("s")?.toDoubleOrNull()?.takeIf { it > 0 }
+                val known = LibraryStore.history.firstOrNull { it.video.id == id }?.video ?: VideoItem(id = id)
+                TvNav.play(known, startAt = start)
+            }
+            "search" -> {
+                val query = data.getQueryParameter("q")?.trim().orEmpty()
+                if (query.isEmpty()) TvNav.select(TvSection.SEARCH) else TvNav.open(TvRoute.SearchResults(query))
+            }
+            "shorts" -> TvNav.select(TvSection.SHORTS)
+            "music" -> TvNav.select(TvSection.MUSIC)
+            "sync" -> TvNav.open(TvRoute.SyncReceive())
+            "home" -> TvNav.select(TvSection.HOME)
+            "subscriptions" -> TvNav.select(TvSection.SUBSCRIPTIONS)
         }
     }
 

@@ -25,7 +25,7 @@ object RSSFeed {
         val request = Request.Builder().url("https://www.youtube.com/feeds/videos.xml?channel_id=$channelId").build()
         InnerTube.client.newCall(request).execute().use { response ->
             if (response.code != 200) throw InnerTubeException.InvalidResponse()
-            parse(response.body?.string() ?: "", channelId)
+            com.dangdvd.dvdtube.core.ParentalControls.filterVideos(parse(response.body?.string() ?: "", channelId))
         }
     }
 

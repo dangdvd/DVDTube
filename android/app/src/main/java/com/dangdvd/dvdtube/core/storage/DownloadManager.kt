@@ -48,6 +48,8 @@ data class DownloadedVideo(
     val downloadedAt: Long,
     /** Only the sound, as an `.m4a` file. */
     val isAudioOnly: Boolean = false,
+    /** Downloaded by "Tự động tải video mới" (may be replaced by newer videos of the channel). */
+    val isAuto: Boolean = false,
 )
 
 sealed class DownloadState {
@@ -126,6 +128,23 @@ object DownloadManager {
         activeTitles = activeTitles + (video.id to video.title.ifEmpty { video.id })
         jobs[video.id] = AppScope.launch { run(video, audioOnly, quality) }
         Toasts.show(if (audioOnly) "Đang tải âm thanh…" else "Đang tải xuống…")
+    }
+
+    /**
+     * Automatic downloads: downloads [video] now and waits for the result (true when it is on the
+     * device). Failures leave no error behind in the downloads list. Call on the main thread.
+     */
+    suspend fun downloadAndWait(video: VideoItem, audioOnly: Boolean, auto: Boolean): Boolean {
+        if (isDownloaded(video.id)) return true
+        if (isBusy(video.id)) return false
+        setState(video.id, DownloadState.Preparing)
+        activeTitles = activeTitles + (video.id to video.title.ifEmpty { video.id })
+        val job = AppScope.launch { run(video, audioOnly, null, auto) }
+        jobs[video.id] = job
+        job.join()
+        val ok = isDownloaded(video.id)
+        if (!ok && auto && states[video.id] is DownloadState.Failed) setState(video.id, null)
+        return ok
     }
 
     /** Queues every video (e.g. of a playlist); they download one after another. */
@@ -216,7 +235,7 @@ object DownloadManager {
         }
     }
 
-    private suspend fun run(video: VideoItem, audioOnly: Boolean, quality: VideoQuality?) {
+    private suspend fun run(video: VideoItem, audioOnly: Boolean, quality: VideoQuality?, auto: Boolean = false) {
         val temp = File(appContext.cacheDir, "dl-${video.id}").apply { mkdirs() }
         try {
             val info = YouTubeService.player(video.id)
@@ -264,11 +283,11 @@ object DownloadManager {
                 fetch(muxed, output) { done -> report(video.id, done / total) }
                 qualityLabel = muxed.qualityLabel
             }
-            downloads = listOf(DownloadedVideo(item, fileName, output.length(), qualityLabel, System.currentTimeMillis(), audioOnly)) +
+            downloads = listOf(DownloadedVideo(item, fileName, output.length(), qualityLabel, System.currentTimeMillis(), audioOnly, auto)) +
                 downloads.filter { it.video.id != video.id }
             save()
             setState(video.id, null)
-            Toasts.show("Đã tải xong: ${item.title}")
+            if (!auto) Toasts.show("Đã tải xong: ${item.title}")
         } catch (error: CancellationException) {
             setState(video.id, null)
         } catch (error: Exception) {

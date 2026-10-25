@@ -179,7 +179,9 @@ fun HiddenContentScreen() {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Avatar(channel.avatar, 36.dp, channel.name)
                         Text(channel.name, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        OutlinedButton(onClick = { HiddenContentStore.unhideChannel(channel.id) }) { Text("Bỏ ẩn") }
+                        OutlinedButton(onClick = {
+                            com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để bỏ chặn kênh") { HiddenContentStore.unhideChannel(channel.id) }
+                        }) { Text("Bỏ ẩn") }
                     }
                 }
             }
@@ -211,7 +213,12 @@ fun HiddenContentScreen() {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
             title = { Text("Bỏ ẩn tất cả video và kênh?") },
-            confirmButton = { TextButton(onClick = { HiddenContentStore.clear(); confirmClear = false }) { Text("Bỏ ẩn tất cả") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để bỏ chặn tất cả") { HiddenContentStore.clear() }
+                }) { Text("Bỏ ẩn tất cả") }
+            },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Hủy") } },
         )
     }

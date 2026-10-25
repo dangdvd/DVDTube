@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SlowMotionVideo
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -129,6 +130,10 @@ fun MainScreen() {
     LaunchedEffect(AccountStore.isSignedIn) {
         if (AccountStore.isSignedIn) AccountStore.refreshNotificationCount()
     }
+    // Shorts hidden by parental controls: leave their tab.
+    LaunchedEffect(com.dangdvd.dvdtube.core.ParentalControls.hidesShorts, tab) {
+        if (com.dangdvd.dvdtube.core.ParentalControls.hidesShorts && tab == AppTab.SHORTS) Router.select(AppTab.HOME)
+    }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxSize()) {
@@ -169,7 +174,13 @@ fun MainScreen() {
     if (Router.showSignIn) SignInDialog(addingAccount = Router.signInAddsAccount) { Router.showSignIn = false }
     if (Router.showUpload) UploadDialog { Router.showUpload = false }
     Router.tvLoginInvite?.let { invite -> TvLoginDialog(invite) { Router.tvLoginInvite = null } }
+    Router.syncInvite?.let { invite -> com.dangdvd.dvdtube.ui.screens.SyncConfirmDialog(invite) { Router.syncInvite = null } }
+    com.dangdvd.dvdtube.ui.cast.CastPickerSheet()
+    com.dangdvd.dvdtube.ui.cast.DvdRemoteSheet()
+    com.dangdvd.dvdtube.ui.screens.UpdateDialog()
     WellbeingReminderDialog()
+    com.dangdvd.dvdtube.ui.screens.ParentalLockOverlay()
+    com.dangdvd.dvdtube.ui.screens.ParentalPinPrompt()
 }
 
 @Composable
@@ -208,6 +219,15 @@ private fun TabRoot(tab: AppTab) {
 
 @Composable
 private fun RouteScreen(route: Route) {
+    if ((route is Route.Search || route is Route.SearchResults) && com.dangdvd.dvdtube.core.ParentalControls.searchDisabled) {
+        com.dangdvd.dvdtube.ui.components.ScreenScaffold("Tìm kiếm") { padding ->
+            com.dangdvd.dvdtube.ui.components.EmptyState(
+                androidx.compose.material.icons.Icons.Default.Lock, "Tìm kiếm đã bị tắt",
+                "Phụ huynh đã tắt tìm kiếm trong Kiểm soát của phụ huynh.", Modifier.padding(padding),
+            )
+        }
+        return
+    }
     when (route) {
         is Route.Search -> SearchScreen(route)
         is Route.SearchResults -> SearchResultsScreen(route)
@@ -226,6 +246,13 @@ private fun RouteScreen(route: Route) {
         is Route.WatchTime -> WatchTimeScreen()
         is Route.HiddenContent -> HiddenContentScreen()
         is Route.Equalizer -> EqualizerScreen()
+        is Route.Music -> com.dangdvd.dvdtube.ui.music.MusicScreen(route)
+        is Route.MusicBrowse -> com.dangdvd.dvdtube.ui.music.MusicBrowseScreen(route)
+        is Route.NowPlaying -> com.dangdvd.dvdtube.ui.music.NowPlayingScreen()
+        is Route.SyncBackup -> com.dangdvd.dvdtube.ui.screens.SyncBackupScreen()
+        is Route.AutoDownload -> com.dangdvd.dvdtube.ui.screens.AutoDownloadScreen()
+        is Route.Parental -> com.dangdvd.dvdtube.ui.screens.ParentalScreen()
+        is Route.Alarms -> com.dangdvd.dvdtube.ui.screens.AlarmsScreen()
     }
 }
 
@@ -242,7 +269,9 @@ private fun BottomBar(selected: AppTab) {
     }
     NavigationBar(containerColor = if (shorts) Color.Black else MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
         TabItem(AppTab.HOME, selected, "Trang chủ", Icons.Filled.Home, Icons.Outlined.Home, colors)
-        TabItem(AppTab.SHORTS, selected, "Shorts", Icons.Filled.SlowMotionVideo, Icons.Outlined.SlowMotionVideo, colors)
+        if (!com.dangdvd.dvdtube.core.ParentalControls.hidesShorts) {
+            TabItem(AppTab.SHORTS, selected, "Shorts", Icons.Filled.SlowMotionVideo, Icons.Outlined.SlowMotionVideo, colors)
+        }
         TabItem(AppTab.SUBSCRIPTIONS, selected, "Kênh đăng ký", Icons.Filled.Subscriptions, Icons.Outlined.Subscriptions, colors)
         TabItem(AppTab.LIBRARY, selected, "Bạn", Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary, colors,
             badge = DownloadManager.activeCount)

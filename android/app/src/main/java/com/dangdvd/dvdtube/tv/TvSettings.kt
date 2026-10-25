@@ -19,7 +19,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.HighQuality
@@ -62,10 +71,12 @@ import com.dangdvd.dvdtube.player.Equalizer
 import com.dangdvd.dvdtube.player.PlayerController
 import com.dangdvd.dvdtube.player.Toasts
 import com.dangdvd.dvdtube.ui.Brand
+import androidx.compose.foundation.focusable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
 
-private enum class SettingsDialog { QUALITY, CAPTION_LANGUAGE, EQUALIZER, CLEAR_HISTORY, CLEAR_SEARCHES }
+private enum class SettingsDialog { QUALITY, CAPTION_LANGUAGE, EQUALIZER, CLEAR_HISTORY, CLEAR_SEARCHES, LOG }
 
 private fun onOff(value: Boolean) = if (value) "Bật" else "Tắt"
 
@@ -124,6 +135,59 @@ fun TvSettingsScreen() {
                 onClick = { PlayerController.setStableVolume(!AppSettings.stableVolume) }, modifier = Modifier.widthIn(max = 820.dp))
         }
 
+        item("cast") { Section("Truyền tới DVDTube") }
+        item("castReceiver") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            TvOptionRow("Nhận video truyền từ điện thoại và máy tính", value = onOff(AppSettings.castReceiverEnabled),
+                icon = Icons.Default.Cast,
+                subtitle = if (com.dangdvd.dvdtube.cast.DvdCastReceiver.isRunning) {
+                    "Tên: ${com.dangdvd.dvdtube.cast.DvdCastReceiver.deviceName(context)}" +
+                        (com.dangdvd.dvdtube.cast.DvdCastReceiver.address?.let { " • Địa chỉ: $it" } ?: "")
+                } else {
+                    "Điện thoại / máy tính cùng mạng Wi-Fi chọn \"Truyền tới TV\" để phát trên TV này"
+                },
+                onClick = {
+                    AppSettings.castReceiverEnabled = !AppSettings.castReceiverEnabled
+                    com.dangdvd.dvdtube.cast.DvdCastReceiver.refresh(context)
+                }, modifier = Modifier.widthIn(max = 820.dp))
+        }
+        item("musicSection") { Section("Nghe nhạc và DeArrow") }
+        item("musicAudio") {
+            TvOptionRow("Chỉ phát âm thanh khi nghe nhạc", value = onOff(AppSettings.musicAudioOnly), icon = Icons.Default.MusicNote,
+                onClick = { AppSettings.musicAudioOnly = !AppSettings.musicAudioOnly }, modifier = Modifier.widthIn(max = 820.dp))
+        }
+        item("dearrow") {
+            TvOptionRow("DeArrow: thay tiêu đề và ảnh giật tít", value = onOff(AppSettings.deArrow), icon = Icons.Default.Title,
+                subtitle = "Tiêu đề và ảnh thu nhỏ do cộng đồng sửa lại (dearrow.ajay.app)",
+                onClick = { AppSettings.deArrow = !AppSettings.deArrow }, modifier = Modifier.widthIn(max = 820.dp))
+        }
+        if (AppSettings.deArrow) {
+            item("dearrowTitles") {
+                TvOptionRow("Tiêu đề", value = onOff(AppSettings.deArrowTitles),
+                    onClick = { AppSettings.deArrowTitles = !AppSettings.deArrowTitles }, modifier = Modifier.widthIn(max = 820.dp).padding(start = 38.dp))
+            }
+            item("dearrowThumbnails") {
+                TvOptionRow("Ảnh thu nhỏ", value = onOff(AppSettings.deArrowThumbnails),
+                    onClick = { AppSettings.deArrowThumbnails = !AppSettings.deArrowThumbnails }, modifier = Modifier.widthIn(max = 820.dp).padding(start = 38.dp))
+            }
+        }
+        item("toolsSection") { Section("Đồng bộ, hẹn giờ và phụ huynh") }
+        item("sync") {
+            TvOptionRow("Đồng bộ thư viện", icon = Icons.Default.Sync, subtitle = "Gộp thư viện với điện thoại hoặc máy tính bằng mã QR",
+                onClick = { TvNav.open(TvRoute.SyncReceive()) }, modifier = Modifier.widthIn(max = 820.dp))
+        }
+        item("alarms") {
+            val count = com.dangdvd.dvdtube.core.alarm.PlaybackAlarms.list.count { it.enabled }
+            TvOptionRow("Hẹn giờ phát", value = if (count == 0) "Tắt" else "$count", icon = Icons.Default.Alarm,
+                onClick = { TvNav.open(TvRoute.Alarms()) }, modifier = Modifier.widthIn(max = 820.dp))
+        }
+        item("parental") {
+            TvOptionRow("Kiểm soát của phụ huynh", value = onOff(com.dangdvd.dvdtube.core.ParentalControls.isEnabled), icon = Icons.Default.Lock,
+                onClick = {
+                    com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để mở Kiểm soát của phụ huynh") { TvNav.open(TvRoute.Parental()) }
+                }, modifier = Modifier.widthIn(max = 820.dp))
+        }
+
         item("privacy") { Section("Nhật ký và quyền riêng tư") }
         item("incognito") {
             TvOptionRow("Chế độ ẩn danh", value = onOff(AppSettings.isIncognito), icon = Icons.Default.VisibilityOff,
@@ -153,6 +217,21 @@ fun TvSettingsScreen() {
                 subtitle = "Ứng dụng không chính thức, không liên kết với Google/YouTube",
                 onClick = {}, modifier = Modifier.widthIn(max = 820.dp))
         }
+        item("autoUpdate") {
+            TvOptionRow("Tự kiểm tra cập nhật", value = onOff(AppSettings.autoUpdateCheck), icon = Icons.Default.SystemUpdate,
+                subtitle = "Mỗi ngày tối đa một lần, khi mở ứng dụng",
+                onClick = { AppSettings.autoUpdateCheck = !AppSettings.autoUpdateCheck }, modifier = Modifier.widthIn(max = 820.dp))
+        }
+        item("checkUpdate") {
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            TvOptionRow("Kiểm tra cập nhật", value = if (com.dangdvd.dvdtube.core.services.AppUpdater.isChecking) "Đang kiểm tra…" else null,
+                icon = Icons.Default.Refresh,
+                onClick = { scope.launch { com.dangdvd.dvdtube.core.services.AppUpdater.checkNow() } }, modifier = Modifier.widthIn(max = 820.dp))
+        }
+        item("log") {
+            TvOptionRow("Gửi nhật ký lỗi", icon = Icons.Default.BugReport, subtitle = "Tệp nhật ký đã xóa cookie, email và mã đăng nhập",
+                onClick = { dialog = SettingsDialog.LOG }, modifier = Modifier.widthIn(max = 820.dp))
+        }
     }
 
     when (dialog) {
@@ -173,6 +252,19 @@ fun TvSettingsScreen() {
             }
         }
         SettingsDialog.EQUALIZER -> TvEqualizerDialog { dialog = null }
+        SettingsDialog.LOG -> {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val text = remember { com.dangdvd.dvdtube.core.LogExport.build(context) }
+            TvDialog("Gửi nhật ký lỗi", { dialog = null }, width = 860.dp) {
+                TvOptionRow("Chia sẻ tệp nhật ký", onClick = {
+                    dialog = null
+                    com.dangdvd.dvdtube.core.LogExport.share(context)
+                })
+                TvOptionRow("Đóng", onClick = { dialog = null })
+                Text(text.takeLast(6000), style = MaterialTheme.typography.bodySmall, color = TvColors.secondaryText,
+                    modifier = Modifier.padding(top = 10.dp).focusable())
+            }
+        }
         SettingsDialog.CLEAR_HISTORY -> TvDialog("Xóa toàn bộ nhật ký xem trên TV này?", { dialog = null }) {
             TvOptionRow("Xóa", onClick = {
                 LibraryStore.clearHistory()

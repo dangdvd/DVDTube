@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DVDTube</string>
+    <string name="widget_continue_name">Tiếp tục xem</string>
+    <string name="widget_continue_description">Video bạn đang xem dở, cùng nút Tìm kiếm và Shorts</string>
+    <string name="widget_continue_label">TIẾP TỤC XEM</string>
+    <string name="widget_empty">Chưa có video đang xem dở</string>
+    <string name="widget_resume">▶ Tiếp tục</string>
+    <string name="widget_search">Tìm kiếm</string>
+    <string name="widget_shorts">Shorts</string>
+    <string name="widget_thumbnail">Ảnh thu nhỏ</string>
+    <string name="widget_new_videos_name">Video mới từ kênh đăng ký</string>
+    <string name="widget_new_videos_description">Những video mới nhất của các kênh bạn đăng ký</string>
+    <string name="widget_new_videos_title">Video mới từ kênh đăng ký</string>
+    <string name="widget_new_videos_empty">Chưa có video mới. Hãy đăng ký kênh trong DVDTube.</string>
 </resources>

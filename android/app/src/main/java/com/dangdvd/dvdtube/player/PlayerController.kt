@@ -27,10 +27,12 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.dangdvd.dvdtube.cast.CastController
+import com.dangdvd.dvdtube.cast.DvdCastSender
 import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.CaptionTrack
 import com.dangdvd.dvdtube.core.HeatMarker
 import com.dangdvd.dvdtube.core.Log
+import com.dangdvd.dvdtube.core.ParentalControls
 import com.dangdvd.dvdtube.core.PlayerInfo
 import com.dangdvd.dvdtube.core.SponsorSegment
 import com.dangdvd.dvdtube.core.StreamFormat
@@ -42,7 +44,9 @@ import com.dangdvd.dvdtube.core.innertube.InnerTube
 import com.dangdvd.dvdtube.core.innertube.InnerTubeException
 import com.dangdvd.dvdtube.core.services.CaptionCue
 import com.dangdvd.dvdtube.core.services.CaptionLoader
+import com.dangdvd.dvdtube.core.services.MusicRecents
 import com.dangdvd.dvdtube.core.services.SponsorBlock
+import com.dangdvd.dvdtube.core.services.YouTubeMusic
 import com.dangdvd.dvdtube.core.services.YouTubeService
 import com.dangdvd.dvdtube.core.storage.AccountStore
 import com.dangdvd.dvdtube.core.storage.AppScope
@@ -150,6 +154,38 @@ object PlayerController {
         private set
     var queueIndex by mutableStateOf(0)
         private set
+    /** The playlist the queue came from, if any (kept with the saved queue and sent to cast receivers). */
+    var playlistId by mutableStateOf<String?>(null)
+        private set
+
+    /** "Nghe nhạc": songs follow each other, audio only by default, with a now-playing screen. */
+    var isMusicMode by mutableStateOf(false)
+        private set
+    /** "Radio từ bài này": the queue grows by itself from the mix of the last song. */
+    var isRadio by mutableStateOf(false)
+        private set
+    var isShuffled by mutableStateOf(false)
+        private set
+    /** Repeat the whole queue (repeating one video is [isLooping]). */
+    var repeatAll by mutableStateOf(false)
+        private set
+    private var unshuffledQueue: List<VideoItem>? = null
+    /** Video / audio picked in the player during music mode. */
+    private var musicAudioChoice: Boolean? = null
+    /** Audio only forced for this playback (scheduled playback). */
+    private var forcedAudioOnly: Boolean? = null
+    private var radioJob: Job? = null
+    private var prefetched: Pair<PlayerInfo, Long>? = null
+
+    /** The last session's video, restored paused ("Tiếp tục phát…") and not loaded yet. */
+    var isRestoredSession by mutableStateOf(false)
+        private set
+
+    /** Volume set by a cast sender (TV receiver), 0…1, and its mute. */
+    var remoteVolume by mutableStateOf(1f)
+        private set
+    var remoteMuted by mutableStateOf(false)
+        private set
 
     var isLooping by mutableStateOf(false)
         private set
@@ -209,7 +245,11 @@ object PlayerController {
     val hasNext: Boolean get() = queueIndex + 1 < queue.size || nextAutoplayVideo != null
     val hasPrevious: Boolean get() = queueIndex > 0 || currentTime > 5
     val autoplayEnabled: Boolean get() = AppSettings.autoplay
-    val isCasting: Boolean get() = CastController.isConnected
+    val isCasting: Boolean get() = CastController.isConnected || DvdCastSender.isConnected
+    /** Name of the TV / PC playing (Chromecast or a DVDTube receiver). */
+    val castDeviceName: String? get() = DvdCastSender.connected?.name ?: CastController.deviceName
+    val castStatusText: String? get() = if (DvdCastSender.isConnected) DvdCastSender.statusText ?: DvdCastSender.status?.error else CastController.statusText
+    private val dvdCast: Boolean get() = DvdCastSender.isConnected
 
     // MARK: Private state
 
@@ -241,6 +281,7 @@ object PlayerController {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         exo.addListener(listener)
+        SessionStore.init(appContext)
         Equalizer.apply()
         sessionPlayer = SessionPlayer(exo)
         rate = AppSettings.playbackSpeed
@@ -286,14 +327,37 @@ object PlayerController {
         if (isPortraitFullscreen && fullscreenRotation == null && ratio > 1f) isPortraitFullscreen = false
     }
 
-    fun play(video: VideoItem, newQueue: List<VideoItem>? = null, startAt: Double? = null) {
+    /**
+     * Plays [video] (in [newQueue] when given). [music]: music mode ("Nghe nhạc"); [audioOnly]
+     * forces audio only for this playback; [playlistId] is remembered with the queue.
+     */
+    fun play(
+        video: VideoItem,
+        newQueue: List<VideoItem>? = null,
+        startAt: Double? = null,
+        music: Boolean = false,
+        audioOnly: Boolean? = null,
+        playlistId: String? = null,
+    ) {
         ShortsPlayer.pause()
-        if (video.id == currentVideo?.id && playbackError == null && newQueue == null) {
+        if (!ParentalControls.canPlay()) return
+        if (!ParentalControls.allows(video)) {
+            Toasts.show("Video này bị chặn bởi Kiểm soát của phụ huynh")
+            return
+        }
+        if (video.id == currentVideo?.id && playbackError == null && newQueue == null && !isRestoredSession && music == isMusicMode) {
             isExpanded = true
             if (!isPlaying) resume()
             return
         }
         saveProgress()
+        if (music != isMusicMode) musicAudioChoice = null
+        isMusicMode = music
+        forcedAudioOnly = audioOnly
+        if (!music) isRadio = false
+        isShuffled = false
+        unshuffledQueue = null
+        this.playlistId = playlistId
         when {
             newQueue != null -> {
                 queue = newQueue
@@ -322,7 +386,8 @@ object PlayerController {
             return
         }
         queue = queue.filter { it.id != video.id || it.id == currentVideo?.id } + video
-        Toasts.show("Đã thêm vào hàng đợi")
+        if (dvdCast) DvdCastSender.queueOnReceiver(video, next = false) else Toasts.show("Đã thêm vào hàng đợi")
+        SessionStore.schedule()
     }
 
     fun removeFromQueue(index: Int) {
@@ -344,10 +409,15 @@ object PlayerController {
         rest.add(minOf(index + 1, rest.size), video)
         queue = rest
         queueIndex = index
-        Toasts.show("Sẽ phát tiếp theo")
+        if (dvdCast) DvdCastSender.queueOnReceiver(video, next = true) else Toasts.show("Sẽ phát tiếp theo")
+        SessionStore.schedule()
     }
 
     fun playNext() {
+        if (dvdCast) {
+            DvdCastSender.control("next")
+            return
+        }
         if (queueIndex + 1 < queue.size) {
             playQueueItem(queueIndex + 1)
         } else {
@@ -360,16 +430,25 @@ object PlayerController {
     }
 
     fun playPrevious() {
+        if (dvdCast) {
+            DvdCastSender.control("previous")
+            return
+        }
         if (currentTime > 5 || queueIndex == 0) seek(0.0) else playQueueItem(queueIndex - 1)
     }
 
     fun togglePlayPause() = if (isPlaying) pause() else resume()
 
     fun resume() {
+        if (dvdCast) {
+            DvdCastSender.control("play")
+            return
+        }
         if (isCasting) {
             CastController.play()
             return
         }
+        if (!ParentalControls.canPlay()) return
         if (usesWebPlayer) {
             webCommand("playVideo")
             return
@@ -385,6 +464,11 @@ object PlayerController {
     }
 
     fun pause() {
+        if (dvdCast) {
+            DvdCastSender.control("pause")
+            saveProgress()
+            return
+        }
         if (isCasting) {
             CastController.pause()
             saveProgress()
@@ -399,6 +483,7 @@ object PlayerController {
         val target = maxOf(0.0, if (duration > 0) minOf(seconds, duration - 0.25) else seconds)
         currentTime = target
         when {
+            dvdCast -> DvdCastSender.control("seek", target)
             isCasting -> CastController.seek(target)
             usesWebPlayer -> webCommand("seekTo", "[$target, true]")
             else -> exo.seekTo((target * 1000).toLong())
@@ -409,8 +494,13 @@ object PlayerController {
 
     fun close() {
         saveProgress()
-        if (isCasting) CastController.stopMedia()
+        if (dvdCast) DvdCastSender.control("stop") else if (isCasting) CastController.stopMedia()
         cancelUpNext()
+        radioJob?.cancel()
+        isRadio = false
+        isMusicMode = false
+        isRestoredSession = false
+        if (!keepSessionOnClose) SessionStore.clear()
         loadJob?.cancel()
         watchJob?.cancel()
         exo.stop()
@@ -471,6 +561,11 @@ object PlayerController {
     // MARK: Loading
 
     private fun start(video: VideoItem, startAt: Double?) {
+        isRestoredSession = false
+        if (!isCasting && !ParentalControls.canPlay()) {
+            exo.pause()
+            return
+        }
         upNextJob?.cancel()
         upNext = null
         isLooping = false
@@ -508,18 +603,23 @@ object PlayerController {
         applyVolume()
         applyAudioOnlyTracks()
         isLoading = true
-        pendingSeek = startAt ?: if (AppSettings.resumePlayback) LibraryStore.resumePosition(video.id) else null
+        // Songs start from the beginning in music mode.
+        pendingSeek = startAt ?: if (AppSettings.resumePlayback && !isMusicMode) LibraryStore.resumePosition(video.id) else null
         if (AppSettings.saveHistory && !AppSettings.isIncognito) LibraryStore.recordWatch(video, pendingSeek ?: 0.0, duration)
+        if (isMusicMode) MusicRecents.add(video)
         loadWatchInfo(video.id)
+        SessionStore.schedule()
 
         if (isCasting) {
             // Plays on the TV; the phone only shows the controls.
             isLoading = false
-            CastController.load(video, null, pendingSeek ?: 0.0)
+            if (dvdCast) DvdCastSender.playOnReceiver(video, pendingSeek, queue, queueIndex)
+            else CastController.load(video, null, pendingSeek ?: 0.0)
             pendingSeek = null
             return
         }
         loadJob = AppScope.launch { loadStream(video) }
+        if (isRadio) extendRadioIfNeeded()
     }
 
     private fun defaultQuality(): VideoQuality {
@@ -532,12 +632,21 @@ object PlayerController {
 
     /** Audio only for the next video: the user's choice in this session, otherwise the settings. */
     private val wantsAudioOnly: Boolean
-        get() = audioOnlyChoice ?: (AppSettings.audioOnlyMode || (AppSettings.audioOnlyOnCellular && AppSettings.isMeteredNetwork))
+        get() = forcedAudioOnly
+            ?: (if (isMusicMode) musicAudioChoice ?: AppSettings.musicAudioOnly else null)
+            ?: audioOnlyChoice
+            ?: (AppSettings.audioOnlyMode || (AppSettings.audioOnlyOnCellular && AppSettings.isMeteredNetwork))
 
     /** Switches between video and audio only, continuing from the same position. */
     fun switchAudioOnly(on: Boolean) {
-        audioOnlyChoice = on
-        AppSettings.audioOnlyMode = on
+        if (isMusicMode || forcedAudioOnly != null) {
+            // Music mode keeps its own choice (the general setting stays as it is).
+            musicAudioChoice = on
+            if (forcedAudioOnly != null) forcedAudioOnly = on
+        } else {
+            audioOnlyChoice = on
+            AppSettings.audioOnlyMode = on
+        }
         if (on == isAudioOnly) return
         isAudioOnly = on
         applyAudioOnlyTracks()
@@ -690,7 +799,42 @@ object PlayerController {
     // MARK: Stable volume
 
     private fun applyVolume() {
-        exo.volume = (loudnessGain * fadeGain).coerceIn(0f, 1f)
+        val remote = if (remoteMuted) 0f else remoteVolume
+        exo.volume = (loudnessGain * fadeGain * remote).coerceIn(0f, 1f)
+    }
+
+    /** Volume asked by a cast sender (this device is the receiver). */
+    fun setRemoteVolume(level: Float) {
+        remoteVolume = level.coerceIn(0f, 1f)
+        if (remoteVolume > 0f) remoteMuted = false
+        applyVolume()
+    }
+
+    fun setRemoteMuted(muted: Boolean) {
+        remoteMuted = muted
+        applyVolume()
+    }
+
+    private var fadeJob: Job? = null
+
+    /** Raises the volume from silence over [millis] (scheduled playback). */
+    fun fadeIn(millis: Long) {
+        fadeJob?.cancel()
+        fadeGain = 0f
+        applyVolume()
+        val begin = System.currentTimeMillis()
+        fadeJob = AppScope.launch {
+            // The clock starts once the sound actually plays.
+            while (isActive && !isPlaying && System.currentTimeMillis() - begin < 60_000) delay(200)
+            val start = System.currentTimeMillis()
+            while (isActive) {
+                val fraction = ((System.currentTimeMillis() - start).toFloat() / millis).coerceIn(0f, 1f)
+                fadeGain = fraction
+                applyVolume()
+                if (fraction >= 1f) break
+                delay(250)
+            }
+        }
     }
 
     /** Turns loud videos down to YouTube's reference level ("Âm lượng ổn định"). */
@@ -763,8 +907,15 @@ object PlayerController {
             return
         }
         try {
-            val info = YouTubeService.player(video.id)
+            val cached = prefetched?.takeIf { (info, at) -> info.videoId == video.id && System.currentTimeMillis() - at < 30 * 60_000L }?.first
+            prefetched = null
+            val info = cached ?: YouTubeService.player(video.id)
             if (currentVideo?.id != video.id) return
+            if (!ParentalControls.allows(info.asVideoItem().copy(isShort = video.isShort))) {
+                isLoading = false
+                playbackError = "Video này bị chặn bởi Kiểm soát của phụ huynh."
+                return
+            }
             playerInfo = info
             matchFullscreenToVideo()
             refreshStableVolume()
@@ -785,11 +936,12 @@ object PlayerController {
             if (currentVideo?.id != video.id) return
             startSource(source, video)
             loadExtras(video.id, info)
+            if (isMusicMode) prefetchNext()
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             if (currentVideo?.id != video.id) return
-            Log.debug("stream ${video.id} failed: ${error.message}")
+            Log.error("stream ${video.id} failed: ${error.javaClass.simpleName} ${error.message}")
             if (shouldUseWebFallback(error)) {
                 switchToWebPlayer(error.message)
                 return
@@ -995,7 +1147,7 @@ object PlayerController {
 
         override fun onPlayerError(error: PlaybackException) {
             val message = error.message ?: "Không phát được video."
-            Log.debug("player error at stage $fallbackStage: ${error.errorCodeName} $message")
+            Log.error("player error at stage $fallbackStage (${playbackMethod}): ${error.errorCodeName} $message")
             val info = playerInfo
             val video = currentVideo ?: return
             if (info != null && fallbackStage < 2 && !isLocalPlayback) {
@@ -1032,6 +1184,15 @@ object PlayerController {
             return
         }
         val hasQueued = queueIndex + 1 < queue.size
+        if (!hasQueued && repeatAll && queue.isNotEmpty()) {
+            playQueueItem(0)
+            return
+        }
+        // Music: the next song follows at once (its stream was fetched in advance).
+        if (isMusicMode && hasQueued) {
+            playQueueItem(queueIndex + 1)
+            return
+        }
         val next = if (hasQueued) queue[queueIndex + 1] else nextAutoplayVideo
         if ((!AppSettings.autoplay && !hasQueued) || next == null) {
             isPlaying = false
@@ -1138,6 +1299,192 @@ object PlayerController {
         }
     }
 
+    // MARK: Music mode
+
+    /** Shuffles what comes after the current song (again: back to the original order). */
+    fun toggleShuffle() {
+        val current = queue.getOrNull(queueIndex) ?: currentVideo ?: return
+        if (isShuffled) {
+            unshuffledQueue?.let { original ->
+                queue = original
+                queueIndex = original.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
+            }
+            unshuffledQueue = null
+            isShuffled = false
+            Toasts.show("Đã tắt trộn bài")
+        } else {
+            unshuffledQueue = queue
+            queue = listOf(current) + queue.filterIndexed { index, _ -> index != queueIndex }.shuffled()
+            queueIndex = 0
+            isShuffled = true
+            Toasts.show("Đã bật trộn bài")
+        }
+        prefetched = null
+        if (isMusicMode) prefetchNext()
+        SessionStore.schedule()
+    }
+
+    /** Off → repeat the queue → repeat this song → off. */
+    fun cycleRepeat() {
+        when {
+            !repeatAll && !isLooping -> {
+                repeatAll = true
+                Toasts.show("Lặp lại danh sách")
+            }
+            repeatAll -> {
+                repeatAll = false
+                isLooping = true
+                exo.repeatMode = Player.REPEAT_MODE_ONE
+                Toasts.show("Lặp lại bài này")
+            }
+            else -> {
+                isLooping = false
+                exo.repeatMode = Player.REPEAT_MODE_OFF
+                Toasts.show("Đã tắt lặp lại")
+            }
+        }
+    }
+
+    private var radioMoreJob: Job? = null
+
+    /** "Radio từ bài này": the mix of [video], which keeps growing while it plays. */
+    fun playRadio(video: VideoItem) {
+        radioJob?.cancel()
+        Toasts.show("Đang tạo radio từ bài này…")
+        radioJob = AppScope.launch {
+            val list = runCatching { YouTubeMusic.radio(video) }.getOrNull()?.ifEmpty { null } ?: listOf(video)
+            play(list.first(), list, startAt = 0.0, music = true)
+            isRadio = true
+        }
+    }
+
+    private fun extendRadioIfNeeded() {
+        if (!isRadio || queueIndex < queue.size - 3 || radioMoreJob?.isActive == true) return
+        val seed = queue.lastOrNull() ?: return
+        radioMoreJob = AppScope.launch {
+            val more = runCatching { YouTubeMusic.radio(seed) }.getOrDefault(emptyList())
+            if (!isRadio) return@launch
+            val known = queue.map { it.id }.toHashSet()
+            val fresh = more.filter { known.add(it.id) }
+            if (fresh.isNotEmpty()) {
+                queue = queue + fresh
+                SessionStore.schedule()
+            }
+        }
+    }
+
+    /** Fetches the next song's stream (and audio playlist) while this one plays. */
+    private fun prefetchNext() {
+        val next = queue.getOrNull(queueIndex + 1) ?: return
+        if (prefetched?.first?.videoId == next.id || DownloadManager.isDownloaded(next.id)) return
+        AppScope.launch {
+            val info = runCatching { YouTubeService.player(next.id) }.getOrNull() ?: return@launch
+            if (queue.getOrNull(queueIndex + 1)?.id != next.id) return@launch
+            prefetched = info to System.currentTimeMillis()
+            info.hlsUrl?.let { prefetchManifest(it) }
+        }
+    }
+
+    private suspend fun prefetchManifest(master: String) {
+        if (manifests.containsKey(master)) return
+        val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                InnerTube.client.newCall(okhttp3.Request.Builder().url(master).build()).execute().use { response ->
+                    if (response.isSuccessful) response.body?.string() else null
+                }
+            }.getOrNull()
+        } ?: return
+        if (manifests.size > 20) manifests.clear()
+        manifests[master] = text
+    }
+
+    // MARK: Scheduled playback
+
+    /** "Hẹn giờ phát": plays [videos] from the start (optionally audio only), fading the sound in over 30 s. */
+    fun playScheduled(videos: List<VideoItem>, audioOnly: Boolean, fade: Boolean, radio: Boolean) {
+        val first = videos.firstOrNull() ?: return
+        val expanded = isExpanded
+        if (fade) fadeIn(30_000L)
+        play(first, videos, startAt = 0.0, music = radio, audioOnly = if (audioOnly) true else null)
+        if (radio) isRadio = true
+        isExpanded = expanded
+    }
+
+    // MARK: DVDTube cast (this device is the sender)
+
+    /** Mirrors the receiver's `/api/status` (the phone shows its video, position and queue). */
+    fun applyRemoteStatus(remote: DvdCastSender.RemoteStatus) {
+        val video = remote.video
+        if (video != null && video.id != currentVideo?.id) {
+            currentVideo = video
+            playerInfo = null
+            sponsorSegments = emptyList()
+            captionTracks = emptyList()
+            currentCaption = null
+            loadWatchInfo(video.id)
+        }
+        if (remote.queue.isNotEmpty()) {
+            if (remote.queue.map { it.id } != queue.map { it.id }) queue = remote.queue
+            queueIndex = remote.index.coerceIn(0, remote.queue.lastIndex)
+        }
+        if (remote.duration > 0) duration = remote.duration
+        currentTime = remote.position
+        isPlaying = remote.state == "playing" || remote.state == "buffering"
+        isBuffering = remote.state == "buffering" || remote.state == "loading"
+        isLoading = false
+        val id = currentVideo?.id ?: return
+        if (remote.position > 10) AccountStore.reportWatched(id, duration)
+        if (System.currentTimeMillis() - lastHistorySave > 10_000) saveProgress()
+    }
+
+    /** "Tiếp tục trên thiết bị này": plays here from where the receiver was. */
+    fun resumeLocally(position: Double) {
+        val video = currentVideo ?: return
+        start(video, position.takeIf { it > 1 })
+        isExpanded = true
+    }
+
+    // MARK: Remembered queue
+
+    private var keepSessionOnClose = false
+
+    /** Puts the last session's video back, paused, in the mini player (the stream loads on play). */
+    fun restoreLastSession() {
+        if (currentVideo != null) return
+        val saved = SessionStore.load() ?: return
+        val list = saved.queue.ifEmpty { listOf(saved.video) }
+        queue = list
+        queueIndex = saved.index.coerceIn(0, list.lastIndex)
+        currentVideo = saved.video
+        playlistId = saved.playlistId
+        isMusicMode = saved.music
+        currentTime = saved.position
+        duration = saved.duration.takeIf { it > 0 } ?: saved.video.durationSeconds?.toDouble() ?: 0.0
+        isExpanded = false
+        isPlaying = false
+        isRestoredSession = true
+        loadWatchInfo(saved.video.id)
+        Log.debug("restored the last queue (${list.size} videos)")
+    }
+
+    /** What [SessionStore] saves: the current video, position, queue (around the current item) and playlist. */
+    fun sessionSnapshot(): SessionStore.Saved? {
+        val video = currentVideo ?: return null
+        if (AppSettings.isIncognito) return null
+        val start = if (queue.size > 200) maxOf(0, queueIndex - 50) else 0
+        val window = queue.drop(start).take(200)
+        return SessionStore.Saved(
+            video = video,
+            position = currentTime,
+            duration = duration,
+            queue = window,
+            index = (queueIndex - start).coerceIn(0, maxOf(window.size - 1, 0)),
+            playlistId = playlistId,
+            music = isMusicMode,
+            savedAt = System.currentTimeMillis(),
+        )
+    }
+
     // MARK: Digital wellbeing
 
     private fun startWellbeingLoop() {
@@ -1192,6 +1539,7 @@ object PlayerController {
 
     val playbackMethod: String
         get() = when {
+            dvdCast -> "Truyền tới DVDTube (${castDeviceName ?: "TV"})"
             isCasting -> "Chromecast"
             usesWebPlayer -> "Trình phát web"
             isLocalPlayback -> "Tệp đã tải xuống"
@@ -1294,11 +1642,13 @@ object PlayerController {
         if ((currentTime <= 0 && !completed) || AppSettings.isIncognito) return
         lastHistorySave = System.currentTimeMillis()
         LibraryStore.updatePosition(video.id, if (completed) duration else currentTime, duration)
+        if (!isRestoredSession) SessionStore.schedule()
     }
 
     /** Called when the app goes to the background without Picture in Picture. */
     fun appDidEnterBackground() {
         saveProgress()
+        if (!isRestoredSession) SessionStore.saveNow()
         if (currentVideo == null || isCasting) return
         if (!AppSettings.backgroundPlayback && !isInPictureInPicture) pause()
     }
@@ -1307,7 +1657,11 @@ object PlayerController {
     fun appTaskRemoved() {
         saveProgress()
         if (isCasting) return
+        // The queue is remembered for the next launch ("Tiếp tục phát…").
+        if (!isRestoredSession) SessionStore.saveNow()
+        keepSessionOnClose = true
         close()
+        keepSessionOnClose = false
     }
 
     // MARK: Web player fallback

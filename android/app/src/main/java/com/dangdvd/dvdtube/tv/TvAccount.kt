@@ -78,14 +78,14 @@ fun TvAccountScreen() {
                 "Đăng nhập bằng điện thoại (khuyên dùng)",
                 subtitle = "TV hiện mã QR, quét bằng Camera trên iPhone hoặc ứng dụng DVDTube trên Android đã đăng nhập.",
                 icon = Icons.Default.PhoneAndroid,
-                onClick = { TvNav.open(TvRoute.Pairing()) },
+                onClick = { com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để đăng nhập") { TvNav.open(TvRoute.Pairing()) } },
                 modifier = Modifier.widthIn(max = 760.dp).focusRequester(first),
             )
             TvOptionRow(
                 "Đăng nhập trên TV",
                 subtitle = "Nhập email và mật khẩu Google bằng điều khiển trên trang đăng nhập của Google.",
                 icon = Icons.Default.Keyboard,
-                onClick = { TvNav.open(TvRoute.WebSignIn()) },
+                onClick = { com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để đăng nhập") { TvNav.open(TvRoute.WebSignIn()) } },
                 modifier = Modifier.widthIn(max = 760.dp),
             )
         }
@@ -121,7 +121,13 @@ fun TvAccountScreen() {
                     subtitle = detail.ifEmpty { null },
                     selected = identity.isSelected,
                     icon = if (identity.isSelected) Icons.Default.Check else null,
-                    onClick = { if (!identity.isSelected) scope.launch { AccountStore.switchTo(identity) } },
+                    onClick = {
+                        if (!identity.isSelected) {
+                            com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để chuyển tài khoản") {
+                                scope.launch { AccountStore.switchTo(identity) }
+                            }
+                        }
+                    },
                     modifier = Modifier.widthIn(max = 760.dp).then(if (identity.isSelected) Modifier.focusRequester(first) else Modifier),
                 )
             }
@@ -131,8 +137,10 @@ fun TvAccountScreen() {
                 TvButton("Làm mới", onClick = { scope.launch { AccountStore.refresh(); AccountStore.loadIdentities() } }, icon = Icons.Default.Refresh,
                     modifier = if (AccountStore.identities.isEmpty()) Modifier.focusRequester(first) else Modifier)
                 TvButton("Đăng xuất", onClick = {
-                    AccountStore.signOut()
-                    Toasts.show("Đã đăng xuất")
+                    com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để đăng xuất") {
+                        AccountStore.signOut()
+                        Toasts.show("Đã đăng xuất")
+                    }
                 }, icon = Icons.AutoMirrored.Filled.Logout)
             }
         }

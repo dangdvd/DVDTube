@@ -8,6 +8,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
+import android.net.Uri
 import android.os.Bundle
 import android.util.Rational
 import android.view.OrientationEventListener
@@ -26,7 +27,13 @@ import androidx.media3.session.SessionToken
 import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.TvLogin
 import com.dangdvd.dvdtube.core.VideoItem
+import com.dangdvd.dvdtube.core.services.AppUpdater
+import com.dangdvd.dvdtube.core.services.AutoDownloadWorker
 import com.dangdvd.dvdtube.core.services.NewVideoWorker
+import com.dangdvd.dvdtube.core.storage.LibraryStore
+import com.dangdvd.dvdtube.core.sync.LanSync
+import com.dangdvd.dvdtube.ui.AppTab
+import com.dangdvd.dvdtube.widget.AppWidgets
 import com.dangdvd.dvdtube.core.services.YouTubeService
 import com.dangdvd.dvdtube.player.PlaybackService
 import com.dangdvd.dvdtube.player.PlayerController
@@ -37,6 +44,7 @@ import com.dangdvd.dvdtube.ui.MainScreen
 import com.dangdvd.dvdtube.ui.Route
 import com.dangdvd.dvdtube.ui.Router
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -58,9 +66,23 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContent { DVDTubeTheme { MainScreen() } }
         // A recreated activity gets the launch intent again: it was already handled.
-        if (savedInstanceState == null) handleIntent(intent)
+        if (savedInstanceState == null) {
+            // Last session's queue, paused in the mini player ("Tiếp tục phát…"); a link opened now replaces it.
+            if (!opensContent(intent)) PlayerController.restoreLastSession()
+            handleIntent(intent)
+        }
         NewVideoWorker.createChannel(this)
         NewVideoWorker.sync(this)
+        AutoDownloadWorker.sync(this)
+        lifecycleScope.launch { AppUpdater.checkAtLaunch() }
+        // Home screen widgets follow the history.
+        lifecycleScope.launch {
+            snapshotFlow { LibraryStore.history.firstOrNull()?.let { it.video.id to (it.position / 30).toInt() } }
+                .collect {
+                    delay(3000)
+                    AppWidgets.requestRefresh(this@MainActivity, network = false)
+                }
+        }
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -69,6 +91,12 @@ class MainActivity : AppCompatActivity() {
         }
         observePlayerLayout()
         setupRotationToFullscreen()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Back from "install unknown apps": continue a pending update.
+        AppUpdater.resumePendingInstall(this)
     }
 
     override fun onStart() {
@@ -95,13 +123,21 @@ class MainActivity : AppCompatActivity() {
         handleIntent(intent)
     }
 
-    /** YouTube links, shared text and taps on "new video" notifications. */
+    /** Whether [intent] opens something itself (then the last session is not restored). */
+    private fun opensContent(intent: Intent?): Boolean {
+        intent ?: return false
+        if (intent.getStringExtra(NewVideoWorker.EXTRA_VIDEO_ID) != null) return true
+        val data = intent.data
+        if (data != null && data.scheme == "dvdtube") return data.host == "watch"
+        return intent.action == Intent.ACTION_VIEW || intent.action == Intent.ACTION_SEND
+    }
+
+    /** YouTube links, shared text, `dvdtube://` links and taps on "new video" notifications. */
     private fun handleIntent(intent: Intent?) {
         intent ?: return
-        // The QR code of "Sign in from the phone" on DVDTube for TV.
-        if (intent.data?.scheme == "dvdtube" && intent.data?.host == "tv-login") {
-            val invite = TvLogin.parse(intent.dataString ?: "")
-            if (invite == null) Toasts.show("Mã đăng nhập TV không hợp lệ hoặc không thuộc mạng nội bộ") else Router.tvLoginInvite = invite
+        val data = intent.data
+        if (data != null && data.scheme == "dvdtube") {
+            handleDvdtubeLink(data, intent.dataString ?: "")
             return
         }
         intent.getStringExtra(NewVideoWorker.EXTRA_VIDEO_ID)?.let { id ->
@@ -132,6 +168,37 @@ class MainActivity : AppCompatActivity() {
                 Router.open(Route.Playlist(com.dangdvd.dvdtube.core.PlaylistItem(list)))
             }
             intent.action == Intent.ACTION_SEND -> Router.open(Route.SearchResults(text))
+        }
+    }
+
+    /**
+     * `dvdtube://watch?v=<id>[&t=<s>]`, `search?q=`, `shorts`, `music`, `sync?…`, `tv-login?…`
+     * (and `home` / `subscriptions` from the widgets).
+     */
+    private fun handleDvdtubeLink(data: Uri, text: String) {
+        when (data.host) {
+            // The QR code of "Sign in from the phone" on DVDTube for TV.
+            "tv-login" -> {
+                val invite = TvLogin.parse(text)
+                if (invite == null) Toasts.show("Mã đăng nhập TV không hợp lệ hoặc không thuộc mạng nội bộ") else Router.tvLoginInvite = invite
+            }
+            "sync" -> {
+                val invite = LanSync.parse(text)
+                if (invite == null) Toasts.show("Mã đồng bộ không hợp lệ hoặc không thuộc mạng nội bộ") else Router.syncInvite = invite
+            }
+            "watch" -> {
+                val id = data.getQueryParameter("v")?.trim()?.takeIf { it.isNotEmpty() } ?: return
+                val start = data.getQueryParameter("t")?.trim()?.removeSuffix("s")?.toDoubleOrNull()?.takeIf { it > 0 }
+                PlayerController.play(VideoItem(id = id), startAt = start)
+            }
+            "search" -> {
+                val query = data.getQueryParameter("q")?.trim().orEmpty()
+                if (query.isEmpty()) Router.open(Route.Search()) else Router.open(Route.SearchResults(query))
+            }
+            "shorts" -> Router.select(AppTab.SHORTS)
+            "music" -> Router.open(Route.Music())
+            "subscriptions" -> Router.select(AppTab.SUBSCRIPTIONS)
+            "home" -> Router.select(AppTab.HOME)
         }
     }
 

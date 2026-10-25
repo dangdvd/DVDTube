@@ -167,6 +167,52 @@ object AppSettings {
             saveHistory = !value
         }
 
+    // Cast to DVDTube ("Truyền tới DVDTube")
+    /** Android TV: accept videos sent from phones and PCs on the local network. */
+    var castReceiverEnabled: Boolean by boolPref("cast.receiver", true)
+    /** Receivers added by address (JSON list kept by the cast sender). */
+    var manualCastDevices: String by stringPref("cast.manualDevices", "")
+
+    // Music mode ("Nghe nhạc")
+    /** Music mode plays only the sound by default. */
+    var musicAudioOnly: Boolean by boolPref("music.audioOnly", true)
+
+    // Automatic downloads ("Tự động tải")
+    var autoDownloadEnabled: Boolean by boolPref("autoDownload.enabled", false)
+    var autoDownloadChannels: Set<String> by Pref(
+        { it.getStringSet("autoDownload.channels", null)?.toSet() ?: emptySet() },
+        { e, v -> e.putStringSet("autoDownload.channels", HashSet(v)) },
+    )
+    var autoDownloadKeep: Int by intPref("autoDownload.keep", 3)
+    var autoDownloadWifiOnly: Boolean by boolPref("autoDownload.wifiOnly", true)
+    var autoDownloadAudioOnly: Boolean by boolPref("autoDownload.audioOnly", false)
+
+    // DeArrow (crowd-sourced titles and thumbnails instead of clickbait)
+    var deArrow: Boolean by boolPref("dearrow", true)
+    var deArrowTitles: Boolean by boolPref("dearrow.titles", true)
+    var deArrowThumbnails: Boolean by boolPref("dearrow.thumbnails", true)
+
+    // Updates
+    var autoUpdateCheck: Boolean by boolPref("update.auto", true)
+
+    // Parental controls ("Kiểm soát của phụ huynh"): changed only through ParentalControls, behind the PIN.
+    var parentalEnabled: Boolean by boolPref("parental.enabled", false)
+    var parentalPinHash: String by stringPref("parental.pinHash", "")
+    var parentalPinSalt: String by stringPref("parental.pinSalt", "")
+    var parentalRestricted: Boolean by boolPref("parental.restricted", true)
+    /** Minutes of playback allowed per day (0 = no limit). */
+    var parentalDailyLimit: Int by intPref("parental.dailyLimit", 0)
+    var parentalWindowEnabled: Boolean by boolPref("parental.window", false)
+    /** Minutes after midnight. */
+    var parentalWindowStart: Int by intPref("parental.windowStart", 7 * 60)
+    var parentalWindowEnd: Int by intPref("parental.windowEnd", 21 * 60)
+    var parentalKeywords: String by stringPref("parental.keywords", "")
+    var parentalHideComments: Boolean by boolPref("parental.hideComments", false)
+    var parentalHideShorts: Boolean by boolPref("parental.hideShorts", false)
+    var parentalNoSearch: Boolean by boolPref("parental.noSearch", false)
+    /** Watching is allowed until this moment (epoch ms) even past the limit or outside the window (unlocked with the PIN). */
+    var parentalOverrideUntil: Long by Pref({ it.getLong("parental.overrideUntil", 0L) }, { e, v -> e.putLong("parental.overrideUntil", v) })
+
     /** Incognito: nothing is added to the watch or search history (until the app restarts). */
     var isIncognito by mutableStateOf(false)
 

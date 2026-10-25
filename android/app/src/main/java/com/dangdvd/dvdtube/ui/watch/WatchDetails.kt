@@ -2,6 +2,7 @@ package com.dangdvd.dvdtube.ui.watch
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.HeadsetOff
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.DownloadDone
@@ -85,6 +87,7 @@ sealed class WatchSheet {
     data object Queue : WatchSheet()
     data class Chat(val info: LiveChatInfo) : WatchSheet()
     data object SleepTimer : WatchSheet()
+    data object Lyrics : WatchSheet()
 }
 
 /** The video as it should be saved to the library (details from the watch page). */
@@ -141,6 +144,7 @@ fun WatchDetails(modifier: Modifier = Modifier) {
             item(key = "community") {
                 val chat = info.liveChat
                 when {
+                    com.dangdvd.dvdtube.core.ParentalControls.hidesComments -> Unit
                     chat != null -> InfoCard(
                         if (chat.isReplay) "Phát lại nội dung trò chuyện" else "Trò chuyện trực tiếp",
                         if (chat.isReplay) "Xem lại tin nhắn đồng bộ theo video" else "Tham gia trò chuyện cùng mọi người",
@@ -174,6 +178,7 @@ fun WatchDetails(modifier: Modifier = Modifier) {
         WatchSheet.Queue -> QueueSheet { sheet = null }
         is WatchSheet.Chat -> LiveChatSheet(current.info) { sheet = null }
         WatchSheet.SleepTimer -> SleepTimerSheet { sheet = null }
+        WatchSheet.Lyrics -> com.dangdvd.dvdtube.ui.music.LyricsSheet(video.id) { sheet = null }
         null -> {}
     }
 }
@@ -182,9 +187,19 @@ fun WatchDetails(modifier: Modifier = Modifier) {
 private fun Header(video: VideoItem, info: WatchInfo?, open: (WatchSheet) -> Unit) {
     val context = LocalContext.current
     val item = enrichedVideo(video, info)
-    val title = info?.title ?: video.title.ifEmpty { PlayerController.playerInfo?.title ?: "" }
+    val originalTitle = info?.title ?: video.title.ifEmpty { PlayerController.playerInfo?.title ?: "" }
+    // DeArrow's title when there is one; the original stays a long press away.
+    val title = com.dangdvd.dvdtube.ui.components.rememberDeArrow(video.copy(title = originalTitle)).title
     Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-        Column(Modifier.fillMaxWidth().clickable(enabled = info != null) { open(WatchSheet.Description) }.padding(horizontal = 12.dp)) {
+        Column(
+            Modifier.fillMaxWidth()
+                .combinedClickable(
+                    enabled = info != null || title != originalTitle,
+                    onClick = { if (info != null) open(WatchSheet.Description) },
+                    onLongClick = { if (title != originalTitle) com.dangdvd.dvdtube.player.Toasts.show("Tiêu đề gốc: $originalTitle") },
+                )
+                .padding(horizontal = 12.dp),
+        ) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2,
                 overflow = TextOverflow.Ellipsis)
             val meta = listOfNotNull(info?.shortViewCountText ?: info?.viewCountText ?: video.viewCountText,
@@ -231,7 +246,7 @@ private fun Header(video: VideoItem, info: WatchInfo?, open: (WatchSheet) -> Uni
                     }
                 }
             }
-            info?.liveChat?.let { chat ->
+            info?.liveChat?.takeIf { !com.dangdvd.dvdtube.core.ParentalControls.hidesComments }?.let { chat ->
                 item { ActionChip(Icons.AutoMirrored.Filled.Chat, "Trò chuyện") { open(WatchSheet.Chat(chat)) } }
             }
             item {
@@ -305,6 +320,9 @@ private fun Header(video: VideoItem, info: WatchInfo?, open: (WatchSheet) -> Uni
                         }
                     }
                 }
+            }
+            if (!video.isLive) {
+                item { ActionChip(Icons.Default.MusicNote, "Lời bài hát") { open(WatchSheet.Lyrics) } }
             }
             if (PlayerController.captionTracks.isNotEmpty()) {
                 item { ActionChip(Icons.AutoMirrored.Filled.Notes, "Bản ghi") { open(WatchSheet.Transcript) } }

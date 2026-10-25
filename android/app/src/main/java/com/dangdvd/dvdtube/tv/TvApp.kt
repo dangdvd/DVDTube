@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SlowMotionVideo
@@ -64,6 +65,7 @@ enum class TvSection(val title: String, val icon: ImageVector) {
     SEARCH("Tìm kiếm", Icons.Default.Search),
     HOME("Trang chủ", Icons.Default.Home),
     SHORTS("Shorts", Icons.Default.SlowMotionVideo),
+    MUSIC("Nghe nhạc", Icons.Default.MusicNote),
     SUBSCRIPTIONS("Kênh đăng ký", Icons.Default.Subscriptions),
     LIBRARY("Thư viện", Icons.Default.VideoLibrary),
     ACCOUNT("Tài khoản", Icons.Default.AccountCircle),
@@ -82,6 +84,10 @@ sealed class TvRoute {
     class SearchResults(val query: String) : TvRoute()
     class Pairing : TvRoute()
     class WebSignIn : TvRoute()
+    class MusicBrowse(val browseId: String, val title: String) : TvRoute()
+    class SyncReceive : TvRoute()
+    class Parental : TvRoute()
+    class Alarms : TvRoute()
 
     /** Shown without the side menu. */
     val isFullscreen: Boolean get() = this is Player || this is WebSignIn
@@ -100,7 +106,15 @@ object TvNav {
 
     val screenKey: String get() = stack.lastOrNull()?.key ?: "section-${section.name}"
 
+    /** Sections hidden by parental controls (Shorts, search). */
+    fun isHidden(section: TvSection): Boolean = when (section) {
+        TvSection.SHORTS -> com.dangdvd.dvdtube.core.ParentalControls.hidesShorts
+        TvSection.SEARCH -> com.dangdvd.dvdtube.core.ParentalControls.searchDisabled
+        else -> false
+    }
+
     fun select(target: TvSection) {
+        if (isHidden(target)) return
         stack.toList().forEach { models.remove(it.key); TvFocusMemory.forget(it.key) }
         stack.clear()
         if (target != TvSection.SHORTS) ShortsPlayer.pause()
@@ -125,15 +139,17 @@ object TvNav {
 
     fun openChannel(id: String, name: String = "") = openChannel(ChannelItem(id = id, name = name))
 
-    /** Plays a video full screen (Shorts go to the Shorts player). */
-    fun play(video: VideoItem, queue: List<VideoItem>? = null) {
+    /** Plays a video full screen (Shorts go to the Shorts player); [music]: music mode. */
+    fun play(video: VideoItem, queue: List<VideoItem>? = null, startAt: Double? = null, music: Boolean = false) {
         if (video.isShort) {
             openShorts(queue?.filter { it.isShort }?.ifEmpty { null } ?: listOf(video), video)
             return
         }
         ShortsPlayer.pause()
         val list = queue?.filter { !it.isShort }?.takeIf { list -> list.any { it.id == video.id } }
-        PlayerController.play(video, list)
+        PlayerController.play(video, list, startAt, music = music)
+        // Blocked by parental controls: nothing to show.
+        if (PlayerController.currentVideo?.id != video.id) return
         if (stack.lastOrNull() !is TvRoute.Player) stack.add(TvRoute.Player())
     }
 
@@ -144,6 +160,10 @@ object TvNav {
     }
 
     fun openShorts(items: List<VideoItem>, start: VideoItem) {
+        if (com.dangdvd.dvdtube.core.ParentalControls.hidesShorts) {
+            Toasts.show("Shorts đã bị tắt trong Kiểm soát của phụ huynh")
+            return
+        }
         PlayerController.pause()
         pendingShorts = items.map { it.copy(isShort = true) } to start.id
         select(TvSection.SHORTS)
@@ -193,6 +213,10 @@ fun TvApp() {
                 }
             }
 
+            TvParentalLock()
+            TvPinPrompt()
+            TvUpdateDialog()
+
             Toasts.message?.let { message ->
                 Text(
                     message,
@@ -213,9 +237,10 @@ fun TvApp() {
 @Composable
 private fun SectionScreen(section: TvSection) {
     when (section) {
-        TvSection.SEARCH -> TvSearchScreen()
+        TvSection.SEARCH -> if (TvNav.isHidden(section)) TvMessage("Tìm kiếm đã bị tắt", "Phụ huynh đã tắt tìm kiếm.") else TvSearchScreen()
         TvSection.HOME -> TvHomeScreen()
-        TvSection.SHORTS -> TvShortsScreen()
+        TvSection.SHORTS -> if (TvNav.isHidden(section)) TvMessage("Shorts đã bị tắt", "Phụ huynh đã ẩn Shorts.") else TvShortsScreen()
+        TvSection.MUSIC -> TvMusicScreen()
         TvSection.SUBSCRIPTIONS -> TvSubscriptionsScreen()
         TvSection.LIBRARY -> TvLibraryScreen()
         TvSection.ACCOUNT -> TvAccountScreen()
@@ -231,9 +256,13 @@ private fun RouteScreen(route: TvRoute) {
         is TvRoute.Playlist -> TvPlaylistScreen(route)
         is TvRoute.LocalPlaylist -> TvLocalPlaylistScreen(route)
         is TvRoute.AccountFeed -> TvAccountFeedScreen(route)
-        is TvRoute.SearchResults -> TvSearchResultsScreen(route)
         is TvRoute.Pairing -> TvPairingScreen()
         is TvRoute.WebSignIn -> TvWebSignInScreen()
+        is TvRoute.MusicBrowse -> TvMusicBrowseScreen(route)
+        is TvRoute.SyncReceive -> TvSyncReceiveScreen()
+        is TvRoute.Parental -> TvParentalScreen()
+        is TvRoute.Alarms -> TvAlarmsScreen()
+        is TvRoute.SearchResults -> if (com.dangdvd.dvdtube.core.ParentalControls.searchDisabled) TvMessage("Tìm kiếm đã bị tắt") else TvSearchResultsScreen(route)
     }
 }
 
@@ -256,7 +285,7 @@ private fun SideMenu(focus: Map<TvSection, FocusRequester>, onFocusChanged: (Boo
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val profile = AccountStore.profile
-        TvSection.entries.forEach { section ->
+        TvSection.entries.filter { !TvNav.isHidden(it) }.forEach { section ->
             val selected = TvNav.section == section
             Surface(
                 onClick = { TvNav.select(section) },

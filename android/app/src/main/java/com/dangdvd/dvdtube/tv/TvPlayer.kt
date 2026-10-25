@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PlayArrow
@@ -99,7 +100,7 @@ import kotlinx.coroutines.delay
 
 private enum class Panel { NONE, CONTROLS, RELATED }
 
-private enum class PlayerDialog { CAPTIONS, TRANSLATE, QUALITY, SPEED, AUDIO, EQUALIZER, SLEEP, INFO }
+private enum class PlayerDialog { CAPTIONS, TRANSLATE, QUALITY, SPEED, AUDIO, EQUALIZER, SLEEP, INFO, LYRICS }
 
 private fun speedTitle(speed: Float): String = if (speed == 1f) "Chuẩn" else "${speed}x".replace(".0x", "x")
 
@@ -321,6 +322,7 @@ fun TvPlayerScreen() {
         null -> Unit
         PlayerDialog.EQUALIZER -> TvEqualizerDialog { dialog = null }
         PlayerDialog.INFO -> TvVideoInfoDialog(PlayerController.watchInfo?.takeIf { it.videoId == video.id }) { dialog = null }
+        PlayerDialog.LYRICS -> TvLyricsDialog(video.id) { dialog = null }
         else -> PlayerChoiceDialog(dialog!!, onOpen = { dialog = it }) { dialog = null }
     }
 }
@@ -419,7 +421,8 @@ private fun ControlsOverlay(
                 .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
                 .padding(horizontal = 56.dp, vertical = 32.dp),
         ) {
-            Text(info?.title ?: video.title, color = Color.White, style = MaterialTheme.typography.headlineSmall,
+            val title = com.dangdvd.dvdtube.ui.components.rememberDeArrow(video.copy(title = info?.title ?: video.title)).title
+            Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -577,6 +580,7 @@ private fun ButtonsRow(
                 TvNav.openChannel(channel)
             }
         }
+        if (!video.isLive) Control(Icons.Default.MusicNote, "Lời bài hát") { onDialog(PlayerDialog.LYRICS) }
         Control(Icons.Default.Info, "Thông tin video") { onDialog(PlayerDialog.INFO) }
     }
 }
@@ -698,7 +702,7 @@ private fun PlayerChoiceDialog(kind: PlayerDialog, onOpen: (PlayerDialog) -> Uni
                 onDismiss()
             })
         }
-        PlayerDialog.EQUALIZER, PlayerDialog.INFO -> Unit
+        PlayerDialog.EQUALIZER, PlayerDialog.INFO, PlayerDialog.LYRICS -> Unit
     }
 }
 

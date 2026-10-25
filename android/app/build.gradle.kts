@@ -15,9 +15,11 @@ android {
         applicationId = "com.dangdvd.dvdtube"
         minSdk = 26
         targetSdk = 35
-        // CI run number, so every build installs over the previous one.
-        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
-        versionName = "1.0"
+        // CI passes -PappVersionCode=<run number> -PappVersionName=1.0.<run number>, so every build
+        // installs over the previous one and the in-app updater can compare versions.
+        versionCode = (project.findProperty("appVersionCode") as String?)?.trim()?.toIntOrNull()
+            ?: System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("appVersionName") as String?)?.trim()?.ifEmpty { null } ?: "1.0"
     }
 
     signingConfigs {
@@ -107,6 +109,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.mediarouter:mediarouter:1.7.0")
+    // Android TV launcher "Watch Next" row.
+    implementation("androidx.tvprovider:tvprovider:1.0.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")

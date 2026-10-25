@@ -92,6 +92,24 @@ object LibraryStore {
         }
     }
 
+    /** Library sync / import: replaces the lists with merged ones (see LibrarySync). */
+    fun replaceAll(
+        subscriptions: List<ChannelItem>,
+        history: List<HistoryEntry>,
+        watchLater: List<VideoItem>,
+        liked: List<VideoItem>,
+        playlists: List<LocalPlaylist>,
+        searchHistory: List<String>,
+    ) {
+        this.subscriptions = subscriptions
+        this.history = history
+        this.watchLater = watchLater
+        this.liked = liked
+        this.playlists = playlists
+        this.searchHistory = searchHistory
+        scheduleSave()
+    }
+
     // MARK: Subscriptions
 
     fun isSubscribed(channelId: String?): Boolean = channelId != null && subscriptions.any { it.id == channelId }

@@ -29,6 +29,9 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Download
@@ -135,8 +138,9 @@ fun Thumbnail(video: VideoItem, modifier: Modifier = Modifier, corner: Int = 10)
 /** Full-width card used on the home feed (thumbnail on top, avatar + text below). */
 @Composable
 fun VideoCard(video: VideoItem, context: List<VideoItem>? = null) {
+    val shown = rememberDeArrow(video)
     Column(Modifier.fillMaxWidth().clickable { openVideo(video, context) }) {
-        Thumbnail(video, Modifier.fillMaxWidth(), corner = 0)
+        Thumbnail(shown, Modifier.fillMaxWidth(), corner = 0)
         Row(Modifier.padding(start = 12.dp, top = 10.dp, bottom = 14.dp), verticalAlignment = Alignment.Top) {
             Avatar(
                 video.channelAvatar, 36.dp, video.channelName ?: "",
@@ -145,7 +149,7 @@ fun VideoCard(video: VideoItem, context: List<VideoItem>? = null) {
                 },
             )
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(video.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(shown.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(3.dp))
                 Text(video.metadataLine, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -158,13 +162,14 @@ fun VideoCard(video: VideoItem, context: List<VideoItem>? = null) {
 /** Compact row (thumbnail left) used in search results, related videos and lists. */
 @Composable
 fun VideoRow(video: VideoItem, context: List<VideoItem>? = null, trailing: (@Composable () -> Unit)? = null) {
+    val shown = rememberDeArrow(video)
     Row(
         Modifier.fillMaxWidth().clickable { openVideo(video, context) }.padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Thumbnail(video, Modifier.width(168.dp))
+        Thumbnail(shown, Modifier.width(168.dp))
         Column(Modifier.weight(1f).padding(start = 10.dp)) {
-            Text(video.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
+            Text(shown.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(3.dp))
             Text(video.metadataLine, style = MaterialTheme.typography.bodySmall,
@@ -194,6 +199,26 @@ fun VideoMenu(video: VideoItem, extra: (@Composable (close: () -> Unit) -> Unit)
                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null) },
                 onClick = { open = false; PlayerController.addToQueue(video) },
             )
+            if (!video.isShort) {
+                val tv = com.dangdvd.dvdtube.cast.DvdCastSender.connected
+                DropdownMenuItem(
+                    text = { Text(if (tv != null) "Truyền tới ${tv.name}" else "Truyền tới TV") },
+                    leadingIcon = { Icon(Icons.Default.Cast, null) },
+                    onClick = {
+                        open = false
+                        if (tv != null) PlayerController.play(video) else com.dangdvd.dvdtube.ui.cast.CastPicker.open(video)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Thêm vào hàng đợi trên TV") },
+                    leadingIcon = { Icon(Icons.Default.CastConnected, null) },
+                    onClick = {
+                        open = false
+                        if (tv != null) com.dangdvd.dvdtube.cast.DvdCastSender.queueOnReceiver(video, next = false)
+                        else com.dangdvd.dvdtube.ui.cast.CastPicker.open(video, queueOnly = true)
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(if (LibraryActions.isInWatchLater(video.id)) "Xóa khỏi Xem sau" else "Lưu vào Xem sau") },
                 leadingIcon = { Icon(Icons.Default.Schedule, null) },
@@ -225,6 +250,13 @@ fun VideoMenu(video: VideoItem, extra: (@Composable (close: () -> Unit) -> Unit)
                 leadingIcon = { Icon(Icons.Default.Share, null) },
                 onClick = { open = false; shareText(context, video.shareUrl, video.title) },
             )
+            com.dangdvd.dvdtube.core.services.DeArrow.title(video.id, video.title)?.let {
+                DropdownMenuItem(
+                    text = { Text("Tiêu đề gốc") },
+                    leadingIcon = { Icon(Icons.Default.Title, null) },
+                    onClick = { open = false; Toasts.show("Tiêu đề gốc: ${video.title}") },
+                )
+            }
             extra?.invoke { open = false }
             HorizontalDivider()
             DropdownMenuItem(

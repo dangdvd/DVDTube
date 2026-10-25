@@ -57,7 +57,8 @@ object ItemParser {
         walk(node.raw, result)
         val seen = HashSet<String>()
         // The same video sometimes appears twice (e.g. in a shelf and in the list).
-        return result.filter { seen.add(it.key) }
+        // Parental controls leave out blocked keywords / channels (and Shorts when hidden) everywhere.
+        return com.dangdvd.dvdtube.core.ParentalControls.filter(result.filter { seen.add(it.key) })
     }
 
     fun continuation(node: JNode): String? {
@@ -282,6 +283,10 @@ object ItemParser {
     /** Items of the YouTube Charts endpoint (`videoViews`). */
     fun chartVideos(node: JNode): List<VideoItem> {
         val list = node.findAll("videoViews").firstOrNull { it.array.isNotEmpty() } ?: return emptyList()
+        return com.dangdvd.dvdtube.core.ParentalControls.filterVideos(chartItems(list))
+    }
+
+    private fun chartItems(list: JNode): List<VideoItem> {
         return list.array.mapNotNull { v ->
             val id = v["id"].string ?: return@mapNotNull null
             if (v["isAvailable"].bool == false) return@mapNotNull null

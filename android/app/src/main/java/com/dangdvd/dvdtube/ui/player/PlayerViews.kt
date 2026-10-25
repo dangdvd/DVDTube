@@ -8,7 +8,6 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings as SystemSettings
-import android.view.ContextThemeWrapper
 import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.View
@@ -123,11 +122,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import androidx.mediarouter.app.MediaRouteButton
 import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import com.dangdvd.dvdtube.cast.CastController
 import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.HeatMarker
 import com.dangdvd.dvdtube.core.Storyboard
@@ -135,7 +132,6 @@ import com.dangdvd.dvdtube.core.formatTime
 import com.dangdvd.dvdtube.player.PlayerController
 import com.dangdvd.dvdtube.ui.Brand
 import com.dangdvd.dvdtube.ui.components.RemoteImage
-import com.google.android.gms.cast.framework.CastButtonFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -236,7 +232,7 @@ fun VideoSurface(modifier: Modifier = Modifier, compact: Boolean = false) {
     val video = PlayerController.currentVideo
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         when {
-            PlayerController.isCasting -> CastingBackdrop()
+            PlayerController.isCasting -> CastingBackdrop(compact)
             PlayerController.usesWebPlayer && video != null -> {
                 AndroidView(
                     factory = { context -> MainWebPlayer.view(context).also { PlayerController.registerWebView(it) } },
@@ -288,35 +284,33 @@ private fun AudioOnlyBackdrop(compact: Boolean) {
 }
 
 @Composable
-private fun CastingBackdrop() {
+private fun CastingBackdrop(compact: Boolean) {
     val video = PlayerController.currentVideo
     Box(Modifier.fillMaxSize()) {
         RemoteImage(video?.displayThumbnail, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.65f)))
+        if (compact) {
+            Icon(Icons.Default.Cast, null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(22.dp))
+            return@Box
+        }
         Column(Modifier.align(Alignment.Center).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.Cast, null, tint = Color.White, modifier = Modifier.size(36.dp))
             Spacer(Modifier.height(8.dp))
-            Text("Đang phát trên ${CastController.deviceName ?: "TV"}", color = Color.White, fontWeight = FontWeight.SemiBold)
-            CastController.statusText?.let {
+            Text("Đang phát trên ${PlayerController.castDeviceName ?: "TV"}", color = Color.White, fontWeight = FontWeight.SemiBold)
+            PlayerController.castStatusText?.let {
                 Text(it, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            }
+            if (com.dangdvd.dvdtube.cast.DvdCastSender.isConnected) {
+                TextButton(onClick = { com.dangdvd.dvdtube.cast.DvdCastSender.showRemote = true }) { Text("Điều khiển", color = Color.White) }
             }
         }
     }
 }
 
-/** Google's Cast button (device picker, connected state). Hidden without Google Play services. */
+/** The cast button: DVDTube TVs / PCs and Chromecast in one device picker. */
 @Composable
 fun CastButton(light: Boolean = false, modifier: Modifier = Modifier) {
-    if (!CastController.isAvailable) return
-    val theme = if (light) androidx.mediarouter.R.style.Theme_MediaRouter_Light else androidx.mediarouter.R.style.Theme_MediaRouter
-    AndroidView(
-        factory = { context ->
-            MediaRouteButton(ContextThemeWrapper(context, theme)).also { button ->
-                runCatching { CastButtonFactory.setUpMediaRouteButton(context, button) }
-            }
-        },
-        modifier = modifier.size(48.dp),
-    )
+    com.dangdvd.dvdtube.ui.cast.CastButton(light = light, modifier = modifier)
 }
 
 /** The video with its gestures and controls (watch page and fullscreen). */
@@ -1015,11 +1009,16 @@ private fun UpNextOverlay(modifier: Modifier) {
 fun MiniPlayer(modifier: Modifier = Modifier) {
     val video = PlayerController.currentVideo ?: return
     val duration = PlayerController.duration
+    val shown = com.dangdvd.dvdtube.ui.components.rememberDeArrow(video)
     Column(
         modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .clickable { PlayerController.isExpanded = true }
+            .clickable {
+                // Music mode opens its now-playing screen instead of the watch page.
+                if (PlayerController.isMusicMode && !PlayerController.isCasting) com.dangdvd.dvdtube.ui.Router.open(com.dangdvd.dvdtube.ui.Route.NowPlaying())
+                else PlayerController.isExpanded = true
+            }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
@@ -1039,10 +1038,13 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                 VideoSurface(Modifier.fillMaxSize(), compact = true)
             }
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                Text(video.title.ifEmpty { PlayerController.playerInfo?.title ?: "" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                Text(shown.title.ifEmpty { PlayerController.playerInfo?.title ?: "" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                val channel = if (PlayerController.isCasting) "Đang phát trên ${CastController.deviceName ?: "TV"}"
-                else video.channelName ?: PlayerController.playerInfo?.author ?: ""
+                val channel = when {
+                    PlayerController.isCasting -> "Đang phát trên ${PlayerController.castDeviceName ?: "TV"}"
+                    PlayerController.isRestoredSession -> "Tiếp tục phát… " + (video.channelName ?: "")
+                    else -> video.channelName ?: PlayerController.playerInfo?.author ?: ""
+                }
                 val subtitle = listOfNotNull(
                     PlayerController.sleepTimerLabel?.let { "⏾ $it" },
                     if (PlayerController.isAudioOnly) "🎧" else null,

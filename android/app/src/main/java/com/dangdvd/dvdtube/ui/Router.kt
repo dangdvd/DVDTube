@@ -38,6 +38,13 @@ sealed class Route {
     class WatchTime : Route()
     class HiddenContent : Route()
     class Equalizer : Route()
+    class Music : Route()
+    class MusicBrowse(val browseId: String, val title: String) : Route()
+    class NowPlaying : Route()
+    class SyncBackup : Route()
+    class AutoDownload : Route()
+    class Parental : Route()
+    class Alarms : Route()
 }
 
 /**
@@ -62,6 +69,8 @@ object Router {
     var showUpload by mutableStateOf(false)
     /** A TV's "sign in from the phone" QR code was opened: confirm before sending the session. */
     var tvLoginInvite by mutableStateOf<com.dangdvd.dvdtube.core.TvLogin.Invite?>(null)
+    /** A `dvdtube://sync` code was scanned or opened: confirm before syncing the library. */
+    var syncInvite by mutableStateOf<com.dangdvd.dvdtube.core.sync.LanSync.Invite?>(null)
 
     /** Shorts tapped somewhere else (search, home shelf, channel) to open in the Shorts tab. */
     var pendingShorts by mutableStateOf<Pair<List<VideoItem>, String>?>(null)
@@ -75,6 +84,7 @@ object Router {
             if (stack.isEmpty()) reselectCounter[tab] = (reselectCounter[tab] ?: 0) + 1 else popToRoot(tab)
             return
         }
+        if (tab == AppTab.SHORTS && com.dangdvd.dvdtube.core.ParentalControls.hidesShorts) return
         if (tab != AppTab.SHORTS) ShortsPlayer.pause() else PlayerController.isExpanded = false
         selectedTab = tab
     }
@@ -89,6 +99,10 @@ object Router {
         open(Route.Channel(ChannelItem(id = id, name = name, avatar = avatar)))
 
     fun openShorts(items: List<VideoItem>, start: VideoItem) {
+        if (com.dangdvd.dvdtube.core.ParentalControls.hidesShorts) {
+            com.dangdvd.dvdtube.player.Toasts.show("Shorts đã bị tắt trong Kiểm soát của phụ huynh")
+            return
+        }
         PlayerController.isExpanded = false
         PlayerController.pause()
         pendingShorts = items to start.id
@@ -112,8 +126,11 @@ object Router {
     }
 
     fun signIn(addingAccount: Boolean = false) {
-        signInAddsAccount = addingAccount
-        showSignIn = true
+        // Parental controls: signing in needs the PIN.
+        com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để đăng nhập") {
+            signInAddsAccount = addingAccount
+            showSignIn = true
+        }
     }
 
     @Suppress("UNCHECKED_CAST")

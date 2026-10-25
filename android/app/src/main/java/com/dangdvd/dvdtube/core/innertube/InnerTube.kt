@@ -87,7 +87,8 @@ object InnerTube {
         return JSONObject()
             .put("client", client)
             .put("request", JSONObject().put("internalExperimentFlags", JSONArray()).put("useSsl", true))
-            .put("user", JSONObject().put("lockedSafetyMode", false))
+            // Parental controls' restricted mode applies to every client.
+            .put("user", JSONObject().put("lockedSafetyMode", com.dangdvd.dvdtube.core.ParentalControls.restrictedModeActive))
     }
 
     suspend fun post(
@@ -116,7 +117,9 @@ object InnerTube {
         }
         visitorData?.let { request.header("X-Goog-Visitor-Id", it) }
         profile.extraHeaders?.forEach { (key, value) -> request.header(key, value) }
-        val authHeaders = if (authenticated) AuthSession.headers(url) else null
+        // SAPISIDHASH is computed for the site the request claims to come from (music.youtube.com…).
+        val origin = profile.extraHeaders?.get("Origin") ?: AuthSession.ORIGIN
+        val authHeaders = if (authenticated) AuthSession.headers(url, origin) else null
         authHeaders?.forEach { (key, value) -> request.header(key, value) }
 
         val httpClient = if (authHeaders != null) authClient else client
@@ -126,9 +129,8 @@ object InnerTube {
             if (authHeaders != null) AuthSession.absorb(response)
             val text = String(bytes)
             if (response.code !in 200..299) {
-                runCatching { JNode.parse(text).at("error", "message").string }.getOrNull()?.let {
-                    Log.debug("$endpoint error: $it")
-                }
+                val detail = runCatching { JNode.parse(text).at("error", "message").string }.getOrNull()
+                Log.error("${profile.name} $endpoint -> HTTP ${response.code}${detail?.let { ": $it" } ?: ""}")
                 throw InnerTubeException.Http(response.code)
             }
             runCatching { JNode.parse(text) }.getOrElse { throw InnerTubeException.InvalidResponse() }
@@ -141,6 +143,15 @@ object InnerTube {
      */
     suspend fun web(endpoint: String, body: JSONObject): JNode {
         val profile = APIConfig.webProfile
+        val visitor = cachedVisitor(profile.name)
+        val json = post(endpoint, profile, body, visitorData = visitor, authenticated = true)
+        if (visitor == null) json.at("responseContext", "visitorData").string?.let { storeVisitor(profile.name, it) }
+        return json
+    }
+
+    /** YouTube Music (WEB_REMIX) request, signed in when there is an account (same visitor id handling as [web]). */
+    suspend fun music(endpoint: String, body: JSONObject): JNode {
+        val profile = APIConfig.musicProfile
         val visitor = cachedVisitor(profile.name)
         val json = post(endpoint, profile, body, visitorData = visitor, authenticated = true)
         if (visitor == null) json.at("responseContext", "visitorData").string?.let { storeVisitor(profile.name, it) }

@@ -423,7 +423,9 @@ fun AccountSwitcherSheet(onDismiss: () -> Unit) {
                 Row(
                     Modifier.fillMaxWidth()
                         .clickable(enabled = !identity.isSelected) {
-                            scope.launch { AccountStore.switchTo(identity) }
+                            com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để chuyển tài khoản") {
+                                com.dangdvd.dvdtube.core.storage.AppScope.launch { AccountStore.switchTo(identity) }
+                            }
                             onDismiss()
                         }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -470,7 +472,10 @@ fun AccountSwitcherSheet(onDismiss: () -> Unit) {
                 Text("Thêm tài khoản")
             }
             Row(
-                Modifier.fillMaxWidth().clickable { AccountStore.signOut(); onDismiss() }.padding(16.dp),
+                Modifier.fillMaxWidth().clickable {
+                    onDismiss()
+                    com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để đăng xuất") { AccountStore.signOut() }
+                }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.AutoMirrored.Filled.Logout, null)

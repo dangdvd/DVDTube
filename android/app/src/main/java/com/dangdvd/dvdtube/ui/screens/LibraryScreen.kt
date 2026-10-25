@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Schedule
@@ -163,6 +164,9 @@ fun LibraryScreen() {
                     }
                 }
                 item { HorizontalDivider() }
+            }
+            item {
+                LibraryRow(Icons.Outlined.MusicNote, "Nghe nhạc", "Bài hát, album, lời bài hát") { Router.open(Route.Music()) }
             }
             item { LibraryRow(Icons.Outlined.Schedule, "Xem sau", if (signedIn) null else "${LibraryStore.watchLater.size} video") { Router.open(Route.WatchLater()) } }
             item { LibraryRow(Icons.Outlined.ThumbUp, "Video đã thích", if (signedIn) null else "${LibraryStore.liked.size} video") { Router.open(Route.Liked()) } }
@@ -426,6 +430,11 @@ fun DownloadsScreen() {
         if (downloads.isNotEmpty()) IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, "Xóa tất cả") }
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            item {
+                TextButton(onClick = { Router.open(Route.AutoDownload()) }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                    Text(if (AppSettings.autoDownloadEnabled) "Tự động tải video mới: Bật (${AppSettings.autoDownloadChannels.size} kênh)" else "Tự động tải video mới…")
+                }
+            }
             if (downloads.isNotEmpty()) {
                 item {
                     Text("${downloads.size} video • ${android.text.format.Formatter.formatShortFileSize(LocalContext.current, DownloadManager.totalSize)}",
@@ -454,6 +463,13 @@ fun DownloadsScreen() {
                     }
                 })
                 Row(Modifier.padding(start = 190.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (download.isAuto) {
+                        Text(
+                            "Tự động", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
                     if (download.isAudioOnly) {
                         Icon(Icons.Default.Headphones, "Chỉ âm thanh", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.width(4.dp))

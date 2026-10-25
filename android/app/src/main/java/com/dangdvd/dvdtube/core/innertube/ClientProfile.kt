@@ -60,6 +60,18 @@ data class ClientProfile(
             extraHeaders = mapOf("X-Goog-Api-Format-Version" to "2"),
         )
 
+        /** YouTube Music's web client (lyrics, music search, albums and artists). */
+        val WEB_REMIX = ClientProfile(
+            name = "WEB_REMIX",
+            id = 67,
+            version = "1.20261020.01.00",
+            host = "music.youtube.com",
+            userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            platform = "DESKTOP",
+            sendClientHeaders = true,
+            extraHeaders = mapOf("Origin" to "https://music.youtube.com", "Referer" to "https://music.youtube.com/"),
+        )
+
         val CHARTS = ClientProfile(
             name = "WEB_MUSIC_ANALYTICS",
             id = 31,
@@ -77,6 +89,7 @@ data class RemoteConfig(
     val web: ClientProfile? = null,
     val playerClients: List<ClientProfile>? = null,
     val charts: ClientProfile? = null,
+    val music: ClientProfile? = null,
     val message: String? = null,
 )
 
@@ -102,6 +115,7 @@ object APIConfig {
 
     val webProfile: ClientProfile get() = remote?.web ?: ClientProfile.WEB
     val chartsProfile: ClientProfile get() = remote?.charts ?: ClientProfile.CHARTS
+    val musicProfile: ClientProfile get() = remote?.music ?: ClientProfile.WEB_REMIX
     val playerProfiles: List<ClientProfile>
         get() = remote?.playerClients?.takeIf { it.isNotEmpty() } ?: listOf(ClientProfile.VISIONOS)
 

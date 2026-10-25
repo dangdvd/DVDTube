@@ -86,6 +86,7 @@ private sealed class SettingsDialog {
     data object BedtimeEnd : SettingsDialog()
     data object CaptionSizeChoice : SettingsDialog()
     data object CaptionBackground : SettingsDialog()
+    data object LogExport : SettingsDialog()
 }
 
 @Composable
@@ -145,6 +146,22 @@ fun SettingsScreen() {
                     "Dùng trình phát nhúng của YouTube (đã chặn quảng cáo) khi luồng gốc bị từ chối") { AppSettings.webPlayerFallback = it }
             }
             item {
+                Section("Truyền tới DVDTube")
+                SettingRow(null, "Thiết bị DVDTube và Chromecast",
+                    com.dangdvd.dvdtube.cast.DvdCastSender.connected?.name?.let { "Đang phát trên $it" }) {
+                    com.dangdvd.dvdtube.ui.cast.CastPicker.open()
+                }
+                Text("Gửi video tới DVDTube trên Android TV hoặc máy tính cùng mạng Wi-Fi; thiết bị đó tự phát với chất lượng cao nhất.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+            }
+            item {
+                Section("Nghe nhạc")
+                SettingRow(null, "Mở Nghe nhạc", null) { Router.open(Route.Music()) }
+                ToggleRow(null, "Chỉ phát âm thanh khi nghe nhạc", AppSettings.musicAudioOnly,
+                    "Không tải hình khi phát từ Nghe nhạc (có thể bật hình trên màn hình Đang phát)") { AppSettings.musicAudioOnly = it }
+            }
+            item {
                 Section("Âm thanh")
                 SettingRow(null, "Bộ chỉnh âm (EQ)",
                     if (com.dangdvd.dvdtube.player.Equalizer.isEnabled) com.dangdvd.dvdtube.player.Equalizer.presetTitle else "Tắt") {
@@ -181,6 +198,15 @@ fun SettingsScreen() {
                 SettingRow(null, "Thời gian xem của bạn", null) { Router.open(Route.WatchTime()) }
             }
             item {
+                Section("DeArrow")
+                ToggleRow(null, "DeArrow: thay tiêu đề và ảnh giật tít", AppSettings.deArrow,
+                    "Tiêu đề và ảnh thu nhỏ do cộng đồng sửa lại (dearrow.ajay.app, chỉ gửi 4 ký tự đầu của mã băm)") { AppSettings.deArrow = it }
+                if (AppSettings.deArrow) {
+                    ToggleRow(null, "Tiêu đề", AppSettings.deArrowTitles, "Xem tiêu đề ban đầu trong menu ⋮ › Tiêu đề gốc") { AppSettings.deArrowTitles = it }
+                    ToggleRow(null, "Ảnh thu nhỏ", AppSettings.deArrowThumbnails) { AppSettings.deArrowThumbnails = it }
+                }
+            }
+            item {
                 Section("SponsorBlock")
                 ToggleRow(null, "Tự động bỏ qua đoạn tài trợ", AppSettings.sponsorBlockEnabled, "Dữ liệu cộng đồng từ sponsor.ajay.app") {
                     AppSettings.sponsorBlockEnabled = it
@@ -193,6 +219,19 @@ fun SettingsScreen() {
                 Section("Tải xuống")
                 SettingRow(null, "Chất lượng tải xuống", AppSettings.downloadQuality.title) { dialog = SettingsDialog.DownloadQuality }
                 ToggleRow(null, "Chỉ tải xuống qua Wi-Fi", AppSettings.downloadOnWifiOnly) { AppSettings.downloadOnWifiOnly = it }
+                SettingRow(null, "Tự động tải video mới",
+                    if (AppSettings.autoDownloadEnabled) "${AppSettings.autoDownloadChannels.size} kênh" else "Tắt") { Router.open(Route.AutoDownload()) }
+            }
+            item {
+                Section("Đồng bộ, hẹn giờ và phụ huynh")
+                SettingRow(null, "Đồng bộ & sao lưu", "Thư viện giữa các thiết bị") { Router.open(Route.SyncBackup()) }
+                SettingRow(null, "Hẹn giờ phát",
+                    com.dangdvd.dvdtube.core.alarm.PlaybackAlarms.list.count { it.enabled }.let { if (it == 0) "Tắt" else "$it hẹn giờ" }) {
+                    Router.open(Route.Alarms())
+                }
+                SettingRow(null, "Kiểm soát của phụ huynh", if (com.dangdvd.dvdtube.core.ParentalControls.isEnabled) "Bật" else "Tắt") {
+                    com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để mở Kiểm soát của phụ huynh") { Router.open(Route.Parental()) }
+                }
             }
             item {
                 Section("Thông báo")
@@ -208,7 +247,9 @@ fun SettingsScreen() {
                 if (AccountStore.isSignedIn) {
                     SettingRow(null, "Đang đăng nhập", AccountStore.profile?.name) { Router.showAccountSwitcher = true }
                     ToggleRow(null, "Lưu video đã xem vào nhật ký YouTube", AppSettings.syncWatchHistory) { AppSettings.syncWatchHistory = it }
-                    SettingRow(null, "Đăng xuất", null) { AccountStore.signOut() }
+                    SettingRow(null, "Đăng xuất", null) {
+                        com.dangdvd.dvdtube.core.ParentalControls.guard("Nhập mã PIN để đăng xuất") { AccountStore.signOut() }
+                    }
                 } else {
                     SettingRow(null, "Đăng nhập Google", null) { Router.signIn() }
                 }
@@ -245,6 +286,13 @@ fun SettingsScreen() {
             item {
                 Section("Giới thiệu")
                 SettingRow(null, "Phiên bản", versionText) {}
+                ToggleRow(null, "Tự kiểm tra cập nhật", AppSettings.autoUpdateCheck, "Mỗi ngày tối đa một lần, khi mở ứng dụng") {
+                    AppSettings.autoUpdateCheck = it
+                }
+                SettingRow(null, "Kiểm tra cập nhật", if (com.dangdvd.dvdtube.core.services.AppUpdater.isChecking) "Đang kiểm tra…" else null) {
+                    scope.launch { com.dangdvd.dvdtube.core.services.AppUpdater.checkNow() }
+                }
+                SettingRow(null, "Gửi nhật ký lỗi", null) { dialog = SettingsDialog.LogExport }
                 Text(
                     "DVDTube phát video YouTube không quảng cáo bằng API công khai của YouTube. Ứng dụng không liên kết với Google.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -352,6 +400,7 @@ fun SettingsScreen() {
             },
             dismissButton = { TextButton(onClick = { dialog = null }) { Text("Hủy") } },
         )
+        SettingsDialog.LogExport -> LogExportDialog { dialog = null }
         SettingsDialog.ClearHistory -> AlertDialog(
             onDismissRequest = { dialog = null },
             title = { Text("Xóa toàn bộ nhật ký xem trên máy?") },
@@ -363,7 +412,7 @@ fun SettingsScreen() {
 }
 
 @Composable
-private fun <T> ChoiceDialog(title: String, options: List<Pair<T, String>>, selected: T, onDismiss: () -> Unit, onSelect: (T) -> Unit) {
+internal fun <T> ChoiceDialog(title: String, options: List<Pair<T, String>>, selected: T, onDismiss: () -> Unit, onSelect: (T) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -419,7 +468,7 @@ private fun captionBackgroundTitle(value: Float): String = when {
 
 /** Picks a time of day (minutes after midnight). */
 @Composable
-private fun TimeDialog(title: String, minutes: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+internal fun TimeDialog(title: String, minutes: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
     val state = androidx.compose.material3.rememberTimePickerState(initialHour = minutes / 60, initialMinute = minutes % 60, is24Hour = true)
     AlertDialog(
         onDismissRequest = onDismiss,

@@ -120,6 +120,17 @@ object HiddenContentStore {
         return video.id in videoIds || (video.channelId != null && video.channelId in channelIds)
     }
 
+    /** How many channels are marked "Don't recommend channel" (the parental "Chặn kênh" list). */
+    val channelCount: Int get() = ensureLoaded().let { channels.size }
+
+    /** A channel marked "Don't recommend channel" (blocked everywhere while parental controls are on). */
+    fun isChannelHidden(id: String?): Boolean {
+        id ?: return false
+        ensureLoaded()
+        if (channels.isEmpty()) return false
+        return id in channelIds
+    }
+
     fun isHidden(item: FeedItem): Boolean = when (item) {
         is FeedItem.Video -> isHidden(item.video)
         is FeedItem.Channel -> ensureLoaded().let { item.channel.id in channelIds }

@@ -313,10 +313,11 @@ fun TvVideoCard(
     onLongClick: (() -> Unit)? = null,
 ) {
     val sized = if (width != null) modifier.width(width) else modifier.fillMaxWidth()
+    val shown = com.dangdvd.dvdtube.ui.components.rememberDeArrow(video)
     TvTile(onClick = onClick, onLongClick = onLongClick, modifier = sized) {
         Column(Modifier.padding(6.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))) {
-                TvImage(video.displayThumbnail, Modifier.fillMaxSize())
+                TvImage(shown.displayThumbnail, Modifier.fillMaxSize())
                 val badge = when {
                     video.isLive -> "TRỰC TIẾP"
                     video.isShort -> "SHORTS"
@@ -341,7 +342,7 @@ fun TvVideoCard(
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                video.title.ifEmpty { "Video" },
+                shown.title.ifEmpty { "Video" },
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
