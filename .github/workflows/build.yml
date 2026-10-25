@@ -14,12 +14,54 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
-# GitHub-hosted macOS minutes count 10×, Windows 2×: every push builds the IPA, APK and Windows
-# app; the smoke tests run only for commits containing "[smoke]", "[screenshots]" or "[release]",
-# and the macOS / Linux desktop builds only for "[release]" / "[desktop]" (or a v* tag, or a manual run).
+# Keep CI cheap and fast (on private repos GitHub bills macOS minutes 10×, Windows 2×): a push
+# builds only the apps whose files changed; the smoke tests run only for commits containing
+# "[smoke]", "[screenshots]" or "[release]"; the macOS / Linux desktop builds only for "[release]" /
+# "[desktop]". "[all]", "[release]", v* tags and manual runs build everything.
 jobs:
+  # Which apps this push touches: a push builds only the platforms whose files changed (the
+  # workflow itself, "[all]", "[release]", tags and manual runs build everything).
+  changes:
+    name: Detect changed apps
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.diff.outputs.ios }}
+      android: ${{ steps.diff.outputs.android }}
+      desktop: ${{ steps.diff.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          all=false
+          if [ "$GITHUB_EVENT_NAME" != "push" ] || [[ "$GITHUB_REF" == refs/tags/* ]] \
+            || [[ "$MESSAGE" == *"[all]"* ]] || [[ "$MESSAGE" == *"[release]"* ]]; then
+            all=true
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            all=true
+          fi
+          files=""
+          if [ "$all" = false ]; then files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA"); fi
+          echo "$files"
+          check() {
+            if [ "$all" = true ] || printf '%s\n' "$files" | grep -qE "$2"; then echo "$1=true"; else echo "$1=false"; fi
+          }
+          {
+            check ios '^(DVDYoutube/|DVDTubeWidget/|Config/|DVDYoutube\.xcodeproj/|\.github/)'
+            check android '^(android/|\.github/)'
+            check desktop '^(windows/|\.github/)'
+          } | tee -a "$GITHUB_OUTPUT"
+
   build:
     name: Build unsigned IPA
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-15
     timeout-minutes: 40
     steps:
@@ -71,6 +113,8 @@ jobs:
 
   android:
     name: Build Android APK
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -110,6 +154,8 @@ jobs:
 
   windows:
     name: Build Windows app
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -159,7 +205,8 @@ jobs:
 
   macos:
     name: Build macOS app
-    if: contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[desktop]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[desktop]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: macos-15
     timeout-minutes: 30
     defaults:
@@ -200,7 +247,8 @@ jobs:
 
   linux:
     name: Build Linux app
-    if: contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[desktop]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[desktop]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -267,8 +315,8 @@ jobs:
 
   windows-smoke:
     name: Windows smoke test
-    needs: windows
-    if: contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [changes, windows]
+    if: needs.changes.outputs.desktop == 'true' && (contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -318,8 +366,8 @@ jobs:
 
   android-smoke:
     name: Android emulator smoke test
-    needs: android
-    if: contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [changes, android]
+    if: needs.changes.outputs.android == 'true' && (contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -370,7 +418,8 @@ jobs:
 
   smoke:
     name: Simulator smoke test
-    if: contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: needs.changes.outputs.ios == 'true' && (contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: macos-15
     timeout-minutes: 40
     steps:
