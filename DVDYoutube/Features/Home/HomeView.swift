@@ -125,6 +125,7 @@ struct HomeView: View {
     @State private var categoryModels: [HomeCategory: FeedModel] = [:]
     /// The account's own YouTube home ("FEwhat_to_watch") when signed in.
     @State private var accountHome = FeedModel { try await YouTubeService.shared.accountFeed("FEwhat_to_watch") }
+    @State private var showSupport = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -149,6 +150,8 @@ struct HomeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { AppLogo() }
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { showSupport = true } label: { Image(systemName: "heart") }
+                    .accessibilityLabel("Ủng hộ tác giả")
                 if account.isSignedIn {
                     Button { router.showUpload = true } label: { Image(systemName: "plus.app") }
                         .accessibilityLabel("Tải video lên")
@@ -160,6 +163,7 @@ struct HomeView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showSupport) { SupportAuthorView() }
         .task(id: account.isSignedIn) {
             if account.isSignedIn {
                 await accountHome.load()

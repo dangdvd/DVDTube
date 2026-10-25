@@ -49,6 +49,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Lưu ảnh mã QR ủng hộ tác giả vào thư viện ảnh để bạn quét bằng ứng dụng ngân hàng.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Dùng micro để tìm kiếm bằng giọng nói.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

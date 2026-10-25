@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.outlined.AddBox
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -45,8 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.dangdvd.dvdtube.R
 import com.dangdvd.dvdtube.core.FeedItem
@@ -70,6 +74,7 @@ import com.dangdvd.dvdtube.ui.components.pagedFeed
 import com.dangdvd.dvdtube.ui.isDarkTheme
 import com.dangdvd.dvdtube.ui.player.CastButton
 import com.dangdvd.dvdtube.ui.rememberRouteModel
+import com.dangdvd.dvdtube.ui.support.SupportDialog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -315,18 +320,29 @@ private fun AccountNotice(message: String?) {
 
 @Composable
 fun AppLogo() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(R.drawable.logo), null, Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)))
-        Spacer(Modifier.width(6.dp))
-        Text("DVDTube", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+    BoxWithConstraints {
+        val style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+        val measurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val nameWidth = remember(style, density) { with(density) { measurer.measure("DVDTube", style).size.width.toDp() } }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.logo), null, Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)))
+            // On narrow phones the toolbar buttons leave no room for the name: show the icon alone.
+            if (maxWidth >= 34.dp + nameWidth) {
+                Spacer(Modifier.width(6.dp))
+                Text("DVDTube", style = style, maxLines = 1, softWrap = false)
+            }
+        }
     }
 }
 
 @Composable
 private fun HomeTopBar() {
+    var showSupport by remember { mutableStateOf(false) }
     TopAppBar(
         title = { AppLogo() },
         actions = {
+            IconButton(onClick = { showSupport = true }) { Icon(Icons.Outlined.FavoriteBorder, "Ủng hộ tác giả") }
             CastButton(light = !isDarkTheme())
             if (AccountStore.isSignedIn) {
                 IconButton(onClick = { Router.showUpload = true }) { Icon(Icons.Outlined.AddBox, "Tải video lên") }
@@ -336,6 +352,7 @@ private fun HomeTopBar() {
             AccountButton()
         },
     )
+    if (showSupport) SupportDialog { showSupport = false }
 }
 
 @Composable
