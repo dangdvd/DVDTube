@@ -5,7 +5,7 @@
 import type { ChannelItem, PlaylistItem, VideoItem } from '@shared/models'
 import { createStore } from '../store'
 
-export type Section = 'search' | 'home' | 'shorts' | 'music' | 'subscriptions' | 'library' | 'account' | 'settings'
+export type Section = 'search' | 'home' | 'shorts' | 'music' | 'subscriptions' | 'library' | 'account' | 'settings' | 'support'
 
 export const SECTIONS: { id: Section; title: string; icon: string }[] = [
   { id: 'search', title: 'Tìm kiếm', icon: 'search' },
@@ -16,6 +16,7 @@ export const SECTIONS: { id: Section; title: string; icon: string }[] = [
   { id: 'library', title: 'Thư viện', icon: 'library' },
   { id: 'account', title: 'Tài khoản', icon: 'account' },
   { id: 'settings', title: 'Cài đặt', icon: 'settings' },
+  { id: 'support', title: 'Ủng hộ tác giả', icon: 'heart' },
 ]
 
 export type RouteSpec =

@@ -65,7 +65,7 @@ export async function buildAll({ quiet = false } = {}) {
   })
   cpSync(join(ROOT, 'app', 'index.html'), join(APP_OUT, 'index.html'))
   const assets = join(ROOT, 'assets')
-  for (const file of ['icon80.png', 'icon130.png', 'splash.png']) {
+  for (const file of ['icon80.png', 'icon130.png', 'splash.png', 'donate-qr.png']) {
     if (existsSync(join(assets, file))) cpSync(join(assets, file), join(APP_OUT, file))
   }
   const appinfo = JSON.parse(readFileSync(join(ROOT, 'appinfo.json'), 'utf8'))

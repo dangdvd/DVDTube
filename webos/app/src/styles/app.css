@@ -1186,6 +1186,18 @@ html.pointer .shelf:hover .shelf-arrow {
   color: var(--text);
 }
 
+.support .support-qr {
+  height: 620px;
+  flex-shrink: 0;
+  margin-right: 80px;
+  border-radius: 28px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.support .option-list {
+  margin: 28px 0 0;
+}
+
 /* MARK: Dialogs */
 
 .dialog-backdrop {

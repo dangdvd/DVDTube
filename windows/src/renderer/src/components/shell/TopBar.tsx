@@ -1,5 +1,7 @@
-// Top bar: ☰, logo, search box, then "Tạo", 🔔 and the avatar (signed in) or ⋮ + "Đăng nhập".
+// Top bar: ☰, logo, search box, then ♡ "Ủng hộ tác giả", "Tạo", 🔔 and the avatar (signed in) or
+// ⋮ + "Đăng nhập".
 
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, errorMessage } from '@/lib/api'
 import { paths } from '@/lib/nav'
@@ -7,6 +9,7 @@ import { toast } from '@/lib/toast'
 import { useAccount } from '@/state/account'
 import { useSettings } from '@/state/settings'
 import { Icon, LogoMark } from '../Icon'
+import { SupportDialog } from '../SupportDialog'
 import { AccountMenuButton, GuestMenuButton } from './AccountMenu'
 import { NotificationsButton } from './Notifications'
 import { SearchBox } from './SearchBox'
@@ -25,6 +28,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const signedIn = useAccount((s) => s.signedIn)
   const loaded = useAccount((s) => s.loaded)
   const incognito = useSettings((s) => s.settings.incognito)
+  const [support, setSupport] = useState(false)
 
   return (
     <header className="topbar" data-testid="topbar">
@@ -44,6 +48,9 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             Ẩn danh
           </button>
         )}
+        <button className="icon-btn" aria-label="Ủng hộ tác giả" title="Ủng hộ tác giả" onClick={() => setSupport(true)} data-testid="support-button">
+          <Icon name="heart" />
+        </button>
         {signedIn ? (
           <>
             <button
@@ -69,6 +76,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
           </>
         )}
       </div>
+      {support && <SupportDialog onClose={() => setSupport(false)} />}
     </header>
   )
 }

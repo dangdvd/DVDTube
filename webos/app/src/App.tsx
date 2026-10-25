@@ -1,5 +1,5 @@
 // The app shell: the left rail (Tìm kiếm, Trang chủ, Shorts, Nghe nhạc, Kênh đăng ký, Thư viện,
-// Tài khoản, Cài đặt), the section screen plus the stack of screens on top of it, dialogs,
+// Tài khoản, Cài đặt, Ủng hộ tác giả), the section screen plus the stack of screens on top of it, dialogs,
 // toasts, the parental lock, and the Back key (overlay → previous screen → rail → home →
 // "Thoát DVDTube?").
 
@@ -16,6 +16,7 @@ import { AccountScreen, PairingScreen } from './pages/Account'
 import { SearchResultsScreen, SearchScreen } from './pages/Search'
 import { AboutScreen, ParentalScreen, SettingsScreen, SyncScreen } from './pages/Settings'
 import { ShortsScreen } from './pages/Shorts'
+import { SupportScreen } from './pages/Support'
 import { PlayerScreen } from './player/Player'
 import { Screen } from './screen'
 import { accountStore } from './state/account'
@@ -46,6 +47,8 @@ function SectionScreen({ section }: { section: Section }) {
       return <AccountScreen />
     case 'settings':
       return <SettingsScreen />
+    case 'support':
+      return <SupportScreen />
   }
 }
 
