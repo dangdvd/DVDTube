@@ -229,6 +229,10 @@ nhận, không phải sửa `project.pbxproj`.
 - Báo video mới chạy bằng *Làm mới ứng dụng trong nền* của iOS: iOS tự quyết định khi nào chạy
   (thường vài giờ một lần, ít hơn nếu ít mở ứng dụng hoặc đang ở Chế độ nguồn điện thấp).
 - Video giới hạn độ tuổi, video "dành cho trẻ em" hoặc nội dung trả phí có thể không phát được.
+- Với địa chỉ IP bị YouTube đánh dấu (VPN, máy chủ, mạng công ty…), YouTube có thể từ chối luồng
+  phát với thông báo *"Đăng nhập để xác nhận bạn không phải là robot"*. Khi đó hãy đăng nhập tài khoản
+  Google trong ứng dụng (ứng dụng tự chuyển sang luồng phát của tài khoản) hoặc tắt VPN.
+- Bộ cài Windows chưa ký số nên SmartScreen cảnh báo ở lần chạy đầu (xem *Cài đặt lên Windows*).
 - YouTube thay đổi API thường xuyên; khi có lỗi phát hàng loạt, hãy cập nhật `remote-config.json`
   hoặc mã nguồn.
 - Chặn quảng cáo vi phạm Điều khoản dịch vụ của YouTube. Chỉ nên dùng cho mục đích cá nhân.
