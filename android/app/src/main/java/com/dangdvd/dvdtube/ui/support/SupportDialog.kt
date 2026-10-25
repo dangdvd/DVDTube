@@ -30,8 +30,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -77,15 +82,22 @@ object Donation {
     private const val TRANSFER_NOTE = "Ung ho DVDTube"
 
     /**
-     * Bank apps VietQR's deeplink service can open with the recipient filled in
+     * Bank apps VietQR's deeplink service opens with the recipient, name and note filled in
      * (app ids of https://api.vietqr.io/v2/android-app-deeplinks).
      */
-    val bankApps = listOf(
-        "vcb" to "Vietcombank", "mb" to "MB Bank", "tcb" to "Techcombank", "bidv" to "BIDV",
-        "icb" to "VietinBank", "vba" to "Agribank", "acb" to "ACB", "vpb" to "VPBank",
-        "tpb" to "TPBank", "stb" to "Sacombank", "vib" to "VIB", "hdb" to "HDBank",
-        "shb" to "SHB", "ocb" to "OCB", "msb" to "MSB", "seab" to "SeABank",
-        "lpb" to "LPBank", "eib" to "Eximbank", "cake" to "Cake", "timo" to "Timo",
+    val autofillApps = listOf(
+        "mb" to "MB Bank", "bidv" to "BIDV", "icb" to "VietinBank", "acb" to "ACB", "ocb" to "OCB",
+    )
+
+    /**
+     * Bank apps the deeplink only opens: they accept no transfer details from other apps,
+     * so the account number is copied and the QR saved to the gallery before opening them.
+     */
+    val otherApps = listOf(
+        "vcb" to "Vietcombank", "tcb" to "Techcombank", "vba" to "Agribank", "vpb" to "VPBank",
+        "tpb" to "TPBank", "stb" to "Sacombank", "vib-2" to "VIB", "hdb" to "HDBank",
+        "shb" to "SHB", "msb" to "MSB", "seab" to "SeABank", "lpb" to "LPBank",
+        "eib" to "Eximbank", "cake" to "Cake", "timo" to "Timo",
     )
 
     /** "1903 3516 2700 19", as printed under the QR code. */
@@ -136,6 +148,78 @@ fun SupportDialog(onDismiss: () -> Unit) {
     var copied by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
+    var qrSaved by remember { mutableStateOf(false) }
+    // A bank app that can't be filled in: the steps are shown before leaving for it.
+    var guideApp by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    fun openBankApp(id: String) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Donation.bankAppLink(id)))
+        } catch (_: ActivityNotFoundException) {
+            status = "Không có trình duyệt để mở liên kết. Hãy lưu mã QR rồi quét từ ảnh."
+        }
+    }
+
+    fun saveQr() {
+        saving = true
+        scope.launch {
+            qrSaved = Donation.saveQrToGallery(context)
+            status = if (qrSaved) {
+                "Đã lưu vào Ảnh › Pictures/DVDTube. Mở ứng dụng ngân hàng › Quét QR › chọn ảnh vừa lưu."
+            } else {
+                "Không lưu được ảnh vào thư viện."
+            }
+            saving = false
+        }
+    }
+
+    @Composable
+    fun BankGrid(apps: List<Pair<String, String>>) {
+        apps.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { app ->
+                    OutlinedButton(
+                        onClick = {
+                            // Also handy when an app fills in less than asked: the number is ready to paste.
+                            clipboard.setText(AnnotatedString(Donation.ACCOUNT_NUMBER))
+                            if (app in Donation.autofillApps) {
+                                openBankApp(app.first)
+                            } else {
+                                guideApp = app
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(app.second, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+
+    guideApp?.let { app ->
+        val name = app.second
+        AlertDialog(
+            onDismissRequest = { guideApp = null },
+            title = { Text("Mở $name") },
+            text = {
+                Text("$name chưa cho phép ứng dụng khác điền sẵn người nhận. DVDTube sẽ sao chép số tài khoản và lưu mã QR " +
+                    "vào ảnh, rồi mở $name. Trong ứng dụng, chọn một cách:\n\n" +
+                    "• Quét QR › biểu tượng ảnh › chọn ảnh mã QR vừa lưu (nhanh nhất)\n" +
+                    "• Chuyển tiền › dán số tài khoản ${Donation.formattedAccountNumber}, ngân hàng ${Donation.BANK_NAME}")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    guideApp = null
+                    clipboard.setText(AnnotatedString(Donation.ACCOUNT_NUMBER))
+                    scope.launch {
+                        if (!qrSaved) qrSaved = Donation.saveQrToGallery(context)
+                        openBankApp(app.first)
+                    }
+                }) { Text("Mở $name") }
+            },
+            dismissButton = { TextButton(onClick = { guideApp = null }) { Text("Hủy") } },
+        )
+    }
     LaunchedEffect(copied) {
         if (copied) {
             delay(2000)
@@ -209,44 +293,22 @@ fun SupportDialog(onDismiss: () -> Unit) {
                             Text("Chuyển khoản ngay trên điện thoại này", style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(4.dp))
-                            Text("Chọn ứng dụng ngân hàng bạn đang dùng: ứng dụng sẽ mở với người nhận và nội dung chuyển khoản " +
-                                "điền sẵn, bạn chỉ cần nhập số tiền.",
+                            Text("Chọn ứng dụng ngân hàng bạn đang dùng.",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.height(10.dp))
-                            Donation.bankApps.chunked(2).forEach { pair ->
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    pair.forEach { (id, name) ->
-                                        OutlinedButton(
-                                            onClick = {
-                                                try {
-                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Donation.bankAppLink(id)))
-                                                } catch (_: ActivityNotFoundException) {
-                                                    status = "Không có trình duyệt để mở liên kết. Hãy lưu mã QR rồi quét từ ảnh."
-                                                }
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                        ) { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                                    }
-                                    if (pair.size == 1) Spacer(Modifier.weight(1f))
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text("Vietcombank và một số ứng dụng chỉ mở ứng dụng mà chưa tự điền thông tin. " +
-                                "Khi đó hãy lưu mã QR bên dưới rồi quét từ ảnh.",
+                            Spacer(Modifier.height(12.dp))
+                            GroupTitle(Icons.Default.Verified, "Tự điền sẵn người nhận")
+                            BankGrid(Donation.autofillApps)
+                            Text("Ứng dụng mở ra với số tài khoản, tên người nhận và nội dung đã điền sẵn, bạn chỉ cần nhập số tiền.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(16.dp))
+                            GroupTitle(Icons.Default.ContentPaste, "Ngân hàng khác")
+                            BankGrid(Donation.otherApps)
+                            Text("Các ứng dụng này không cho ứng dụng khác điền sẵn người nhận. DVDTube sao chép số tài khoản " +
+                                "và lưu mã QR vào ảnh trước khi mở, để bạn dán số tài khoản hoặc quét QR từ ảnh.",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(20.dp))
                             Button(
-                                onClick = {
-                                    saving = true
-                                    scope.launch {
-                                        status = if (Donation.saveQrToGallery(context)) {
-                                            "Đã lưu vào Ảnh › Pictures/DVDTube. Mở ứng dụng ngân hàng › Quét QR › chọn ảnh vừa lưu."
-                                        } else {
-                                            "Không lưu được ảnh vào thư viện."
-                                        }
-                                        saving = false
-                                    }
-                                },
+                                onClick = { saveQr() },
                                 enabled = !saving,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
@@ -262,6 +324,15 @@ fun SupportDialog(onDismiss: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GroupTitle(icon: ImageVector, title: String) {
+    Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(18.dp), tint = Brand)
+        Spacer(Modifier.width(6.dp))
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
     }
 }
 

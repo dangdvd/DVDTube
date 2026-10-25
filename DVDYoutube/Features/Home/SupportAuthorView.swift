@@ -11,16 +11,23 @@ enum Donation {
     static let bankCode = "tcb"
     static let transferNote = "Ung ho DVDTube"
 
-    /// Bank apps VietQR's deeplink service can open with the recipient filled in
-    /// (app ids of https://api.vietqr.io/v2/ios-app-deeplinks).
-    static let bankApps: [BankApp] = [
-        BankApp("vcb", "Vietcombank"), BankApp("mb", "MB Bank"), BankApp("tcb", "Techcombank"), BankApp("bidv", "BIDV"),
-        BankApp("icb", "VietinBank"), BankApp("vba", "Agribank"), BankApp("acb", "ACB"), BankApp("vpb", "VPBank"),
-        BankApp("tpb", "TPBank"), BankApp("stb", "Sacombank"), BankApp("vib", "VIB"), BankApp("hdb", "HDBank"),
-        BankApp("shb", "SHB"), BankApp("ocb", "OCB"), BankApp("msb", "MSB"), BankApp("seab", "SeABank"),
-        BankApp("lpb", "LPBank"), BankApp("eib", "Eximbank"), BankApp("cake", "Cake"), BankApp("timo", "Timo"),
+    /// Bank apps VietQR's deeplink service opens with the recipient, name and note filled in.
+    static let autofillApps: [BankApp] = [
+        BankApp("mb", "MB Bank"), BankApp("bidv", "BIDV"), BankApp("icb", "VietinBank"),
+        BankApp("acb", "ACB"), BankApp("ocb", "OCB"),
     ]
 
+    /// Bank apps the deeplink only opens: they accept no transfer details from other apps,
+    /// so the account number is copied and the QR saved to Photos before opening them.
+    static let otherApps: [BankApp] = [
+        BankApp("vcb", "Vietcombank"), BankApp("tcb", "Techcombank"), BankApp("vba", "Agribank"),
+        BankApp("vpb", "VPBank"), BankApp("tpb", "TPBank"), BankApp("stb", "Sacombank"),
+        BankApp("vib-2", "VIB"), BankApp("hdb", "HDBank"), BankApp("shb", "SHB"),
+        BankApp("msb", "MSB"), BankApp("seab", "SeABank"), BankApp("lpb", "LPBank"),
+        BankApp("eib", "Eximbank"), BankApp("cake", "Cake"), BankApp("timo", "Timo"),
+    ]
+
+    /// App ids of https://api.vietqr.io/v2/ios-app-deeplinks.
     struct BankApp: Identifiable {
         let id: String
         let name: String
@@ -61,6 +68,9 @@ struct SupportAuthorView: View {
     @State private var copied = false
     @State private var saveResult: String?
     @State private var saving = false
+    @State private var qrSaved = false
+    /// A bank app that can't be filled in: the steps are shown before leaving for it.
+    @State private var guideApp: Donation.BankApp?
 
     var body: some View {
         NavigationStack {
@@ -92,6 +102,18 @@ struct SupportAuthorView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Xong") { dismiss() }
                 }
+            }
+            .alert(
+                guideApp.map { "Mở \($0.name)" } ?? "",
+                isPresented: Binding(get: { guideApp != nil }, set: { if !$0 { guideApp = nil } }),
+                presenting: guideApp
+            ) { app in
+                Button("Mở \(app.name)") {
+                    Task { await prepareAndOpen(app) }
+                }
+                Button("Hủy", role: .cancel) {}
+            } message: { app in
+                Text("\(app.name) chưa cho phép ứng dụng khác điền sẵn người nhận. DVDTube sẽ sao chép số tài khoản và lưu mã QR vào ảnh, rồi mở \(app.name). Trong ứng dụng, chọn một cách:\n\n• Quét QR › biểu tượng ảnh › chọn ảnh mã QR vừa lưu (nhanh nhất)\n• Chuyển tiền › dán số tài khoản \(Donation.formattedAccountNumber), ngân hàng \(Donation.bankName)")
             }
         }
     }
@@ -143,29 +165,62 @@ struct SupportAuthorView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Chuyển khoản ngay trên điện thoại này")
                 .font(.headline)
-            Text("Chọn ứng dụng ngân hàng bạn đang dùng: ứng dụng sẽ mở với người nhận và nội dung chuyển khoản điền sẵn, bạn chỉ cần nhập số tiền.")
+            Text("Chọn ứng dụng ngân hàng bạn đang dùng.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(Donation.bankApps) { app in
-                    Button {
-                        if let url = Donation.bankAppLink(app.id) { openURL(url) }
-                    } label: {
-                        Text(app.name)
-                            .font(.subheadline.weight(.medium))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Mở ứng dụng \(app.name)")
-                }
-            }
-            Text("Vietcombank và một số ứng dụng chỉ mở ứng dụng mà chưa tự điền thông tin. Khi đó hãy lưu mã QR bên dưới rồi quét từ ảnh.")
+
+            Label("Tự điền sẵn người nhận", systemImage: "checkmark.seal.fill")
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
+            bankGrid(Donation.autofillApps)
+            Text("Ứng dụng mở ra với số tài khoản, tên người nhận và nội dung đã điền sẵn, bạn chỉ cần nhập số tiền.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Label("Ngân hàng khác", systemImage: "doc.on.clipboard")
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 8)
+            bankGrid(Donation.otherApps)
+            Text("Các ứng dụng này không cho ứng dụng khác điền sẵn người nhận. DVDTube sao chép số tài khoản và lưu mã QR vào ảnh trước khi mở, để bạn dán số tài khoản hoặc quét QR từ ảnh.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func bankGrid(_ apps: [Donation.BankApp]) -> some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+            ForEach(apps) { app in
+                Button {
+                    // Also handy when an app fills in less than asked: the number is ready to paste.
+                    UIPasteboard.general.string = Donation.accountNumber
+                    if Donation.autofillApps.contains(where: { $0.id == app.id }) {
+                        openBankApp(app)
+                    } else {
+                        guideApp = app
+                    }
+                } label: {
+                    Text(app.name)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Mở ứng dụng \(app.name)")
+            }
+        }
+    }
+
+    private func openBankApp(_ app: Donation.BankApp) {
+        if let url = Donation.bankAppLink(app.id) { openURL(url) }
+    }
+
+    /// Copies the account number and saves the QR (once) before opening an app that can't be filled in.
+    private func prepareAndOpen(_ app: Donation.BankApp) async {
+        UIPasteboard.general.string = Donation.accountNumber
+        if !qrSaved { await saveQRCode() }
+        openBankApp(app)
     }
 
     private var saveToPhotos: some View {
@@ -198,6 +253,7 @@ struct SupportAuthorView: View {
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.creationRequestForAsset(from: image)
             }
+            qrSaved = true
             saveResult = "Đã lưu mã QR vào ảnh. Mở ứng dụng ngân hàng › Quét QR › chọn ảnh vừa lưu."
         } catch {
             saveResult = "Không lưu được ảnh: \(error.localizedDescription)"
