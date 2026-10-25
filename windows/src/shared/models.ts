@@ -698,11 +698,67 @@ export interface CastPlayRequest {
   sender?: string | null
 }
 
+export type CastQueueOp = 'remove' | 'move' | 'play' | 'clear'
+
+/**
+ * Body of `POST /api/queue/edit` (receivers listing "queue-edit" in `/api/info` features): a
+ * phone edits the receiver's queue. `index` and `videoId` name the item; when another phone
+ * changed the queue meanwhile, the item is found again by its id. `clear` keeps only what plays.
+ */
+export interface CastQueueEdit {
+  op: CastQueueOp
+  index: number
+  videoId: string | null
+  /** `move`: the item's position afterwards. */
+  to: number | null
+}
+
 /** What a receiver's window is asked to do (from its HTTP API). */
 export type CastCommand =
   | { type: 'play'; request: CastPlayRequest }
   | { type: 'queue'; video: VideoItem; next: boolean }
+  | { type: 'edit'; edit: CastQueueEdit }
   | { type: 'control'; action: CastAction; value: number | null }
+
+/**
+ * Applies a queue edit to `queue` (playing `queue[current]`): the new queue and current index,
+ * and `play` = the index to start now. Null when the item is gone, or for removing what plays.
+ */
+export function applyQueueEdit(
+  queue: VideoItem[],
+  current: number,
+  edit: CastQueueEdit,
+): { queue: VideoItem[]; index: number; play: number | null } | null {
+  if (edit.op === 'clear') {
+    const playing = queue[current]
+    return { queue: playing ? [playing] : [], index: 0, play: null }
+  }
+  let at = queue[edit.index]?.id === edit.videoId ? edit.index : -1
+  if (at < 0 && edit.videoId) {
+    queue.forEach((v, i) => {
+      if (v.id === edit.videoId && (at < 0 || Math.abs(i - edit.index) < Math.abs(at - edit.index))) at = i
+    })
+  }
+  if (at < 0) return null
+  switch (edit.op) {
+    case 'play':
+      return { queue, index: at, play: at }
+    case 'remove':
+      if (at === current) return null
+      return { queue: queue.filter((_, i) => i !== at), index: at < current ? current - 1 : current, play: null }
+    case 'move': {
+      const to = Math.min(Math.max(0, edit.to ?? at), queue.length - 1)
+      const list = queue.slice()
+      const [item] = list.splice(at, 1)
+      list.splice(to, 0, item)
+      let index = current
+      if (at === current) index = to
+      else if (at < current && to >= current) index = current - 1
+      else if (at > current && to <= current) index = current + 1
+      return { queue: list, index, play: null }
+    }
+  }
+}
 
 /** VideoItem as it travels in the cast / sync JSON: known fields only, `id` required. */
 export function cleanVideoItem(value: unknown): VideoItem | null {

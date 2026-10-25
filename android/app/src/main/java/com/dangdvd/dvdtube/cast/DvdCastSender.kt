@@ -92,8 +92,19 @@ object DvdCastSender {
         private set
     /** The remote-control sheet is shown. */
     var showRemote by mutableStateOf(false)
+    /** The receiver serves `/api/queue/edit` (its `/api/info` features list "queue-edit"). */
+    var supportsQueueEdit by mutableStateOf(false)
+        private set
+    private var lastQueueEditAt = 0L
 
     val isConnected: Boolean get() = connected != null
+
+    /** A moment after a queue edit from here, when statuses may still show the old queue. */
+    val queueEditPending: Boolean get() = System.currentTimeMillis() - lastQueueEditAt < 1500
+
+    /** The receiver has a video loaded: picking another one asks whether to play it now or queue it. */
+    val receiverBusy: Boolean
+        get() = status?.let { it.video != null && it.state in setOf("playing", "paused", "buffering", "loading") } == true
 
     /** Discovered receivers first, then the ones added by address. */
     val devices: List<Device>
@@ -269,6 +280,11 @@ object DvdCastSender {
         status = null
         statusText = "Đang kết nối…"
         failures = 0
+        supportsQueueEdit = false
+        AppScope.launch {
+            val info = request(device, "/api/info", null)
+            if (connected?.id == device.id) supportsQueueEdit = info != null && info["features"].array.any { it.string == "queue-edit" }
+        }
         val current = PlayerController.currentVideo
         val position = PlayerController.currentTime
         PlayerController.castDidConnect()
@@ -294,6 +310,7 @@ object DvdCastSender {
         status = null
         statusText = null
         showRemote = false
+        supportsQueueEdit = false
         PlayerController.castDidEnd()
         if (resumeHere) PlayerController.resumeLocally(position)
         Log.debug("cast: disconnected from the DVDTube receiver")
@@ -321,6 +338,30 @@ object DvdCastSender {
         send(device, "/api/queue", JSONObject().put("video", ModelJson.video(video)).put("next", next)) { ok, error ->
             Toasts.show(if (ok) (if (next) "Sẽ phát tiếp theo trên ${device.name}" else "Đã thêm vào hàng đợi trên ${device.name}") else error ?: "Không gửi được tới ${device.name}")
         }
+    }
+
+    /** "Phát ngay" keeping the receiver's queue: the video goes next in line, then the receiver skips to it. */
+    fun playNow(video: VideoItem) {
+        val device = connected ?: return
+        lastQueueEditAt = System.currentTimeMillis()
+        send(device, "/api/queue", JSONObject().put("video", ModelJson.video(video)).put("next", true)) { ok, error ->
+            if (ok) control("next") else Toasts.show(error ?: "Không gửi được tới ${device.name}")
+        }
+    }
+
+    /** Edits the receiver's queue; false (with a message) when its DVDTube is too old for that. */
+    fun editQueue(op: String, index: Int, videoId: String?, to: Int? = null): Boolean {
+        val device = connected ?: return false
+        if (!supportsQueueEdit) {
+            Toasts.show("Hãy cập nhật DVDTube trên ${device.name} để sửa hàng đợi từ điện thoại")
+            return false
+        }
+        lastQueueEditAt = System.currentTimeMillis()
+        val body = JSONObject().put("op", op).put("index", index).put("videoId", videoId ?: JSONObject.NULL).put("to", to ?: JSONObject.NULL)
+        send(device, "/api/queue/edit", body) { ok, error ->
+            if (!ok) Toasts.show(error ?: "Không sửa được hàng đợi trên ${device.name}")
+        }
+        return true
     }
 
     fun control(action: String, value: Double? = null) {

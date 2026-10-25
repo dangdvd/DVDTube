@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -395,5 +397,54 @@ fun DvdRemoteSheet() {
                 }
             }
         }
+    }
+}
+
+/**
+ * A video picked while the DVDTube TV / PC already plays something (karaoke): play it now
+ * (the TV keeps its queue), right after the current one, or at the end of the queue.
+ */
+@Composable
+fun CastQueueChoiceDialog() {
+    val video = PlayerController.castChoice ?: return
+    val device = DvdCastSender.connected?.name ?: "TV"
+    val close = { PlayerController.castChoice = null }
+    AlertDialog(
+        onDismissRequest = close,
+        title = { Text("Phát trên $device") },
+        text = {
+            Column {
+                Text(video.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text("$device đang phát video khác.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(12.dp))
+                QueueChoice(Icons.Default.PlayArrow, "Phát ngay") {
+                    close()
+                    PlayerController.castPlayNow(video)
+                }
+                QueueChoice(Icons.Default.QueuePlayNext, "Phát tiếp theo") {
+                    close()
+                    PlayerController.playAfterCurrent(video)
+                }
+                QueueChoice(Icons.AutoMirrored.Filled.PlaylistAdd, "Thêm vào cuối hàng đợi") {
+                    close()
+                    PlayerController.addToQueue(video)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = close) { Text("Hủy") } },
+    )
+}
+
+@Composable
+private fun QueueChoice(icon: ImageVector, title: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(16.dp))
+        Text(title, style = MaterialTheme.typography.bodyLarge)
     }
 }

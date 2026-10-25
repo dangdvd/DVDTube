@@ -177,6 +177,7 @@ fun MainScreen() {
     Router.syncInvite?.let { invite -> com.dangdvd.dvdtube.ui.screens.SyncConfirmDialog(invite) { Router.syncInvite = null } }
     com.dangdvd.dvdtube.ui.cast.CastPickerSheet()
     com.dangdvd.dvdtube.ui.cast.DvdRemoteSheet()
+    com.dangdvd.dvdtube.ui.cast.CastQueueChoiceDialog()
     com.dangdvd.dvdtube.ui.screens.UpdateDialog()
     WellbeingReminderDialog()
     com.dangdvd.dvdtube.ui.screens.ParentalLockOverlay()

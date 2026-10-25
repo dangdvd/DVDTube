@@ -5,7 +5,8 @@ import assert from 'node:assert/strict'
 import { request } from 'node:http'
 import { networkInterfaces } from 'node:os'
 import { after, before, describe, it } from 'node:test'
-import type { CastCommand, CastStatus } from '@shared/models'
+import type { CastCommand, CastQueueEdit, CastStatus, VideoItem } from '@shared/models'
+import { applyQueueEdit } from '@shared/models'
 import { callReceiver, deviceFromInfo, deviceFromService, parseAddress } from '../cast'
 import {
   TYPE_A,
@@ -25,7 +26,7 @@ import {
   type FoundService,
   type ServiceAdvert,
 } from '../cast/mdns'
-import { CastReceiver, IDLE_STATUS, cleanStatus, parseControl, parsePlayRequest } from '../cast/receiver'
+import { CastReceiver, IDLE_STATUS, cleanStatus, parseControl, parsePlayRequest, parseQueueEdit } from '../cast/receiver'
 import { isLanAddress } from '../lan'
 
 function http(port: number, method: string, path: string, body?: string, headers: Record<string, string | number> = {}) {
@@ -65,7 +66,29 @@ describe('cast receiver API', () => {
     const res = await http(port, 'GET', '/api/info')
     assert.equal(res.status, 200)
     assert.equal(res.type, 'application/json')
-    assert.deepEqual(res.json, { ok: true, app: 'DVDTube', protocol: 1, id: '7f1c2a9e-1111-4c2b-9d7e-1234567890ab', name: 'Phòng khách PC', kind: 'desktop', version: '1.0.42' })
+    assert.deepEqual(res.json, {
+      ok: true,
+      app: 'DVDTube',
+      protocol: 1,
+      id: '7f1c2a9e-1111-4c2b-9d7e-1234567890ab',
+      name: 'Phòng khách PC',
+      kind: 'desktop',
+      version: '1.0.42',
+      features: ['queue-edit'],
+    })
+  })
+
+  it('passes /api/queue/edit to the window and refuses invalid edits', async () => {
+    const res = await post(port, '/api/queue/edit', { op: 'move', index: 3, videoId: 'jNQXAC9IVRw', to: 1 })
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.json, { ok: true })
+    assert.deepEqual(commands.at(-1), { type: 'edit', edit: { op: 'move', index: 3, videoId: 'jNQXAC9IVRw', to: 1 } })
+    assert.equal((await post(port, '/api/queue/edit', { op: 'clear' })).status, 200)
+    assert.deepEqual(commands.at(-1), { type: 'edit', edit: { op: 'clear', index: 0, videoId: null, to: null } })
+    for (const body of [{ op: 'shuffle', index: 0, videoId: 'jNQXAC9IVRw' }, { op: 'remove', index: 1 }, { op: 'move', index: 1, videoId: 'jNQXAC9IVRw' }, { op: 'play', index: -1, videoId: 'jNQXAC9IVRw' }]) {
+      const bad = await post(port, '/api/queue/edit', body)
+      assert.equal(bad.status, 400, JSON.stringify(body))
+    }
   })
 
   it('passes /api/play to the window with a cleaned video and queue', async () => {
@@ -285,5 +308,63 @@ describe('DNS-SD on the network', () => {
       await receiver.stop()
       await sender.stop()
     }
+  })
+})
+
+describe('cast queue edits', () => {
+  const v = (id: string): VideoItem => ({ id: id.padEnd(11, '_'), title: id })
+  const ids = (queue: VideoItem[]) => queue.map((x) => x.title).join('')
+  const queue = ['a', 'b', 'c', 'd', 'e'].map(v)
+  const edit = (op: CastQueueEdit['op'], index: number, id: string | null, to: number | null = null): CastQueueEdit => ({
+    op,
+    index,
+    videoId: id ? id.padEnd(11, '_') : null,
+    to,
+  })
+
+  it('removes, but not what plays, and keeps the current index on the same video', () => {
+    const before = applyQueueEdit(queue, 2, edit('remove', 0, 'a'))!
+    assert.equal(ids(before.queue), 'bcde')
+    assert.equal(before.index, 1)
+    const after = applyQueueEdit(queue, 2, edit('remove', 4, 'e'))!
+    assert.equal(ids(after.queue), 'abcd')
+    assert.equal(after.index, 2)
+    assert.equal(applyQueueEdit(queue, 2, edit('remove', 2, 'c')), null)
+  })
+
+  it('moves ("Phát tiếp theo") and follows the playing video', () => {
+    // e right after the current c.
+    let r = applyQueueEdit(queue, 2, edit('move', 4, 'e', 3))!
+    assert.equal(ids(r.queue), 'abced')
+    assert.equal(r.index, 2)
+    // a (already played) right after c: c moves to 1, a lands at 2.
+    r = applyQueueEdit(queue, 2, edit('move', 0, 'a', 2))!
+    assert.equal(ids(r.queue), 'bcade')
+    assert.equal(r.index, 1)
+    // The playing video itself.
+    r = applyQueueEdit(queue, 2, edit('move', 2, 'c', 4))!
+    assert.equal(ids(r.queue), 'abdec')
+    assert.equal(r.index, 4)
+    // Past the end: clamped.
+    r = applyQueueEdit(queue, 0, edit('move', 1, 'b', 99))!
+    assert.equal(ids(r.queue), 'acdeb')
+  })
+
+  it('finds the item by id when the queue changed meanwhile, else does nothing', () => {
+    const r = applyQueueEdit(queue, 0, edit('play', 1, 'd'))!
+    assert.equal(r.play, 3)
+    assert.equal(applyQueueEdit(queue, 0, edit('remove', 1, 'zzz')), null)
+  })
+
+  it('clears all but the playing video', () => {
+    const r = applyQueueEdit(queue, 3, edit('clear', 0, null))!
+    assert.equal(ids(r.queue), 'd')
+    assert.equal(r.index, 0)
+  })
+
+  it('validates edit bodies', () => {
+    assert.deepEqual(parseQueueEdit({ op: 'play', index: 2.7, videoId: 'dQw4w9WgXcQ' }), { op: 'play', index: 2, videoId: 'dQw4w9WgXcQ', to: null })
+    assert.equal(parseQueueEdit({ op: 'remove', index: 1, videoId: 'bad id!' }), null)
+    assert.equal(parseQueueEdit(null), null)
   })
 })

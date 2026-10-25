@@ -98,6 +98,20 @@ struct RootView: View {
         .fullScreenCover(isPresented: $router.showUpload) {
             UploadView()
         }
+        // A video picked while the DVDTube TV / PC plays something: queue it instead of replacing (karaoke).
+        .confirmationDialog(
+            "Phát trên \(DVDCast.shared.receiver?.name ?? "TV")",
+            isPresented: Binding(get: { player.castChoice != nil }, set: { if !$0 { player.castChoice = nil } }),
+            titleVisibility: .visible,
+            presenting: player.castChoice
+        ) { video in
+            Button("Phát ngay") { player.castPlayNow(video) }
+            Button("Phát tiếp theo") { player.playAfterCurrent(video) }
+            Button("Thêm vào cuối hàng đợi") { player.addToQueue(video) }
+            Button("Hủy", role: .cancel) {}
+        } message: { video in
+            Text("\(video.title)\n\(DVDCast.shared.receiver?.name ?? "TV") đang phát video khác.")
+        }
     }
 
     /// Detects taps on the already-selected tab (pop to root / scroll to top).

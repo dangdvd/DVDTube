@@ -35,7 +35,7 @@ struct WatchDetailsView: View {
                         if let chapters = player.watchInfo?.chapters, !chapters.isEmpty {
                             chapterStrip(chapters)
                         }
-                        if player.queue.count > 1 {
+                        if player.queue.count > 1 || DVDCast.shared.isConnected {
                             queueCard
                         }
                         if let chat = player.watchInfo?.liveChat {
@@ -334,7 +334,8 @@ struct WatchDetailsView: View {
             HStack {
                 Image(systemName: "list.bullet.rectangle")
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Hàng đợi").font(.subheadline.weight(.semibold))
+                    Text(DVDCast.shared.isConnected ? "Hàng đợi trên \(DVDCast.shared.receiver?.name ?? "TV")" : "Hàng đợi")
+                        .font(.subheadline.weight(.semibold))
                     Text("\(player.queueIndex + 1)/\(player.queue.count)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -433,40 +434,136 @@ struct WatchDetailsView: View {
     }
 }
 
+/// The queue: tap to play, swipe right for "Phát tiếp theo", swipe left to remove, "Sửa" to drag
+/// items into another order. While casting to DVDTube it is the TV's / PC's queue, shared with
+/// every phone connected to it (karaoke).
 struct QueueSheet: View {
     @Environment(PlayerManager.self) private var player
     @Environment(\.dismiss) private var dismiss
+    private var cast: DVDCast { DVDCast.shared }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(Array(player.queue.enumerated()), id: \.element.id) { index, video in
-                    Button {
-                        player.playQueueItem(at: index)
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 10) {
-                            if index == player.queueIndex {
-                                Image(systemName: "play.fill").foregroundStyle(Color.brand).frame(width: 16)
-                            } else {
-                                Text("\(index + 1)").font(.caption).foregroundStyle(.secondary).frame(width: 16)
-                            }
-                            ThumbnailView(video: video, cornerRadius: 6, showProgress: false).frame(width: 100)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(video.title).font(.subheadline).lineLimit(2)
-                                Text(video.channelName ?? "").font(.caption).foregroundStyle(.secondary)
+                if cast.isConnected || player.queue.count > 1 {
+                    Section {
+                        if cast.isConnected, let name = cast.receiver?.name {
+                            Label("Hàng đợi trên \(name): mọi điện thoại kết nối với \(name) đều thêm, xóa và đổi thứ tự được.",
+                                  systemImage: cast.receiver?.icon ?? "tv")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        if player.queue.count > 1 {
+                            Button(role: .destructive) {
+                                player.clearUpcoming()
+                            } label: {
+                                Label("Xóa các video sắp phát", systemImage: "trash")
                             }
                         }
                     }
-                    .buttonStyle(.plain)
+                }
+                Section {
+                    ForEach(Array(player.queue.enumerated()), id: \.element.id) { index, video in
+                        row(index: index, video: video)
+                            .deleteDisabled(index == player.queueIndex)
+                            .swipeActions(edge: .leading) {
+                                if index != player.queueIndex, index != player.queueIndex + 1 {
+                                    Button {
+                                        player.prioritizeQueueItem(at: index)
+                                    } label: {
+                                        Label("Phát tiếp theo", systemImage: "text.line.first.and.arrowtriangle.forward")
+                                    }
+                                    .tint(.blue)
+                                }
+                            }
+                            .swipeActions(edge: .trailing) {
+                                if index != player.queueIndex {
+                                    Button(role: .destructive) {
+                                        player.removeQueueItem(at: index)
+                                    } label: {
+                                        Label("Xóa", systemImage: "trash")
+                                    }
+                                }
+                            }
+                            .contextMenu {
+                                if index != player.queueIndex {
+                                    Button {
+                                        player.playQueueItem(at: index)
+                                    } label: {
+                                        Label("Phát ngay", systemImage: "play.fill")
+                                    }
+                                    Button {
+                                        player.prioritizeQueueItem(at: index)
+                                    } label: {
+                                        Label("Phát tiếp theo", systemImage: "text.line.first.and.arrowtriangle.forward")
+                                    }
+                                }
+                                if index > 0 {
+                                    Button {
+                                        player.moveQueueItem(from: index, to: index - 1)
+                                    } label: {
+                                        Label("Chuyển lên", systemImage: "arrow.up")
+                                    }
+                                }
+                                if index < player.queue.count - 1 {
+                                    Button {
+                                        player.moveQueueItem(from: index, to: index + 1)
+                                    } label: {
+                                        Label("Chuyển xuống", systemImage: "arrow.down")
+                                    }
+                                }
+                                if index != player.queueIndex {
+                                    Button(role: .destructive) {
+                                        player.removeQueueItem(at: index)
+                                    } label: {
+                                        Label("Xóa khỏi hàng đợi", systemImage: "trash")
+                                    }
+                                }
+                            }
+                    }
+                    .onMove { source, destination in
+                        guard let from = source.first else { return }
+                        player.moveQueueItem(from: from, to: destination > from ? destination - 1 : destination)
+                    }
+                    .onDelete { offsets in
+                        for index in offsets.sorted(by: >) { player.removeQueueItem(at: index) }
+                    }
+                } footer: {
+                    if player.queue.count > 1 {
+                        Text("Vuốt sang phải để phát tiếp theo, sang trái để xóa. Nhấn Sửa rồi kéo ≡ để đổi thứ tự, hoặc nhấn giữ một video để xem thêm lựa chọn.")
+                    }
                 }
             }
             .listStyle(.plain)
             .navigationTitle("Hàng đợi")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if player.queue.count > 1 {
+                    ToolbarItem(placement: .topBarLeading) { EditButton() }
+                }
                 ToolbarItem(placement: .confirmationAction) { Button("Xong") { dismiss() } }
             }
         }
+    }
+
+    private func row(index: Int, video: VideoItem) -> some View {
+        Button {
+            player.playQueueItem(at: index)
+            dismiss()
+        } label: {
+            HStack(spacing: 10) {
+                if index == player.queueIndex {
+                    Image(systemName: "play.fill").foregroundStyle(Color.brand).frame(width: 16)
+                } else {
+                    Text("\(index + 1)").font(.caption).foregroundStyle(.secondary).frame(width: 16)
+                }
+                ThumbnailView(video: video, cornerRadius: 6, showProgress: false).frame(width: 100)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(video.title).font(.subheadline).lineLimit(2)
+                    Text(video.channelName ?? "").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 }

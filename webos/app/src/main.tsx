@@ -10,7 +10,7 @@ import { api, connect, onEvent, wantsMock } from './api'
 import { initFocusTracking, initPointerFocus } from './focus'
 import { initKeys } from './keys'
 import { deviceInfo, initPointer, isPointerVisible, launchParams, onRelaunch, type LaunchParams } from './platform'
-import { enqueue, play, playerControls, closePlayer, playIndex, playerStore } from './player/controller'
+import { editQueue, enqueue, play, playerControls, closePlayer, playIndex, playerStore } from './player/controller'
 import { initAccount, restoreSession } from './state/account'
 import { library } from './state/library'
 import { nav, rememberFocus, screenKey, toast } from './state/nav'
@@ -135,6 +135,10 @@ function initCast(): void {
     if (command.type === 'queue') {
       enqueue(command.video, command.next)
       toast(command.next ? 'Đã thêm để phát tiếp theo' : 'Đã thêm vào hàng đợi')
+      return
+    }
+    if (command.type === 'edit') {
+      editQueue(command.edit)
       return
     }
     const c = playerControls()

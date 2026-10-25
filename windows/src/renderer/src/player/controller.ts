@@ -5,8 +5,8 @@
 // there and the controls drive it). The UI talks to it only through `usePlayer`
 // (state/player.ts); Media Session / taskbar wiring lives in session.ts.
 
-import type { CaptionTrack, PlayerInfo, SponsorSegment, VideoItem, WatchInfo } from '@shared/models'
-import { SPONSOR_CATEGORIES, feedVideos, formatDuration, isMix } from '@shared/models'
+import type { CaptionTrack, CastQueueEdit, PlayerInfo, SponsorSegment, VideoItem, WatchInfo } from '@shared/models'
+import { SPONSOR_CATEGORIES, applyQueueEdit, feedVideos, formatDuration, isMix } from '@shared/models'
 import { api, errorMessage, isElectron } from '@/lib/api'
 import { noteRendererLine } from '@/lib/rendererLog'
 import { toast } from '@/lib/toast'
@@ -1002,6 +1002,18 @@ function removeFromQueue(index: number): void {
   set({ queue, queueIndex: index < s.queueIndex ? s.queueIndex - 1 : s.queueIndex })
 }
 
+function editQueue(edit: CastQueueEdit): void {
+  const s = get()
+  const result = applyQueueEdit(s.queue, s.queueIndex, edit)
+  if (!result) return
+  if (result.play !== null) {
+    set({ queue: result.queue })
+    playQueueItem(result.play)
+    return
+  }
+  set({ queue: result.queue, queueIndex: result.index })
+}
+
 function shuffleQueue(): void {
   const s = get()
   if (s.queue.length < 2 || !s.current) return
@@ -1247,6 +1259,7 @@ const driver: PlayerDriver = {
   previous,
   playQueueItem,
   removeFromQueue,
+  editQueue,
   shuffleQueue,
   setLoopQueue,
   setLoop,

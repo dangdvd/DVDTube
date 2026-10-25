@@ -144,7 +144,7 @@ export function PlayerScreen() {
         if (!current()) return
         setWatch(info)
         // Autoplay continues with "Tiếp theo" when the queue ends.
-        if (!player.music && settings().autoplayNext) extendQueue(feedVideos(info.related).slice(0, 12))
+        if (!player.music && settings().autoplayNext) extendQueue(feedVideos(info.related).slice(0, 12), true)
       })
       .catch(() => {})
     const s = settings()

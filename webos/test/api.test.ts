@@ -263,7 +263,7 @@ describe('cast receiver (kind tv)', () => {
     assert.ok(rt.cast.running)
     const cast = `http://127.0.0.1:${rt.cast.port}`
     const info = (await (await fetch(`${cast}/api/info`)).json()) as Record<string, unknown>
-    assert.deepEqual(info, { ok: true, app: 'DVDTube', protocol: 1, id: '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', name: 'Phòng khách TV', kind: 'tv', version: '1.0.7' })
+    assert.deepEqual(info, { ok: true, app: 'DVDTube', protocol: 1, id: '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', name: 'Phòng khách TV', kind: 'tv', version: '1.0.7', features: ['queue-edit'] })
     assert.equal((await call('appInfo')).result.castRunning, true)
 
     const before = rt.events.lastSeq

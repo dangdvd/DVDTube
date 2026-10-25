@@ -1,6 +1,6 @@
 // This computer as a DVDTube receiver ("Cho phép truyền video tới máy tính này"): commands from
-// phones / other PCs (POST /api/play, /api/queue, /api/control, handled by the main process)
-// drive the player here, and the player's state is reported back for GET /api/status.
+// phones / other PCs (POST /api/play, /api/queue, /api/queue/edit, /api/control, handled by the
+// main process) drive the player here, and the player's state is reported back for GET /api/status.
 
 import type { NavigateFunction } from 'react-router-dom'
 import type { CastCommand, CastStatus } from '@shared/models'
@@ -47,6 +47,9 @@ function run(command: CastCommand, navigate: NavigateFunction): void {
       if (command.next) p.playNext(command.video)
       else p.addToQueue(command.video)
       toast(command.next ? 'Sẽ phát tiếp theo (từ thiết bị khác)' : 'Đã thêm vào hàng đợi (từ thiết bị khác)')
+      return
+    case 'edit':
+      p.editQueue(command.edit)
       return
     case 'control': {
       const value = command.value

@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.dangdvd.dvdtube.cast.DvdCastSender
 import com.dangdvd.dvdtube.core.AppSettings
 import com.dangdvd.dvdtube.core.LiveChatInfo
 import com.dangdvd.dvdtube.core.VideoItem
@@ -155,9 +156,10 @@ fun WatchDetails(modifier: Modifier = Modifier) {
                     else -> InfoCard("Bình luận", "Bình luận đã bị tắt", null)
                 }
             }
-            if (PlayerController.queue.size > 1) {
+            if (PlayerController.queue.size > 1 || DvdCastSender.isConnected) {
                 item(key = "queue") {
-                    InfoCard("Hàng đợi", "${PlayerController.queueIndex + 1}/${PlayerController.queue.size} • " +
+                    InfoCard(DvdCastSender.connected?.let { "Hàng đợi trên ${it.name}" } ?: "Hàng đợi",
+                        "${PlayerController.queueIndex + 1}/${PlayerController.queue.size} • " +
                         (PlayerController.queue.getOrNull(PlayerController.queueIndex + 1)?.let { "Tiếp theo: ${it.title}" } ?: "Video cuối")) {
                         sheet = WatchSheet.Queue
                     }

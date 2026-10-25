@@ -157,6 +157,11 @@ object PlayerController {
     /** The playlist the queue came from, if any (kept with the saved queue and sent to cast receivers). */
     var playlistId by mutableStateOf<String?>(null)
         private set
+    /**
+     * A video picked while the DVDTube TV / PC already plays something: "Phát ngay", "Phát tiếp
+     * theo" or "Thêm vào hàng đợi" is asked instead of replacing what plays (karaoke).
+     */
+    var castChoice by mutableStateOf<VideoItem?>(null)
 
     /** "Nghe nhạc": songs follow each other, audio only by default, with a now-playing screen. */
     var isMusicMode by mutableStateOf(false)
@@ -350,6 +355,10 @@ object PlayerController {
             if (!isPlaying) resume()
             return
         }
+        if (dvdCast && newQueue == null && DvdCastSender.receiverBusy) {
+            castChoice = video
+            return
+        }
         saveProgress()
         if (music != isMusicMode) musicAudioChoice = null
         isMusicMode = music
@@ -375,6 +384,11 @@ object PlayerController {
 
     fun playQueueItem(index: Int) {
         if (index !in queue.indices) return
+        if (dvdCast && DvdCastSender.supportsQueueEdit) {
+            // The receiver jumps in its own queue (other phones may have changed it).
+            if (DvdCastSender.editQueue("play", index, queue[index].id)) queueIndex = index
+            return
+        }
         saveProgress()
         queueIndex = index
         start(queue[index], null)
@@ -392,8 +406,77 @@ object PlayerController {
 
     fun removeFromQueue(index: Int) {
         if (index !in queue.indices || index == queueIndex) return
+        if (dvdCast && !DvdCastSender.editQueue("remove", index, queue[index].id)) return
         queue = queue.toMutableList().also { it.removeAt(index) }
         if (index < queueIndex) queueIndex--
+        SessionStore.schedule()
+    }
+
+    /** Moves a queue item so that it ends up at [to] (on the DVDTube receiver while casting). */
+    fun moveQueueItem(from: Int, to: Int) {
+        if (from !in queue.indices) return
+        val target = to.coerceIn(0, queue.lastIndex)
+        if (target == from) return
+        val video = queue[from]
+        if (dvdCast && !DvdCastSender.editQueue("move", from, video.id, target)) return
+        val list = queue.toMutableList()
+        list.removeAt(from)
+        list.add(target, video)
+        val current = queueIndex
+        queueIndex = when {
+            from == current -> target
+            from < current && target >= current -> current - 1
+            from > current && target <= current -> current + 1
+            else -> current
+        }
+        queue = list
+        SessionStore.schedule()
+    }
+
+    /** "Phát tiếp theo" for a video already in the queue: right after the current one. */
+    fun prioritizeQueueItem(index: Int) = moveQueueItem(index, if (index > queueIndex) queueIndex + 1 else queueIndex)
+
+    /** "Xóa các video sắp phát": keeps only the current video. */
+    fun clearUpcoming() {
+        val current = queue.getOrNull(queueIndex) ?: return
+        if (queue.size < 2) return
+        if (dvdCast && !DvdCastSender.editQueue("clear", 0, null)) return
+        queue = listOf(current)
+        queueIndex = 0
+        SessionStore.schedule()
+    }
+
+    /** A phone edits this TV's queue (DVDTube receiver `/api/queue/edit`); false when the item is gone. */
+    fun applyRemoteQueueEdit(op: String, index: Int, videoId: String?, to: Int?): Boolean {
+        if (op == "clear") {
+            clearUpcoming()
+            return true
+        }
+        // The item by its id when another phone changed the queue meanwhile (the closest one).
+        val at = if (queue.getOrNull(index)?.id == videoId) index
+        else queue.indices.filter { queue[it].id == videoId }.minByOrNull { kotlin.math.abs(it - index) } ?: return false
+        when (op) {
+            "play" -> playQueueItem(at)
+            "remove" -> if (at == queueIndex) return false else removeFromQueue(at)
+            "move" -> moveQueueItem(at, to ?: at)
+            else -> return false
+        }
+        return true
+    }
+
+    /** "Phát ngay" on the DVDTube receiver without dropping its queue: next in line, then skip to it. */
+    fun castPlayNow(video: VideoItem) {
+        insertAfterCurrent(video)
+        DvdCastSender.playNow(video)
+    }
+
+    private fun insertAfterCurrent(video: VideoItem) {
+        val current = currentVideo ?: return
+        val rest = queue.filter { it.id != video.id }.toMutableList()
+        val index = rest.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
+        rest.add(minOf(index + 1, rest.size), video)
+        queue = rest
+        queueIndex = index
     }
 
     /** "Play next": right after the current video. */
@@ -404,11 +487,7 @@ object PlayerController {
             return
         }
         if (video.id == current.id) return
-        val rest = queue.filter { it.id != video.id }.toMutableList()
-        val index = rest.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
-        rest.add(minOf(index + 1, rest.size), video)
-        queue = rest
-        queueIndex = index
+        insertAfterCurrent(video)
         if (dvdCast) DvdCastSender.queueOnReceiver(video, next = true) else Toasts.show("Sẽ phát tiếp theo")
         SessionStore.schedule()
     }
@@ -1423,7 +1502,8 @@ object PlayerController {
             currentCaption = null
             loadWatchInfo(video.id)
         }
-        if (remote.queue.isNotEmpty()) {
+        // Right after an edit from here the receiver may still report the old queue.
+        if (remote.queue.isNotEmpty() && !DvdCastSender.queueEditPending) {
             if (remote.queue.map { it.id } != queue.map { it.id }) queue = remote.queue
             queueIndex = remote.index.coerceIn(0, remote.queue.lastIndex)
         }
@@ -1762,6 +1842,7 @@ object PlayerController {
     fun castDidEnd() {
         isPlaying = false
         isBuffering = false
+        castChoice = null
         saveProgress()
     }
 

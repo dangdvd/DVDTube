@@ -13,6 +13,7 @@ import { flushSaves } from '../app/src/store'
 import { library, libraryStore } from '../app/src/state/library'
 import { DEFAULT_PARENTAL, blockedByKeywords, foldText, insideWindow, keywordList, localDay, lockReason, parental, parentalStore, restrictedMode } from '../app/src/state/parental'
 import { DEFAULT_SETTINGS, settings, updateSettings } from '../app/src/state/settings'
+import { editQueue, enqueue, extendQueue, playerStore } from '../app/src/player/controller'
 
 const video = (id: string, title = 'Video', channelName = 'Kênh'): VideoItem =>
   ({ id, title, channelName, channelId: 'UC' + id.padEnd(22, 'x'), channelAvatar: null, thumbnail: `https://i.ytimg.com/vi/${id}/hq720.jpg`, durationSeconds: 100 }) as VideoItem
@@ -149,5 +150,43 @@ describe('library', () => {
     flushSaves()
     const stored = JSON.parse(memoryStorage.getItem('dvd.library')!)
     assert.equal(stored.history.length, 3)
+  })
+})
+
+describe('cast queue on the TV', () => {
+  const ids = () => playerStore.get().queue.map((v) => v.id.slice(0, 1)).join('')
+  const v = (letter: string) => video(letter.padEnd(11, letter))
+  const start = () => {
+    playerStore.set({ video: v('a'), queue: [v('a'), v('b')], index: 0, autoIds: [] })
+    extendQueue([v('x'), v('y')], true)
+  }
+
+  test('phones queue ahead of the videos autoplay added', () => {
+    start()
+    assert.equal(ids(), 'abxy')
+    enqueue(v('c'), false)
+    enqueue(v('d'), false)
+    assert.equal(ids(), 'abcdxy')
+    enqueue(v('e'), true)
+    assert.equal(ids(), 'aebcdxy')
+    // Queuing a suggestion makes it a chosen video.
+    enqueue(v('y'), false)
+    assert.equal(ids(), 'aebcdyx')
+  })
+
+  test('applies edits from phones', () => {
+    start()
+    editQueue({ op: 'move', index: 2, videoId: v('x').id, to: 1 })
+    assert.equal(ids(), 'axby')
+    editQueue({ op: 'remove', index: 3, videoId: v('y').id, to: null })
+    assert.equal(ids(), 'axb')
+    assert.deepEqual(playerStore.get().autoIds, [v('x').id])
+    editQueue({ op: 'remove', index: 0, videoId: v('a').id, to: null })
+    assert.equal(ids(), 'axb', 'what plays stays')
+    editQueue({ op: 'play', index: 2, videoId: v('b').id, to: null })
+    assert.equal(playerStore.get().index, 2)
+    assert.equal(playerStore.get().video?.id, v('b').id)
+    editQueue({ op: 'clear', index: 0, videoId: null, to: null })
+    assert.equal(ids(), 'b')
   })
 })

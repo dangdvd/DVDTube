@@ -2,7 +2,8 @@
 // to start, and the controls the player screen registers (used by casting senders and the
 // remote's media keys).
 
-import type { CastStatus, VideoItem } from '@shared/models'
+import type { CastQueueEdit, CastStatus, VideoItem } from '@shared/models'
+import { applyQueueEdit } from '@shared/models'
 import { nav, toast } from '../state/nav'
 import { evaluate, hidesShorts } from '../state/parental'
 import { createStore } from '../store'
@@ -19,9 +20,21 @@ export interface PlayerState {
   sender: string | null
   /** Bumped by every play() (the screen reloads on change). */
   session: number
+  /** Videos autoplay added from "Tiếp theo": what phones queue goes before them. */
+  autoIds: string[]
 }
 
-export const playerStore = createStore<PlayerState>({ video: null, queue: [], index: 0, playlistId: null, music: false, startAt: null, sender: null, session: 0 })
+export const playerStore = createStore<PlayerState>({
+  video: null,
+  queue: [],
+  index: 0,
+  playlistId: null,
+  music: false,
+  startAt: null,
+  sender: null,
+  session: 0,
+  autoIds: [],
+})
 
 export interface PlayOptions {
   queue?: VideoItem[] | null
@@ -60,6 +73,7 @@ export function play(video: VideoItem, options: PlayOptions = {}): void {
     startAt: options.startAt ?? null,
     sender: options.sender ?? null,
     session: playerStore.get().session + 1,
+    autoIds: [],
   })
   if (nav.top()?.name !== 'player') nav.open({ name: 'player' })
 }
@@ -89,7 +103,10 @@ export function playPreviousInQueue(): boolean {
   return playIndex(playerStore.get().index - 1)
 }
 
-/** "Thêm vào hàng đợi" (cast `/api/queue`): next = play right after the current one. */
+/**
+ * "Thêm vào hàng đợi" (cast `/api/queue`): next = play right after the current one, else after
+ * what was queued before but ahead of the videos autoplay added.
+ */
 export function enqueue(video: VideoItem, next: boolean): void {
   const s = playerStore.get()
   if (!s.video) {
@@ -98,17 +115,28 @@ export function enqueue(video: VideoItem, next: boolean): void {
   }
   const queue = s.queue.filter((v) => v.id !== video.id)
   const index = queue.findIndex((v) => v.id === s.video?.id)
-  if (next) queue.splice(index + 1, 0, video)
-  else queue.push(video)
-  playerStore.set({ queue, index: Math.max(0, queue.findIndex((v) => v.id === s.video?.id)) })
+  const autoIds = s.autoIds.filter((id) => id !== video.id)
+  const firstAuto = queue.findIndex((v, i) => i > index && autoIds.includes(v.id))
+  queue.splice(next ? index + 1 : firstAuto >= 0 ? firstAuto : queue.length, 0, video)
+  playerStore.set({ queue, index: Math.max(0, queue.findIndex((v) => v.id === s.video?.id)), autoIds })
 }
 
-/** Replaces the queue after the current video (autoplay from "Tiếp theo"). */
-export function extendQueue(videos: VideoItem[]): void {
+/** A phone edits the queue (cast `/api/queue/edit`). */
+export function editQueue(edit: CastQueueEdit): void {
+  const s = playerStore.get()
+  const result = applyQueueEdit(s.queue, s.index, edit)
+  if (!result) return
+  const kept = new Set(result.queue.map((v) => v.id))
+  playerStore.set({ queue: result.queue, index: result.index, autoIds: s.autoIds.filter((id) => kept.has(id)) })
+  if (result.play !== null) playIndex(result.play)
+}
+
+/** Adds videos at the end of the queue (`auto`: autoplay from "Tiếp theo"). */
+export function extendQueue(videos: VideoItem[], auto = false): void {
   const s = playerStore.get()
   const known = new Set(s.queue.map((v) => v.id))
   const extra = videos.filter((v) => !v.isShort && !known.has(v.id))
-  if (extra.length) playerStore.set({ queue: [...s.queue, ...extra] })
+  if (extra.length) playerStore.set({ queue: [...s.queue, ...extra], autoIds: auto ? [...s.autoIds, ...extra.map((v) => v.id)] : s.autoIds })
 }
 
 /** Leaves the player (TV convention: nothing keeps playing behind the menus). */
@@ -117,7 +145,7 @@ export function closePlayer(): void {
 }
 
 export function resetPlayer(): void {
-  playerStore.set({ video: null, queue: [], index: 0, playlistId: null, music: false, startAt: null, sender: null })
+  playerStore.set({ video: null, queue: [], index: 0, playlistId: null, music: false, startAt: null, sender: null, autoIds: [] })
 }
 
 // MARK: Controls registered by the player screen

@@ -4,7 +4,7 @@
 // streams itself. No cookies or account data are ever sent or accepted.
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { cleanVideoItem, type CastAction, type CastCommand, type CastPlayRequest, type CastStatus, type VideoItem } from '@shared/models'
+import { cleanVideoItem, type CastAction, type CastCommand, type CastPlayRequest, type CastQueueEdit, type CastQueueOp, type CastStatus, type VideoItem } from '@shared/models'
 import { failure, isLanAddress, listen, readJsonBody, sendJson } from '../lan'
 
 export const CAST_PORT = 8766
@@ -13,6 +13,9 @@ const MAX_BODY = 256 * 1024
 const MAX_QUEUE = 500
 
 export const CAST_ACTIONS: CastAction[] = ['play', 'pause', 'toggle', 'seek', 'skip', 'next', 'previous', 'stop', 'volume', 'mute']
+/** Optional parts of the protocol this receiver serves (`/api/info` features). */
+export const CAST_FEATURES = ['queue-edit']
+const QUEUE_OPS: CastQueueOp[] = ['remove', 'move', 'play', 'clear']
 
 export interface ReceiverIdentity {
   id: string
@@ -85,6 +88,21 @@ export function parseControl(json: unknown): { action: CastAction; value: number
   return { action: action as CastAction, value }
 }
 
+/** Validates a `POST /api/queue/edit` body. */
+export function parseQueueEdit(json: unknown): CastQueueEdit | null {
+  if (typeof json !== 'object' || json === null) return null
+  const body = json as Record<string, unknown>
+  const op = body.op
+  if (typeof op !== 'string' || !QUEUE_OPS.includes(op as CastQueueOp)) return null
+  const index = finite(body.index)
+  const to = finite(body.to)
+  const videoId = typeof body.videoId === 'string' && /^[A-Za-z0-9_-]{6,20}$/.test(body.videoId) ? body.videoId : null
+  if (op === 'clear') return { op, index: 0, videoId: null, to: null }
+  if (index === null || index < 0 || index > MAX_QUEUE || !videoId) return null
+  if (op === 'move' && (to === null || to < 0 || to > MAX_QUEUE)) return null
+  return { op: op as CastQueueOp, index: Math.floor(index), videoId, to: op === 'move' && to !== null ? Math.floor(to) : null }
+}
+
 export class CastReceiver {
   private server: Server | null = null
   private boundPort = 0
@@ -144,6 +162,7 @@ export class CastReceiver {
       '/api/status': 'GET',
       '/api/play': 'POST',
       '/api/queue': 'POST',
+      '/api/queue/edit': 'POST',
       '/api/control': 'POST',
     }
     const expected = routes[path]
@@ -152,7 +171,7 @@ export class CastReceiver {
 
     if (path === '/api/info') {
       const { id, name, kind, version } = this.identity
-      return [200, { ok: true, app: 'DVDTube', protocol: CAST_PROTOCOL, id, name, kind, version }]
+      return [200, { ok: true, app: 'DVDTube', protocol: CAST_PROTOCOL, id, name, kind, version, features: CAST_FEATURES }]
     }
     if (path === '/api/status') {
       return [200, { ok: true, ...this.callbacks.status() }]
@@ -166,6 +185,12 @@ export class CastReceiver {
       if (!request) return [400, failure('Video không hợp lệ.')]
       this.callbacks.log?.(`cast receiver: play ${request.video.id}${request.queue ? ` (queue of ${request.queue.length})` : ''}`)
       this.callbacks.onCommand({ type: 'play', request })
+      return [200, { ok: true }]
+    }
+    if (path === '/api/queue/edit') {
+      const edit = parseQueueEdit(body.json)
+      if (!edit) return [400, failure('Lệnh sửa hàng đợi không hợp lệ.')]
+      this.callbacks.onCommand({ type: 'edit', edit })
       return [200, { ok: true }]
     }
     if (path === '/api/queue') {

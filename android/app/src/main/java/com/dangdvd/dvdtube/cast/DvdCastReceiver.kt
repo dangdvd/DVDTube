@@ -24,13 +24,15 @@ import com.dangdvd.dvdtube.tv.TvNav
 import com.dangdvd.dvdtube.tv.TvPairingServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
 /**
  * "Truyền tới DVDTube" — the Android TV side. While DVDTube runs on the TV it advertises
  * `_dvdtube._tcp` (TXT `id`, `v=1`, `kind=tv`, `name`) and serves the cast JSON API on port 8766
- * (or a free port): `/api/info`, `/api/play`, `/api/queue`, `/api/control`, `/api/status`.
+ * (or a free port): `/api/info`, `/api/play`, `/api/queue`, `/api/queue/edit`, `/api/control`,
+ * `/api/status`.
  * The TV fetches the streams itself; senders only send video ids and remote-control commands.
  */
 object DvdCastReceiver {
@@ -39,6 +41,7 @@ object DvdCastReceiver {
     const val PROTOCOL = 1
     private const val MAX_BODY = 256 * 1024
     private const val ID_KEY = "cast.deviceId"
+    private val VIDEO_ID = Regex("^[A-Za-z0-9_-]{6,20}$")
 
     private var appContext: Context? = null
     private var server: LanServer? = null
@@ -138,6 +141,7 @@ object DvdCastReceiver {
             "/api/status" -> withContext(Dispatchers.Main) { LanServer.Response.ok(status()) }
             "/api/play" -> post(request) { play(it) }
             "/api/queue" -> post(request) { queue(it) }
+            "/api/queue/edit" -> post(request) { editQueue(it) }
             "/api/control" -> post(request) { control(it) }
             else -> LanServer.Response.error(404, "Không có trang này.")
         }
@@ -158,7 +162,8 @@ object DvdCastReceiver {
                 .put("id", deviceId())
                 .put("name", context?.let(::deviceName) ?: "Android TV")
                 .put("kind", "tv")
-                .put("version", BuildConfig.VERSION_NAME),
+                .put("version", BuildConfig.VERSION_NAME)
+                .put("features", JSONArray().put("queue-edit")),
         )
     }
 
@@ -202,6 +207,26 @@ object DvdCastReceiver {
                 }
                 next -> PlayerController.playAfterCurrent(video)
                 else -> PlayerController.addToQueue(video)
+            }
+            LanServer.Response.ok(status())
+        }
+    }
+
+    /** A phone removes / moves / plays a queue item, or clears what comes next. */
+    private suspend fun editQueue(body: JNode): LanServer.Response {
+        val op = body["op"].string ?: return LanServer.Response.error(400, "Thiếu lệnh sửa hàng đợi.")
+        if (op !in setOf("remove", "move", "play", "clear")) return LanServer.Response.error(400, "Lệnh sửa hàng đợi không hợp lệ.")
+        val index = body["index"].int ?: 0
+        val videoId = body["videoId"].string?.takeIf { VIDEO_ID.matches(it) }
+        val to = body["to"].int
+        if (op != "clear" && (videoId == null || index < 0)) return LanServer.Response.error(400, "Thiếu video trong hàng đợi.")
+        if (op == "move" && (to == null || to < 0)) return LanServer.Response.error(400, "Thiếu vị trí mới.")
+        return withContext(Dispatchers.Main) {
+            if (op == "play" && !ParentalControls.canPlay()) {
+                return@withContext LanServer.Response.error(403, "Đã hết thời gian xem cho phép trên TV.")
+            }
+            if (!PlayerController.applyRemoteQueueEdit(op, index, videoId, to)) {
+                return@withContext LanServer.Response.error(409, "Hàng đợi trên TV đã thay đổi. Hãy thử lại.")
             }
             LanServer.Response.ok(status())
         }

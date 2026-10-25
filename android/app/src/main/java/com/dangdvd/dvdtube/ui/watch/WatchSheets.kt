@@ -25,14 +25,23 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,6 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.LinkInteractionListener
@@ -63,6 +73,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
+import com.dangdvd.dvdtube.cast.DvdCastSender
 import com.dangdvd.dvdtube.core.Comment
 import com.dangdvd.dvdtube.core.CommentSortOption
 import com.dangdvd.dvdtube.core.WatchInfo
@@ -569,6 +580,21 @@ fun QueueSheet(onDismiss: () -> Unit) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(PlayerController.queueIndex - 1, 0))
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         SheetTitle("Hàng đợi • ${PlayerController.queueIndex + 1}/${PlayerController.queue.size}", onDismiss)
+        DvdCastSender.connected?.let { device ->
+            Text(
+                "Hàng đợi trên ${device.name}: mọi điện thoại kết nối với ${device.name} đều thêm, xóa và đổi thứ tự được.",
+                Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (PlayerController.queue.size > 1) {
+            TextButton(onClick = { PlayerController.clearUpcoming() }, modifier = Modifier.padding(start = 4.dp)) {
+                Icon(Icons.Default.ClearAll, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Xóa các video sắp phát")
+            }
+        }
         LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.8f).navigationBarsPadding(), state = listState) {
             itemsIndexed(PlayerController.queue, key = { index, video -> video.id + "#" + index }) { index, video ->
                 val current = index == PlayerController.queueIndex
@@ -588,11 +614,35 @@ fun QueueSheet(onDismiss: () -> Unit) {
                             Text(it, maxLines = 1, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    if (!current) {
-                        IconButton(onClick = { PlayerController.removeFromQueue(index) }) { Icon(Icons.Default.Close, "Xóa khỏi hàng đợi") }
-                    }
+                    QueueItemMenu(index, current)
                 }
             }
+        }
+    }
+}
+
+/** Per item: play it now, next, move it up / down, remove it (on the DVDTube TV / PC while casting). */
+@Composable
+private fun QueueItemMenu(index: Int, current: Boolean) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, "Tùy chọn cho video này") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            @Composable
+            fun item(title: String, icon: ImageVector, action: () -> Unit) = DropdownMenuItem(
+                text = { Text(title) },
+                leadingIcon = { Icon(icon, null) },
+                onClick = {
+                    open = false
+                    action()
+                },
+            )
+            val queueIndex = PlayerController.queueIndex
+            if (!current) item("Phát ngay", Icons.Default.PlayArrow) { PlayerController.playQueueItem(index) }
+            if (!current && index != queueIndex + 1) item("Phát tiếp theo", Icons.Default.QueuePlayNext) { PlayerController.prioritizeQueueItem(index) }
+            if (index > 0) item("Chuyển lên", Icons.Default.ArrowUpward) { PlayerController.moveQueueItem(index, index - 1) }
+            if (index < PlayerController.queue.lastIndex) item("Chuyển xuống", Icons.Default.ArrowDownward) { PlayerController.moveQueueItem(index, index + 1) }
+            if (!current) item("Xóa khỏi hàng đợi", Icons.Default.Delete) { PlayerController.removeFromQueue(index) }
         }
     }
 }

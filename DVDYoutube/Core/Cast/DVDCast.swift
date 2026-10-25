@@ -71,9 +71,19 @@ final class DVDCast {
     private(set) var receiver: Receiver?
     private(set) var status = Status()
     private(set) var isDiscovering = false
+    /// The receiver serves `/api/queue/edit` (its `/api/info` features list "queue-edit").
+    private(set) var supportsQueueEdit = false
 
     var isConnected: Bool { state == .connected }
     var isActive: Bool { state == .connected || state == .connecting }
+
+    /// The receiver has a video loaded: picking another one asks whether to play it now or queue it.
+    var receiverBusy: Bool {
+        status.video != nil && ["playing", "paused", "buffering", "loading"].contains(status.state)
+    }
+
+    /// A moment after a queue edit from here, when statuses may still show the old queue.
+    var queueEditPending: Bool { Date().timeIntervalSince(lastQueueEditAt) < 1.5 }
 
     /// Discovered receivers first, then the ones added by address (without duplicates).
     var receivers: [Receiver] {
@@ -99,6 +109,7 @@ final class DVDCast {
     @ObservationIgnored private var lastCommandAt = Date.distantPast
     /// A video just sent with /api/play: older statuses (still the previous video) are ignored.
     @ObservationIgnored private var expectedVideo: (id: String, since: Date)?
+    @ObservationIgnored private var lastQueueEditAt = Date.distantPast
     @ObservationIgnored private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
@@ -208,6 +219,7 @@ final class DVDCast {
         self.receiver = receiver
         state = .connecting
         status = Status()
+        supportsQueueEdit = false
         connectTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -220,6 +232,7 @@ final class DVDCast {
                 guard !Task.isCancelled, self.receiver?.id == receiver.id else { return }
                 self.host = address
                 if let name = info["name"].string, !name.isEmpty { self.receiver?.name = name }
+                self.supportsQueueEdit = info["features"].array.contains { $0.string == "queue-edit" }
                 self.state = .connected
                 self.failures = 0
                 Log.debug("dvdtube cast: connected (\(info["kind"].string ?? "?"), protocol \(info["protocol"].int ?? 0))")
@@ -258,6 +271,7 @@ final class DVDCast {
             if let request { session.dataTask(with: request).resume() }
         }
         host = nil
+        supportsQueueEdit = false
         if notify {
             state = .idle
             receiver = nil
@@ -368,6 +382,48 @@ final class DVDCast {
         }
     }
 
+    /// "Phát ngay" keeping the receiver's queue: the video goes next in line, then the receiver skips to it.
+    func playNow(_ video: VideoItem) {
+        guard isConnected, let host else { return }
+        lastQueueEditAt = Date()
+        Task {
+            do {
+                _ = try await call("POST", "/api/queue", host: host, body: ["video": CrossJSON.video(video), "next": true])
+                _ = try await call("POST", "/api/control", host: host, body: ["action": "next", "value": NSNull()])
+                pollSoon()
+            } catch {
+                PlayerManager.shared.showToast(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Edits the receiver's queue (remove | move | play | clear); false (with a message) when its
+    /// DVDTube is too old for that.
+    @discardableResult
+    func editQueue(_ op: String, index: Int, videoId: String?, to: Int? = nil) -> Bool {
+        guard isConnected, let host else { return false }
+        guard supportsQueueEdit else {
+            PlayerManager.shared.showToast("Hãy cập nhật DVDTube trên \(receiver?.name ?? "TV") để sửa hàng đợi từ iPhone")
+            return false
+        }
+        lastQueueEditAt = Date()
+        let body: [String: Any] = [
+            "op": op,
+            "index": index,
+            "videoId": CrossJSON.orNull(videoId),
+            "to": CrossJSON.orNull(to),
+        ]
+        Task {
+            do {
+                _ = try await call("POST", "/api/queue/edit", host: host, body: body)
+                pollSoon()
+            } catch {
+                PlayerManager.shared.showToast(error.localizedDescription)
+            }
+        }
+        return true
+    }
+
     /// play | pause | toggle | seek | skip | next | previous | stop | volume | mute
     func control(_ action: String, value: Double? = nil) {
         guard isConnected, let host else { return }
@@ -445,6 +501,9 @@ final class DVDCast {
             applyToPlayer()
             if changedVideo, let video = next.video {
                 PlayerManager.shared.castDidChangeVideo(video, queue: next.queue, index: next.index)
+            } else if !queueEditPending {
+                // Another phone may have added, removed or moved videos.
+                PlayerManager.shared.castDidUpdateQueue(next.queue, index: next.index)
             }
         } catch {
             failures += 1

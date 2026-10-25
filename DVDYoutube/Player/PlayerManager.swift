@@ -64,6 +64,9 @@ final class PlayerManager {
     private(set) var queueIndex = 0
     /// The playlist the queue came from (restored with the queue, sent to cast receivers).
     private(set) var playlistId: String?
+    /// A video picked while the DVDTube TV / PC already plays something: "Phát ngay", "Phát tiếp
+    /// theo" or "Thêm vào hàng đợi" is asked instead of replacing what plays (karaoke).
+    var castChoice: VideoItem?
     private(set) var isPiPActive = false
     /// Restored paused from the last session ("Tiếp tục phát…"); nothing is loaded until play.
     private(set) var isRestoredSession = false
@@ -186,6 +189,10 @@ final class PlayerManager {
     // MARK: - Public API
 
     func play(_ video: VideoItem, queue newQueue: [VideoItem]? = nil, startAt: Double? = nil, playlistId: String? = nil) {
+        if DVDCast.shared.isConnected, newQueue == nil, video.id != currentVideo?.id, DVDCast.shared.receiverBusy {
+            castChoice = video
+            return
+        }
         if musicSession {
             musicSession = false
             radioId = nil
@@ -306,6 +313,11 @@ final class PlayerManager {
 
     func playQueueItem(at index: Int) {
         guard queue.indices.contains(index) else { return }
+        if DVDCast.shared.isConnected, DVDCast.shared.supportsQueueEdit {
+            // The receiver jumps in its own queue (other phones may have changed it).
+            if DVDCast.shared.editQueue("play", index: index, videoId: queue[index].id) { queueIndex = index }
+            return
+        }
         saveProgress()
         queueIndex = index
         start(queue[index], startAt: nil)
@@ -324,6 +336,59 @@ final class PlayerManager {
         } else {
             showToast("Đã thêm vào hàng đợi")
         }
+    }
+
+    /// Removes a video from the queue (on the DVDTube receiver while casting); not the current one.
+    func removeQueueItem(at index: Int) {
+        guard queue.indices.contains(index), index != queueIndex else { return }
+        if DVDCast.shared.isConnected, !DVDCast.shared.editQueue("remove", index: index, videoId: queue[index].id) { return }
+        queue.remove(at: index)
+        if index < queueIndex { queueIndex -= 1 }
+        scheduleSessionSave()
+    }
+
+    /// Moves a queue item so that it ends up at `to` (on the DVDTube receiver while casting).
+    func moveQueueItem(from: Int, to: Int) {
+        guard queue.indices.contains(from) else { return }
+        let target = min(max(to, 0), queue.count - 1)
+        guard target != from else { return }
+        let video = queue[from]
+        if DVDCast.shared.isConnected, !DVDCast.shared.editQueue("move", index: from, videoId: video.id, to: target) { return }
+        let current = queueIndex
+        queue.remove(at: from)
+        queue.insert(video, at: target)
+        if from == current {
+            queueIndex = target
+        } else if from < current, target >= current {
+            queueIndex = current - 1
+        } else if from > current, target <= current {
+            queueIndex = current + 1
+        }
+        scheduleSessionSave()
+    }
+
+    /// "Phát tiếp theo" for a video already in the queue: right after the current one.
+    func prioritizeQueueItem(at index: Int) {
+        moveQueueItem(from: index, to: index > queueIndex ? queueIndex + 1 : queueIndex)
+    }
+
+    /// "Xóa các video sắp phát": keeps only the current video.
+    func clearUpcoming() {
+        guard queue.count > 1, queue.indices.contains(queueIndex) else { return }
+        if DVDCast.shared.isConnected, !DVDCast.shared.editQueue("clear", index: 0, videoId: nil) { return }
+        queue = [queue[queueIndex]]
+        queueIndex = 0
+        scheduleSessionSave()
+    }
+
+    /// "Phát ngay" on the DVDTube receiver without dropping its queue: next in line, then skip to it.
+    func castPlayNow(_ video: VideoItem) {
+        if let current = currentVideo, video.id != current.id {
+            queue.removeAll { $0.id == video.id }
+            queueIndex = queue.firstIndex { $0.id == current.id } ?? 0
+            queue.insert(video, at: min(queueIndex + 1, queue.count))
+        }
+        DVDCast.shared.playNow(video)
     }
 
     /// "Play next": right after the current video.
@@ -1862,6 +1927,14 @@ final class PlayerManager {
         scheduleSessionSave()
     }
 
+    /// The DVDTube receiver's queue changed (another phone, or the TV itself) while the video stayed.
+    func castDidUpdateQueue(_ newQueue: [VideoItem], index: Int) {
+        guard DVDCast.shared.isConnected, !newQueue.isEmpty else { return }
+        let newIndex = min(max(index, 0), newQueue.count - 1)
+        if newQueue.map(\.id) != queue.map(\.id) { queue = newQueue }
+        if newIndex != queueIndex { queueIndex = newIndex }
+    }
+
     /// "Tiếp tục trên thiết bị này": continue here where the TV stopped.
     func resumeLocally(video: VideoItem?, at position: Double) {
         let target = video ?? currentVideo
@@ -1897,6 +1970,7 @@ final class PlayerManager {
     func castDidEnd() {
         isPlaying = false
         isBuffering = false
+        castChoice = nil
         saveProgress()
         updateNowPlayingTime()
     }

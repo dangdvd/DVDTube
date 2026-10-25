@@ -8,7 +8,7 @@
 // registers itself with `registerPlayerDriver` when the player module loads.
 
 import { create } from 'zustand'
-import type { CaptionCue, CaptionTrack, PlayerInfo, SponsorSegment, VideoItem, WatchInfo } from '@shared/models'
+import type { CaptionCue, CaptionTrack, CastQueueEdit, PlayerInfo, SponsorSegment, VideoItem, WatchInfo } from '@shared/models'
 import type { AudioTrackOption, QualityOption, SourceKind } from '@/player/engine/engine'
 
 export type PlayerMode = 'page' | 'mini' | 'hidden'
@@ -48,6 +48,8 @@ export interface PlayerDriver {
   previous(): void
   playQueueItem(index: number): void
   removeFromQueue(index: number): void
+  /** A phone edits the queue while this computer is a cast receiver. */
+  editQueue(edit: CastQueueEdit): void
   shuffleQueue(): void
   setLoopQueue(on: boolean): void
   setLoop(on: boolean): void
@@ -233,6 +235,7 @@ export const usePlayer = create<PlayerStore>((set) => ({
   previous: delegate('previous'),
   playQueueItem: delegate('playQueueItem'),
   removeFromQueue: delegate('removeFromQueue'),
+  editQueue: delegate('editQueue'),
   shuffleQueue: delegate('shuffleQueue'),
   setLoopQueue: delegate('setLoopQueue'),
   setLoop: delegate('setLoop'),
