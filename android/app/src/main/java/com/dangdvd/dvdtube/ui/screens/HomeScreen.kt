@@ -325,10 +325,11 @@ fun AppLogo() {
         val measurer = rememberTextMeasurer()
         val density = LocalDensity.current
         val nameWidth = remember(style, density) { with(density) { measurer.measure("DVDTube", style).size.width.toDp() } }
+        // On narrow phones the toolbar buttons leave no room for the name: show the icon alone.
+        val showName = maxWidth >= 34.dp + nameWidth
         Row(verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(R.drawable.logo), null, Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)))
-            // On narrow phones the toolbar buttons leave no room for the name: show the icon alone.
-            if (maxWidth >= 34.dp + nameWidth) {
+            if (showName) {
                 Spacer(Modifier.width(6.dp))
                 Text("DVDTube", style = style, maxLines = 1, softWrap = false)
             }
