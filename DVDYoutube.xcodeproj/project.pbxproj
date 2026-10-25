@@ -6,10 +6,51 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FA7975600BEC93E262C5FED1 /* DVDTubeWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FDC8542E0E57C623F0F09682 /* DVDTubeWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		0311BC328A3FABD8AE700F3A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 61772F5F531559E2A8375F80;
+			remoteInfo = DVDTubeWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E1910A0A8CCC62EF67952322 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				FA7975600BEC93E262C5FED1 /* DVDTubeWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		0E7E4EAFD2928D0667A02532 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F5BF48AA40CAD7891EB709FC /* DVDYoutube.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DVDYoutube.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FDC8542E0E57C623F0F09682 /* DVDTubeWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DVDTubeWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A76AE331CE64F388BFCEEE67 /* DVDYoutube.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DVDYoutube.entitlements; sourceTree = "<group>"; };
+		19EA89ECD2B08C605E50B413 /* DVDTubeWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DVDTubeWidget.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		12FD768AB6879B282A2BC6FB /* Exceptions for "DVDTubeWidget" folder in "DVDTubeWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 61772F5F531559E2A8375F80 /* DVDTubeWidget */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		74C61EEF9C048939045A3EDA /* DVDYoutube */ = {
@@ -17,10 +58,25 @@
 			path = DVDYoutube;
 			sourceTree = "<group>";
 		};
+		CB01D742493FC85426CA9296 /* DVDTubeWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				12FD768AB6879B282A2BC6FB /* Exceptions for "DVDTubeWidget" folder in "DVDTubeWidget" target */,
+			);
+			path = DVDTubeWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		DE1439ACCFCEB73E6F9981A5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A6C03FD2E6AAFE0E464A14D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -34,6 +90,7 @@
 			isa = PBXGroup;
 			children = (
 				74C61EEF9C048939045A3EDA /* DVDYoutube */,
+				CB01D742493FC85426CA9296 /* DVDTubeWidget */,
 				893F31DCBD9337B480BF8FC4 /* Config */,
 				B23D89B2D2DF3745A003AEB1 /* Products */,
 			);
@@ -43,6 +100,8 @@
 			isa = PBXGroup;
 			children = (
 				0E7E4EAFD2928D0667A02532 /* Info.plist */,
+				A76AE331CE64F388BFCEEE67 /* DVDYoutube.entitlements */,
+				19EA89ECD2B08C605E50B413 /* DVDTubeWidget.entitlements */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -51,6 +110,7 @@
 			isa = PBXGroup;
 			children = (
 				F5BF48AA40CAD7891EB709FC /* DVDYoutube.app */,
+				FDC8542E0E57C623F0F09682 /* DVDTubeWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -65,10 +125,12 @@
 				3B7DFB0747829707F437ED7F /* Sources */,
 				DE1439ACCFCEB73E6F9981A5 /* Frameworks */,
 				3519654520012F56AC9A0E86 /* Resources */,
+				E1910A0A8CCC62EF67952322 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				06312C5FE7338A1F7F86321B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				74C61EEF9C048939045A3EDA /* DVDYoutube */,
@@ -79,6 +141,28 @@
 			productName = DVDYoutube;
 			productReference = F5BF48AA40CAD7891EB709FC /* DVDYoutube.app */;
 			productType = "com.apple.product-type.application";
+		};
+		61772F5F531559E2A8375F80 /* DVDTubeWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5BBA22EDEACE5C4735DB39ED /* Build configuration list for PBXNativeTarget "DVDTubeWidget" */;
+			buildPhases = (
+				2E00230DA04BEC27BF00F689 /* Sources */,
+				5A6C03FD2E6AAFE0E464A14D /* Frameworks */,
+				B196E5970592680B4BE98436 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CB01D742493FC85426CA9296 /* DVDTubeWidget */,
+			);
+			name = DVDTubeWidget;
+			packageProductDependencies = (
+			);
+			productName = DVDTubeWidget;
+			productReference = FDC8542E0E57C623F0F09682 /* DVDTubeWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -91,6 +175,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					42AEFBAE01D2DFD981F7DA7D = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					61772F5F531559E2A8375F80 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
@@ -111,12 +198,20 @@
 			projectRoot = "";
 			targets = (
 				42AEFBAE01D2DFD981F7DA7D /* DVDYoutube */,
+				61772F5F531559E2A8375F80 /* DVDTubeWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		3519654520012F56AC9A0E86 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B196E5970592680B4BE98436 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -133,7 +228,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2E00230DA04BEC27BF00F689 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		06312C5FE7338A1F7F86321B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 61772F5F531559E2A8375F80 /* DVDTubeWidget */;
+			targetProxy = 0311BC328A3FABD8AE700F3A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		963E5652CFCAC549D359FB70 /* Debug */ = {
@@ -258,6 +368,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/DVDYoutube.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -287,6 +398,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/DVDYoutube.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -300,6 +412,68 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dangdvd.dvdtube;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		575E1FD5CA839947086D21B3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/DVDTubeWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DVDTubeWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dangdvd.dvdtube.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		E8EA7A798EDFA91000B760CF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/DVDTubeWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DVDTubeWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dangdvd.dvdtube.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -328,6 +502,15 @@
 			buildConfigurations = (
 				1A9E10FAAD0A97FB97BCEC18 /* Debug */,
 				B79C83306C8ABF7373B5E45C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5BBA22EDEACE5C4735DB39ED /* Build configuration list for PBXNativeTarget "DVDTubeWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				575E1FD5CA839947086D21B3 /* Debug */,
+				E8EA7A798EDFA91000B760CF /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

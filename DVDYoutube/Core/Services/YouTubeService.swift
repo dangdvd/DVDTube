@@ -261,6 +261,11 @@ final class YouTubeService {
 
     /// Latest uploads of a channel for the subscriptions feed.
     func latestVideos(channel: ChannelItem) async -> [VideoItem] {
+        let videos = await uploads(channel: channel)
+        return ContentFilter.shared.filter(videos)
+    }
+
+    private func uploads(channel: ChannelItem) async -> [VideoItem] {
         if let videos = try? await RSSFeed.videos(channelId: channel.id), !videos.isEmpty {
             return videos.map { video in
                 var video = video

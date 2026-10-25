@@ -513,7 +513,8 @@ enum PlayerParser {
             availableAt: Date().addingTimeInterval(prerollAdSeconds(json)),
             expiresAt: expires,
             storyboard: json.at("storyboards", "playerStoryboardSpecRenderer", "spec").string.flatMap(Storyboard.init(spec:)),
-            loudnessDb: json.at("playerConfig", "audioConfig", "loudnessDb").double
+            loudnessDb: json.at("playerConfig", "audioConfig", "loudnessDb").double,
+            isFamilySafe: json.at("microformat", "playerMicroformatRenderer", "isFamilySafe").bool ?? true
         )
     }
 

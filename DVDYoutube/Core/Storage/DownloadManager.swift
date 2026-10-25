@@ -10,6 +10,8 @@ struct DownloadedVideo: Codable, Identifiable, Hashable {
     var downloadedAt: Date
     /// Only the sound (an .m4a file); nil in downloads made before audio downloads existed.
     var isAudio: Bool?
+    /// Downloaded by "Tự động tải" (kept to the newest N per channel); nil/false: by hand.
+    var isAuto: Bool?
 
     var id: String { video.id }
 }
@@ -42,6 +44,7 @@ final class DownloadManager {
         var video: VideoItem
         var audioOnly: Bool
         var maxHeight: Int
+        var isAuto = false
     }
     @ObservationIgnored private let folder: URL
     @ObservationIgnored private let indexURL: URL
@@ -101,15 +104,36 @@ final class DownloadManager {
     }
 
     @discardableResult
-    private func enqueue(_ video: VideoItem, audioOnly: Bool, quality: VideoQuality?) -> Bool {
+    private func enqueue(_ video: VideoItem, audioOnly: Bool, quality: VideoQuality?, isAuto: Bool = false) -> Bool {
         guard tasks[video.id] == nil, !pending.contains(where: { $0.video.id == video.id }), !isDownloaded(video.id) else {
             return false
         }
         let maxHeight = (quality ?? AppSettings.shared.downloadQuality).maxHeight ?? 1080
-        pending.append(Request(video: video, audioOnly: audioOnly, maxHeight: maxHeight))
+        pending.append(Request(video: video, audioOnly: audioOnly, maxHeight: maxHeight, isAuto: isAuto))
         states[video.id] = .queued
         startNext()
         return true
+    }
+
+    /// "Tự động tải": queued quietly (no toast), at the download quality setting.
+    @discardableResult
+    func enqueueAutomatic(_ video: VideoItem, audioOnly: Bool) -> Bool {
+        enqueue(video, audioOnly: audioOnly, quality: nil, isAuto: true)
+    }
+
+    func isQueuedOrRunning(_ videoId: String) -> Bool {
+        tasks[videoId] != nil || pending.contains { $0.video.id == videoId }
+    }
+
+    /// Keeps the newest `limit` automatic downloads of a channel (manual downloads are never touched).
+    func pruneAutomatic(channelId: String, keep limit: Int) {
+        let automatic = downloads.filter { $0.isAuto == true && $0.video.channelId == channelId }
+            .sorted { ($0.video.publishedDate ?? $0.downloadedAt) > ($1.video.publishedDate ?? $1.downloadedAt) }
+        guard automatic.count > limit else { return }
+        for entry in automatic.dropFirst(max(limit, 0)) {
+            Log.debug("auto download: removing an older video of the channel")
+            delete(entry.id)
+        }
     }
 
     private func startNext() {
@@ -222,15 +246,26 @@ final class DownloadManager {
             downloads.removeAll { $0.id == video.id }
             downloads.insert(DownloadedVideo(
                 video: item, fileName: fileName, fileSize: size,
-                qualityLabel: qualityLabel, downloadedAt: Date(), isAudio: request.audioOnly
+                qualityLabel: qualityLabel, downloadedAt: Date(), isAudio: request.audioOnly,
+                isAuto: request.isAuto ? true : nil
             ), at: 0)
             save()
             states[video.id] = nil
-            PlayerManager.shared.showToast("Đã tải xong: \(item.title)")
+            if request.isAuto {
+                AutoDownloader.didDownload(item)
+            } else {
+                PlayerManager.shared.showToast("Đã tải xong: \(item.title)")
+            }
         } catch is CancellationError {
             states[video.id] = nil
         } catch {
-            if tasks[video.id] != nil { states[video.id] = .failed(error.localizedDescription) }
+            if request.isAuto {
+                // Upcoming / unavailable videos are tried again on a later run, quietly.
+                Log.debug("auto download \(video.id) failed: \(error.localizedDescription)")
+                states[video.id] = nil
+            } else if tasks[video.id] != nil {
+                states[video.id] = .failed(error.localizedDescription)
+            }
         }
         tasks[video.id] = nil
         startNext()

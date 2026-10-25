@@ -383,6 +383,8 @@ struct PlayerInfo {
     var storyboard: Storyboard?
     /// How much louder than YouTube's reference level the audio is (dB), for stable volume.
     var loudnessDb: Double?
+    /// False for age-restricted videos (when the response says so).
+    var isFamilySafe: Bool = true
 
     var bestAudio: StreamFormat? { preferredAudio(language: nil) }
 

@@ -74,7 +74,7 @@ struct PlaylistView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             if let videos = model?.videos, !videos.isEmpty {
-                PlayAllButtons(videos: videos)
+                PlayAllButtons(videos: videos, playlistId: playlist.id)
                 Button {
                     let copy = library.createPlaylist(named: current.title)
                     for video in videos { library.add(video, to: copy.id) }

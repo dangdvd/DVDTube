@@ -12,9 +12,8 @@ struct DVDYoutubeApp: App {
     @State private var downloads = DownloadManager.shared
     @State private var router = Router.shared
     @State private var account = AccountStore.shared
-    /// A scanned "sign in on the TV" code waiting for the user's confirmation.
-    @State private var tvLogin: TVLoginRequest?
-    @State private var tvLoginNeedsAccount = false
+    /// Scanned codes (TV sign-in, library sync) waiting for the user's confirmation.
+    @State private var links = DeepLinks.shared
 
     var body: some Scene {
         WindowGroup {
@@ -28,21 +27,48 @@ struct DVDYoutubeApp: App {
                 .environment(account)
                 .preferredColorScheme(settings.theme == .system ? nil : (settings.theme == .dark ? .dark : .light))
                 .tint(.brand)
-                .task { await APIConfig.refreshRemoteConfig() }
-                .onOpenURL { url in handleOpen(url) }
+                .task {
+                    ParentalControls.shared.startMonitoring()
+                    AlarmScheduler.shared.startMonitoring()
+                    CrashReports.shared.start()
+                    WidgetBridge.scheduleUpdate()
+                    await APIConfig.refreshRemoteConfig()
+                    await UpdateChecker.shared.checkIfDue()
+                }
+                .onOpenURL { url in links.open(url) }
                 .alert("Đăng nhập trên TV?", isPresented: Binding(
-                    get: { tvLogin != nil },
-                    set: { if !$0 { tvLogin = nil } }
-                ), presenting: tvLogin) { request in
-                    Button("Gửi") { sendTVLogin(request) }
+                    get: { links.tvLogin != nil },
+                    set: { if !$0 { links.tvLogin = nil } }
+                ), presenting: links.tvLogin) { request in
+                    Button("Gửi") { links.sendTVLogin(request) }
                     Button("Hủy", role: .cancel) {}
                 } message: { request in
                     Text("Gửi phiên đăng nhập YouTube của \(account.profile?.name ?? "tài khoản này") tới \"\(request.tvName)\" (\(request.host)) qua Wi-Fi nội bộ. Dữ liệu được mã hoá bằng khoá trong mã QR. Chỉ làm vậy với TV của bạn.")
                 }
-                .alert("Chưa đăng nhập", isPresented: $tvLoginNeedsAccount) {
+                .alert("Chưa đăng nhập", isPresented: Binding(
+                    get: { links.tvLoginNeedsAccount },
+                    set: { links.tvLoginNeedsAccount = $0 }
+                )) {
                     Button("OK", role: .cancel) {}
                 } message: {
                     Text("Hãy đăng nhập tài khoản Google trong DVDTube trên điện thoại trước, rồi quét lại mã trên TV.")
+                }
+                .alert("Đồng bộ thư viện với \(links.syncRequest?.name ?? "thiết bị kia")?", isPresented: Binding(
+                    get: { links.syncRequest != nil },
+                    set: { if !$0 { links.syncRequest = nil } }
+                ), presenting: links.syncRequest) { request in
+                    Button("Đồng bộ") { links.confirmSync(request) }
+                    Button("Hủy", role: .cancel) {}
+                } message: { request in
+                    Text("Kênh đăng ký, nhật ký xem, Xem sau, video đã thích, danh sách phát và nội dung đã tìm của hai thiết bị sẽ được gộp qua Wi-Fi nội bộ (\(request.host)), mã hóa bằng khóa trong mã QR. Không gửi tài khoản hay cookie.")
+                }
+                .alert("Đồng bộ thư viện", isPresented: Binding(
+                    get: { links.syncResult != nil },
+                    set: { if !$0 { links.syncResult = nil } }
+                )) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(links.syncResult ?? "")
                 }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -50,48 +76,13 @@ struct DVDYoutubeApp: App {
             case .background:
                 player.appDidEnterBackground()
                 shorts.pause()
+                ParentalControls.shared.saveUsage()
                 NewVideoNotifier.schedule()
             case .active:
                 player.appWillEnterForeground()
+                Task { await AutoDownloader.run() }
             default:
                 break
-            }
-        }
-    }
-
-    /// `dvdtube://watch?v=ID` or any shared YouTube link opened with the app.
-    private func handleOpen(_ url: URL) {
-        if url.scheme == "dvdtube", url.host == "tv-login" {
-            guard let request = TVLoginRequest(url: url) else {
-                player.showToast("Mã QR đăng nhập TV không hợp lệ")
-                return
-            }
-            if account.isSignedIn, AuthSession.shared.isAuthenticated {
-                tvLogin = request
-            } else {
-                tvLoginNeedsAccount = true
-            }
-            return
-        }
-        var text = url.absoluteString
-        if url.scheme == "dvdtube" {
-            text = text.replacingOccurrences(of: "dvdtube://", with: "https://www.youtube.com/")
-        }
-        if let id = YouTubeService.videoId(from: text) {
-            player.play(VideoItem(id: id, title: ""))
-        }
-    }
-}
-
-extension DVDYoutubeApp {
-    private func sendTVLogin(_ request: TVLoginRequest) {
-        let cookies = AuthSession.shared.cookieSnapshot
-        Task {
-            do {
-                let name = try await TVLoginSender.send(request, cookies: cookies)
-                player.showToast(name.isEmpty ? "Đã đăng nhập DVDTube trên TV" : "Đã đăng nhập trên TV: \(name)")
-            } catch {
-                player.showToast(error.localizedDescription)
             }
         }
     }

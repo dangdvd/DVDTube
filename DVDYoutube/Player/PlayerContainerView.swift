@@ -153,10 +153,21 @@ struct MiniPlayerBar: View {
     var body: some View {
         HStack(spacing: 4) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(player.currentVideo?.title ?? "")
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
+                if let video = player.currentVideo {
+                    DeArrowTitle(video: video)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                }
                 HStack(spacing: 4) {
+                    if player.isRestoredSession {
+                        Image(systemName: "play.circle")
+                        Text("Tiếp tục phát…")
+                        Text("•")
+                    } else if let name = player.castDeviceName, player.isCasting {
+                        Image(systemName: "tv")
+                        Text(name)
+                        Text("•")
+                    }
                     if let label = player.sleepTimerLabel {
                         Label(label, systemImage: "moon.zzz.fill").monospacedDigit()
                         Text("•")

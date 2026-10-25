@@ -64,6 +64,9 @@ struct LibraryView: View {
             }
 
             Section {
+                NavigationLink(value: Route.music) {
+                    row("music.note", "Nghe nhạc", "")
+                }
                 NavigationLink(value: Route.history) {
                     row("clock.arrow.circlepath", "Nhật ký xem", "\(library.history.count)")
                 }
@@ -297,13 +300,14 @@ struct SavedVideosView: View {
 
 struct PlayAllButtons: View {
     let videos: [VideoItem]
+    var playlistId: String?
 
     @Environment(PlayerManager.self) private var player
 
     var body: some View {
         HStack(spacing: 10) {
             Button {
-                if let first = videos.first { player.play(first, queue: videos) }
+                if let first = videos.first { player.play(first, queue: videos, playlistId: playlistId) }
             } label: {
                 Label("Phát tất cả", systemImage: "play.fill").frame(maxWidth: .infinity)
             }
@@ -436,9 +440,7 @@ struct DownloadsView: View {
                     VideoRow(
                         video: entry.video,
                         queue: downloads.downloads.map(\.video),
-                        subtitle: [entry.isAudio == true ? "🎧 Chỉ âm thanh" : nil, entry.video.channelName, entry.qualityLabel,
-                                   ByteCountFormatter.string(fromByteCount: entry.fileSize, countStyle: .file)]
-                            .compactMap { $0 }.joined(separator: " • ")
+                        subtitle: subtitle(for: entry)
                     )
                     .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     .swipeActions {
@@ -469,5 +471,16 @@ struct DownloadsView: View {
         .confirmationDialog("Xóa tất cả video đã tải?", isPresented: $confirmDeleteAll, titleVisibility: .visible) {
             Button("Xóa tất cả", role: .destructive) { downloads.deleteAll() }
         }
+    }
+
+    /// "Tự động • 🎧 Chỉ âm thanh • Kênh • 720p • 85 MB"
+    private func subtitle(for entry: DownloadedVideo) -> String {
+        var parts: [String] = []
+        if entry.isAuto == true { parts.append("Tự động") }
+        if entry.isAudio == true { parts.append("🎧 Chỉ âm thanh") }
+        if let channel = entry.video.channelName { parts.append(channel) }
+        if let quality = entry.qualityLabel { parts.append(quality) }
+        parts.append(ByteCountFormatter.string(fromByteCount: entry.fileSize, countStyle: .file))
+        return parts.joined(separator: " • ")
     }
 }

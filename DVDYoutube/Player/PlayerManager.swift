@@ -62,7 +62,27 @@ final class PlayerManager {
 
     private(set) var queue: [VideoItem] = []
     private(set) var queueIndex = 0
+    /// The playlist the queue came from (restored with the queue, sent to cast receivers).
+    private(set) var playlistId: String?
     private(set) var isPiPActive = false
+    /// Restored paused from the last session ("Tiếp tục phát…"); nothing is loaded until play.
+    private(set) var isRestoredSession = false
+
+    // Music mode ("Nghe nhạc").
+    enum RepeatMode { case off, all, one }
+    /// Started from the music screens: audio only by default, songs follow each other at once.
+    private(set) var musicSession = false
+    private(set) var repeatMode: RepeatMode = .off
+    private(set) var isShuffled = false
+    /// "Radio từ bài này": the mix the queue keeps growing from.
+    private(set) var radioId: String?
+    @ObservationIgnored private var musicAudioChoice: Bool?
+    @ObservationIgnored private var radioLoading = false
+    /// Stream info fetched ahead for the next song.
+    @ObservationIgnored private var prefetched: [String: PlayerInfo] = [:]
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
+    @ObservationIgnored private var fadeInTask: Task<Void, Never>?
+    @ObservationIgnored private var sessionSaveTask: Task<Void, Never>?
 
     // Extras of the official player.
     private(set) var isLooping = false
@@ -160,14 +180,43 @@ final class PlayerManager {
         setupObservers()
         setupRemoteCommands()
         startWellbeingLoop()
+        restoreSession()
     }
 
     // MARK: - Public API
 
-    func play(_ video: VideoItem, queue newQueue: [VideoItem]? = nil, startAt: Double? = nil) {
+    func play(_ video: VideoItem, queue newQueue: [VideoItem]? = nil, startAt: Double? = nil, playlistId: String? = nil) {
+        if musicSession {
+            musicSession = false
+            radioId = nil
+            repeatMode = .off
+            isShuffled = false
+            isLooping = false
+        }
+        playInternal(video, queue: newQueue, startAt: startAt, playlistId: playlistId, expand: true)
+    }
+
+    /// Music mode: audio only by default (setting), no "up next" countdown, the next song's
+    /// stream is fetched ahead. `radio`: the mix id the queue keeps growing from.
+    func playMusic(_ video: VideoItem, queue newQueue: [VideoItem]?, radio: String? = nil, audioOnly: Bool? = nil) {
+        let wasMusic = musicSession
+        musicSession = true
+        if let audioOnly {
+            musicAudioChoice = audioOnly
+        } else if !wasMusic {
+            musicAudioChoice = nil
+        }
+        radioId = radio
+        if !wasMusic { isShuffled = false }
+        MusicRecents.shared.add(video)
+        playInternal(video, queue: newQueue, startAt: nil, playlistId: radio, expand: false)
+    }
+
+    private func playInternal(_ video: VideoItem, queue newQueue: [VideoItem]?, startAt: Double?, playlistId newPlaylistId: String?,
+                              expand: Bool) {
         ShortsPlayer.shared.pause()
-        if video.id == currentVideo?.id, playbackError == nil, newQueue == nil {
-            isExpanded = true
+        if video.id == currentVideo?.id, playbackError == nil, newQueue == nil, !isRestoredSession {
+            if expand { isExpanded = true }
             if !isPlaying { resume() }
             return
         }
@@ -175,14 +224,16 @@ final class PlayerManager {
         if let newQueue {
             queue = newQueue
             queueIndex = newQueue.firstIndex { $0.id == video.id } ?? 0
+            playlistId = newPlaylistId
         } else if let index = queue.firstIndex(where: { $0.id == video.id }) {
             queueIndex = index
         } else {
             queue = [video]
             queueIndex = 0
+            playlistId = newPlaylistId
         }
         start(video, startAt: startAt)
-        isExpanded = true
+        if expand { isExpanded = true }
     }
 
     // MARK: Fullscreen
@@ -267,7 +318,12 @@ final class PlayerManager {
         }
         queue.removeAll { $0.id == video.id && $0.id != currentVideo?.id }
         queue.append(video)
-        showToast("Đã thêm vào hàng đợi")
+        scheduleSessionSave()
+        if DVDCast.shared.isConnected {
+            DVDCast.shared.enqueue(video, next: false)
+        } else {
+            showToast("Đã thêm vào hàng đợi")
+        }
     }
 
     /// "Play next": right after the current video.
@@ -280,12 +336,25 @@ final class PlayerManager {
         queue.removeAll { $0.id == video.id }
         queueIndex = queue.firstIndex { $0.id == current.id } ?? 0
         queue.insert(video, at: min(queueIndex + 1, queue.count))
-        showToast("Sẽ phát tiếp theo")
+        scheduleSessionSave()
+        if DVDCast.shared.isConnected {
+            DVDCast.shared.enqueue(video, next: true)
+        } else {
+            showToast("Sẽ phát tiếp theo")
+        }
     }
 
     func playNext() {
+        if DVDCast.shared.isConnected {
+            DVDCast.shared.control("next")
+            return
+        }
         if queueIndex + 1 < queue.count {
             playQueueItem(at: queueIndex + 1)
+        } else if musicSession, repeatMode == .all, !queue.isEmpty {
+            playQueueItem(at: 0)
+        } else if musicSession, radioId != nil {
+            extendRadio(thenPlayNext: true)
         } else if let next = nextAutoplayVideo {
             saveProgress()
             queue.append(next)
@@ -295,6 +364,10 @@ final class PlayerManager {
     }
 
     func playPrevious() {
+        if DVDCast.shared.isConnected {
+            DVDCast.shared.control("previous")
+            return
+        }
         if currentTime > 5 || queueIndex == 0 {
             seek(to: 0)
         } else {
@@ -307,6 +380,10 @@ final class PlayerManager {
     }
 
     func resume() {
+        if DVDCast.shared.isConnected {
+            DVDCast.shared.control("play")
+            return
+        }
         if isCasting {
             CastManager.shared.play()
             return
@@ -325,6 +402,11 @@ final class PlayerManager {
     }
 
     func pause() {
+        if DVDCast.shared.isConnected {
+            DVDCast.shared.control("pause")
+            saveProgress()
+            return
+        }
         if isCasting {
             CastManager.shared.pause()
             saveProgress()
@@ -338,6 +420,11 @@ final class PlayerManager {
     func seek(to seconds: Double) {
         let target = max(0, duration > 0 ? min(seconds, duration - 0.25) : seconds)
         currentTime = target
+        if DVDCast.shared.isConnected {
+            DVDCast.shared.control("seek", value: target)
+            updateNowPlayingTime()
+            return
+        }
         if isCasting {
             CastManager.shared.seek(to: target)
             updateNowPlayingTime()
@@ -357,7 +444,11 @@ final class PlayerManager {
 
     func close() {
         saveProgress()
-        if isCasting { CastManager.shared.stopMedia() }
+        if DVDCast.shared.isConnected {
+            DVDCast.shared.disconnect()
+        } else if isCasting {
+            CastManager.shared.stopMedia()
+        }
         cancelUpNext()
         loadTask?.cancel()
         watchTask?.cancel()
@@ -368,9 +459,16 @@ final class PlayerManager {
         watchInfo = nil
         usesWebPlayer = false
         queue = []
+        playlistId = nil
+        isRestoredSession = false
+        musicSession = false
+        radioId = nil
+        repeatMode = .off
+        isShuffled = false
         isExpanded = false
         isPlaying = false
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        PlaybackSessionStore.clear()
     }
 
     func retry() {
@@ -421,7 +519,9 @@ final class PlayerManager {
     private func start(_ video: VideoItem, startAt: Double?) {
         upNextTask?.cancel()
         upNext = nil
-        isLooping = false
+        isRestoredSession = false
+        // Repeat one is kept between songs in music mode; elsewhere it is per video.
+        if !(musicSession && repeatMode == .one) { isLooping = false }
         isSpeedBoosted = false
         loadTask?.cancel()
         player.pause()
@@ -463,7 +563,16 @@ final class PlayerManager {
         MPRemoteCommandCenter.shared().skipBackwardCommand.preferredIntervals = [interval]
         updateNowPlayingInfo()
         loadWatchInfo(video.id)
+        scheduleSessionSave()
+        if musicSession { MusicRecents.shared.add(video) }
 
+        if DVDCast.shared.isConnected {
+            // DVDTube on the TV/PC fetches the stream itself; the phone is the remote.
+            isLoading = false
+            DVDCast.shared.play(video, startAt: pendingSeek, queue: queue, index: queueIndex, playlistId: playlistId)
+            pendingSeek = nil
+            return
+        }
         if isCasting {
             // Plays on the TV; the phone only shows the controls.
             isLoading = false
@@ -475,6 +584,7 @@ final class PlayerManager {
         loadTask = Task { [weak self] in
             await self?.loadStream(for: video)
         }
+        if musicSession { extendRadioIfNeeded() }
     }
 
     private func defaultQuality() -> VideoQuality {
@@ -485,14 +595,28 @@ final class PlayerManager {
     }
 
     /// Audio only for the next video: the user's choice in this session, otherwise the settings.
+    /// Music mode has its own choice (default: the "Nghe nhạc: chỉ âm thanh" setting).
     private var wantsAudioOnly: Bool {
-        audioOnlyChoice ?? (settings.audioOnlyMode || (settings.audioOnlyOnCellular && NetworkMonitor.shared.isExpensive))
+        if musicSession { return musicAudioChoice ?? settings.musicAudioOnly }
+        return audioOnlyChoice ?? (settings.audioOnlyMode || (settings.audioOnlyOnCellular && NetworkMonitor.shared.isExpensive))
+    }
+
+    /// The "always audio only" setting (does not touch the music mode's own choice).
+    func setAudioOnlyPreference(_ on: Bool) {
+        settings.audioOnlyMode = on
+        audioOnlyChoice = on
+        guard !musicSession else { return }
+        setAudioOnly(on)
     }
 
     /// Switches between video and audio only, continuing from the same position.
     func setAudioOnly(_ on: Bool) {
-        audioOnlyChoice = on
-        settings.audioOnlyMode = on
+        if musicSession {
+            musicAudioChoice = on
+        } else {
+            audioOnlyChoice = on
+            settings.audioOnlyMode = on
+        }
         guard on != isAudioOnly else { return }
         isAudioOnly = on
         showToast(on ? "Chỉ phát âm thanh — không tải hình, tiết kiệm dữ liệu" : "Đã bật lại hình")
@@ -581,8 +705,19 @@ final class PlayerManager {
             return
         }
         do {
-            let info = try await service.player(video.id)
+            let info: PlayerInfo
+            if let ready = prefetched.removeValue(forKey: video.id),
+               (ready.expiresAt ?? .distantFuture) > Date().addingTimeInterval(120) {
+                info = ready
+            } else {
+                info = try await service.player(video.id)
+            }
             guard !Task.isCancelled, currentVideo?.id == video.id else { return }
+            if ParentalControls.restrictedModeActive, !info.isFamilySafe {
+                isLoading = false
+                playbackError = "Video này bị giới hạn độ tuổi nên đã bị chặn (Kiểm soát của phụ huynh)."
+                return
+            }
             playerInfo = info
             matchFullscreenToVideo()
             updateAudioTracks(from: info)
@@ -607,6 +742,7 @@ final class PlayerManager {
             guard !Task.isCancelled, currentVideo?.id == video.id else { return }
             startItem(item)
             loadExtras(for: video.id, info: info)
+            if musicSession { prefetchNext() }
         } catch is CancellationError {
             return
         } catch {
@@ -1142,6 +1278,15 @@ final class PlayerManager {
             showToast("Đã hết giờ hẹn – tạm dừng phát")
             return
         }
+        if musicSession {
+            // Songs follow each other without a countdown (the next stream is already fetched).
+            if queueIndex + 1 < queue.count || repeatMode == .all || radioId != nil {
+                playNext()
+            } else {
+                isPlaying = false
+            }
+            return
+        }
         let hasQueued = queueIndex + 1 < queue.count
         guard settings.autoplay || hasQueued,
               let next = hasQueued ? queue[queueIndex + 1] : nextAutoplayVideo else {
@@ -1180,7 +1325,128 @@ final class PlayerManager {
 
     func setLooping(_ on: Bool) {
         isLooping = on
+        if !on, repeatMode == .one { repeatMode = .off }
         showToast(on ? "Đã bật phát lặp lại" : "Đã tắt phát lặp lại")
+    }
+
+    // MARK: - Music mode
+
+    /// Tắt → lặp lại tất cả → lặp lại một bài.
+    func cycleRepeatMode() {
+        switch repeatMode {
+        case .off:
+            repeatMode = .all
+            isLooping = false
+            showToast("Lặp lại tất cả")
+        case .all:
+            repeatMode = .one
+            isLooping = true
+            showToast("Lặp lại một bài")
+        case .one:
+            repeatMode = .off
+            isLooping = false
+            showToast("Đã tắt lặp lại")
+        }
+    }
+
+    /// Shuffles what comes after the current item.
+    func toggleShuffle() {
+        isShuffled.toggle()
+        if isShuffled, queueIndex + 1 < queue.count {
+            let upcoming = queue[(queueIndex + 1)...].shuffled()
+            queue = Array(queue[...queueIndex]) + upcoming
+            prefetched = [:]
+            prefetchNext()
+            scheduleSessionSave()
+        }
+        showToast(isShuffled ? "Đã bật trộn bài" : "Đã tắt trộn bài")
+    }
+
+    /// "Radio từ bài này": an endless mix that starts from the video.
+    func startRadio(from video: VideoItem) {
+        let mixId = "RDAMVM" + video.id
+        showToast("Đang tạo radio từ \(video.title.isEmpty ? "bài này" : "“\(video.title)”")…")
+        Task {
+            do {
+                let page = try await YouTubeService.shared.playlist(mixId)
+                var videos = page.page.videos.filter { !$0.isShort && !$0.isLive }
+                if !videos.contains(where: { $0.id == video.id }) { videos.insert(video, at: 0) }
+                let start = videos.first { $0.id == video.id } ?? video
+                if self.currentVideo?.id == video.id, self.isPlaying {
+                    // Keep the song playing; the radio follows it.
+                    let others = videos.filter { $0.id != video.id }
+                    self.musicSession = true
+                    self.radioId = mixId
+                    self.queue = [self.currentVideo ?? video] + others
+                    self.queueIndex = 0
+                    self.playlistId = mixId
+                    self.prefetchNext()
+                    self.scheduleSessionSave()
+                } else {
+                    self.playMusic(start, queue: videos, radio: mixId)
+                }
+            } catch {
+                self.showToast("Không tạo được radio: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func extendRadioIfNeeded() {
+        guard radioId != nil, queueIndex >= queue.count - 3 else { return }
+        extendRadio(thenPlayNext: false)
+    }
+
+    /// Adds the next songs of the radio mix to the queue.
+    private func extendRadio(thenPlayNext: Bool) {
+        guard let mixId = radioId, !radioLoading, let seed = queue.last ?? currentVideo else { return }
+        radioLoading = true
+        Task {
+            defer { self.radioLoading = false }
+            guard let json = try? await InnerTube.shared.next(videoId: seed.id, playlistId: mixId) else { return }
+            let page = PlaylistParser.mix(json, playlistId: mixId).page
+            let known = Set(self.queue.map(\.id))
+            let fresh = page.videos.filter { !known.contains($0.id) && !$0.isShort && !$0.isLive }
+            guard self.radioId == mixId, !fresh.isEmpty else { return }
+            self.queue.append(contentsOf: fresh)
+            self.scheduleSessionSave()
+            if thenPlayNext, self.queueIndex + 1 < self.queue.count {
+                self.playQueueItem(at: self.queueIndex + 1)
+            } else {
+                self.prefetchNext()
+            }
+        }
+    }
+
+    /// Fetches the next song's streams so it starts right after this one ends.
+    private func prefetchNext() {
+        guard musicSession, queueIndex + 1 < queue.count, !settings.savesData else { return }
+        let next = queue[queueIndex + 1]
+        guard prefetched[next.id] == nil, DownloadManager.shared.localFileURL(for: next.id) == nil else { return }
+        prefetchTask?.cancel()
+        prefetchTask = Task { [weak self] in
+            guard let info = try? await YouTubeService.shared.player(next.id), !Task.isCancelled, let self else { return }
+            if self.prefetched.count > 4 { self.prefetched.removeAll() }
+            self.prefetched[next.id] = info
+            Log.debug("music: prefetched \(next.id)")
+        }
+    }
+
+    // MARK: - Fade in (alarms)
+
+    /// Raises the volume from silence over `seconds`.
+    func startFadeIn(seconds: Double) {
+        fadeInTask?.cancel()
+        fadeGain = 0.02
+        applyVolume()
+        let steps = max(Int(seconds * 4), 1)
+        fadeInTask = Task { [weak self] in
+            for step in 1...steps {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.fadeGain = Float(Double(step) / Double(steps))
+                self.applyVolume()
+            }
+        }
     }
 
     /// `nil` turns the timer off, `0` stops at the end of the current video.
@@ -1305,6 +1571,7 @@ final class PlayerManager {
     // MARK: - Stats for nerds
 
     var playbackMethod: String {
+        if DVDCast.shared.isConnected { return "DVDTube trên \(castDeviceName ?? "TV")" }
         if isCasting { return "Chromecast" }
         if usesWebPlayer { return "Trình phát web" }
         let equalizer = usesEqualizerStream ? " + EQ" : ""
@@ -1415,6 +1682,49 @@ final class PlayerManager {
         guard let video = currentVideo, currentTime > 0 || completed, !settings.isIncognito else { return }
         lastHistorySave = Date()
         library.updatePosition(videoId: video.id, position: completed ? duration : currentTime, duration: duration)
+        scheduleSessionSave()
+    }
+
+    // MARK: - Remembering the queue
+
+    /// Saves what plays (video, position, queue, playlist) a moment after each change.
+    private func scheduleSessionSave(immediately: Bool = false) {
+        guard !isRestoredSession else { return }
+        sessionSaveTask?.cancel()
+        guard let video = currentVideo, !settings.isIncognito else { return }
+        let snapshot = PlaybackSessionStore.Session(
+            video: video, position: currentTime, queue: Array(queue.prefix(300)),
+            index: queueIndex, playlistId: playlistId, music: musicSession, savedAt: Date()
+        )
+        if immediately {
+            PlaybackSessionStore.save(snapshot)
+            return
+        }
+        sessionSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            PlaybackSessionStore.save(snapshot)
+        }
+    }
+
+    /// The last session comes back paused in the mini player (nothing plays or loads by itself).
+    private func restoreSession() {
+        // Automated screenshot runs (`-DVDTubeDemo…`) start from a clean screen.
+        guard currentVideo == nil, !ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("-DVDTubeDemo") }),
+              let session = PlaybackSessionStore.load() else { return }
+        var list = session.queue.isEmpty ? [session.video] : session.queue
+        if !list.contains(where: { $0.id == session.video.id }) { list = [session.video] }
+        queue = list
+        queueIndex = list.firstIndex { $0.id == session.video.id } ?? 0
+        playlistId = session.playlistId
+        musicSession = session.music
+        radioId = session.music && (session.playlistId?.hasPrefix("RD") ?? false) ? session.playlistId : nil
+        currentVideo = session.video
+        currentTime = max(session.position, 0)
+        duration = Double(session.video.durationSeconds ?? 0)
+        isRestoredSession = true
+        isExpanded = false
+        Log.debug("restored the last session: \(list.count) item(s)")
     }
 
     // MARK: - Web player fallback
@@ -1483,11 +1793,29 @@ final class PlayerManager {
 
     // MARK: - Chromecast
 
-    var isCasting: Bool { CastManager.shared.isConnected }
+    var isCasting: Bool { CastManager.shared.isConnected || DVDCast.shared.isConnected }
+
+    /// Name of the TV / computer playing the video.
+    var castDeviceName: String? {
+        if DVDCast.shared.isConnected { return DVDCast.shared.receiver?.name }
+        return CastManager.shared.device?.name
+    }
 
     /// Sends the current video to a TV, continuing from the current position.
     func cast(to device: CastManager.Device) {
+        if DVDCast.shared.isActive { DVDCast.shared.disconnect() }
         CastManager.shared.connect(to: device, video: currentVideo, startAt: currentTime)
+    }
+
+    /// Sends `video` (or the current one) to DVDTube on a TV / computer.
+    func cast(to receiver: DVDCast.Receiver, video: VideoItem? = nil) {
+        if let video, video.id != currentVideo?.id {
+            DVDCast.shared.connect(to: receiver, video: video, startAt: nil, queue: [video], index: 0)
+        } else {
+            DVDCast.shared.connect(to: receiver, video: currentVideo, startAt: currentVideo == nil ? nil : currentTime,
+                                   queue: currentVideo == nil ? nil : queue, index: currentVideo == nil ? nil : queueIndex,
+                                   playlistId: playlistId)
+        }
     }
 
     /// The TV took over: stop local playback (the phone becomes a remote).
@@ -1504,7 +1832,48 @@ final class PlayerManager {
         isBuffering = false
         playbackError = nil
         adWaitRemaining = 0
-        if let device = CastManager.shared.device { showToast("Đang phát trên \(device.name)") }
+        isRestoredSession = false
+        if let name = castDeviceName { showToast("Đang phát trên \(name)") }
+    }
+
+    /// The DVDTube receiver moved on to another video (its own queue): follow it here
+    /// without loading anything locally.
+    func castDidChangeVideo(_ video: VideoItem, queue newQueue: [VideoItem], index: Int) {
+        guard DVDCast.shared.isConnected, video.id != currentVideo?.id else { return }
+        saveProgress()
+        if !newQueue.isEmpty {
+            queue = newQueue
+            queueIndex = min(max(index, 0), newQueue.count - 1)
+        } else if let position = queue.firstIndex(where: { $0.id == video.id }) {
+            queueIndex = position
+        } else {
+            queue = [video]
+            queueIndex = 0
+        }
+        currentVideo = video
+        playerInfo = nil
+        duration = Double(video.durationSeconds ?? 0)
+        sponsorSegments = []
+        captionTracks = []
+        selectedCaption = nil
+        currentCaption = nil
+        updateNowPlayingInfo()
+        loadWatchInfo(video.id)
+        scheduleSessionSave()
+    }
+
+    /// "Tiếp tục trên thiết bị này": continue here where the TV stopped.
+    func resumeLocally(video: VideoItem?, at position: Double) {
+        let target = video ?? currentVideo
+        guard let target else { return }
+        if target.id != currentVideo?.id {
+            if let index = queue.firstIndex(where: { $0.id == target.id }) { queueIndex = index } else {
+                queue = [target]
+                queueIndex = 0
+            }
+        }
+        start(target, startAt: position > 1 ? position : nil)
+        isExpanded = true
     }
 
     func applyCastStatus(time: Double, duration: Double?, playing: Bool, buffering: Bool) {
@@ -1588,6 +1957,8 @@ final class PlayerManager {
     /// Detaching the video layer lets audio keep playing while the app is in the background.
     func appDidEnterBackground() {
         saveProgress()
+        scheduleSessionSave(immediately: true)
+        DVDCast.shared.appDidEnterBackground()
         guard currentVideo != nil, !isCasting else { return }
         if !settings.backgroundPlayback, !isPiPActive {
             pause()
@@ -1603,6 +1974,7 @@ final class PlayerManager {
     func appWillEnterForeground() {
         playerLayer?.player = player
         CastManager.shared.appWillEnterForeground()
+        DVDCast.shared.appWillEnterForeground()
         // Like the official app: opening the app while the floating PiP window is shown
         // ends PiP and continues the video in the full player.
         if let controller = pipController, controller.isPictureInPictureActive {

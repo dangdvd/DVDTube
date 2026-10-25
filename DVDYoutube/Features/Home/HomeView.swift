@@ -154,6 +154,8 @@ struct HomeView: View {
                         .accessibilityLabel("Tải video lên")
                     NotificationBell()
                 }
+                Button { router.open(.music) } label: { Image(systemName: "music.note") }
+                    .accessibilityLabel("Nghe nhạc")
                 Button { router.open(.search) } label: { Image(systemName: "magnifyingglass") }
             }
         }

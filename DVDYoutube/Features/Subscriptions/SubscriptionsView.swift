@@ -26,6 +26,7 @@ final class SubscriptionFeedModel {
                 }
                 loadedAccountFeed = true
                 lastUpdated = now
+                WidgetBridge.setNewVideos(videos)
             }
             return
         }
@@ -64,6 +65,7 @@ final class SubscriptionFeedModel {
         loadedChannelIds = ids
         lastUpdated = Date()
         isLoading = false
+        WidgetBridge.setNewVideos(videos)
     }
 }
 

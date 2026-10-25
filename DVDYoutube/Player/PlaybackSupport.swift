@@ -88,13 +88,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        // "Hẹn giờ phát" while the app is open: start playing instead of showing a banner.
+        if let alarmId = (notification.request.content.userInfo["alarmId"] as? String).flatMap(UUID.init(uuidString:)) {
+            await MainActor.run { AlarmScheduler.shared.fire(alarmId) }
+            return []
+        }
+        return [.banner, .sound]
     }
 
-    /// Tapping a "new video" notification opens the video.
+    /// Tapping a "new video" notification opens the video; an alarm starts playing.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         let content = response.notification.request.content
+        if let alarmId = (content.userInfo["alarmId"] as? String).flatMap(UUID.init(uuidString:)) {
+            await MainActor.run { AlarmScheduler.shared.fire(alarmId) }
+            return
+        }
         guard let videoId = content.userInfo["videoId"] as? String else { return }
         let title = content.body
         let channel = content.title

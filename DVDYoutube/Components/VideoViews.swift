@@ -8,7 +8,7 @@ struct ThumbnailView: View {
     @Environment(LibraryStore.self) private var library
 
     var body: some View {
-        RemoteImage(url: video.displayThumbnail)
+        DeArrowThumbnail(video: video)
             .aspectRatio(16 / 9, contentMode: .fit)
             .overlay(alignment: .bottomTrailing) {
                 badge.padding(6)
@@ -70,7 +70,7 @@ struct VideoCard: View {
                         }
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(video.title)
+                    DeArrowTitle(video: video)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
@@ -113,7 +113,7 @@ struct VideoRow: View {
             ThumbnailView(video: video, cornerRadius: 8)
                 .frame(width: 160)
             VStack(alignment: .leading, spacing: 4) {
-                Text(video.title)
+                DeArrowTitle(video: video)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -177,6 +177,23 @@ private struct VideoMenuItems: View {
             player.addToQueue(video)
         } label: {
             Label("Thêm vào hàng đợi", systemImage: "text.badge.plus")
+        }
+        Button {
+            if DVDCast.shared.isConnected {
+                player.play(video)
+            } else {
+                router.castVideo = video
+                router.showCastPicker = true
+            }
+        } label: {
+            Label("Truyền tới TV", systemImage: "tv")
+        }
+        if DVDCast.shared.isConnected {
+            Button {
+                DVDCast.shared.enqueue(video, next: false)
+            } label: {
+                Label("Thêm vào hàng đợi trên TV", systemImage: "tv.badge.wifi")
+            }
         }
         Button {
             LibraryActions.toggleWatchLater(video)
@@ -420,7 +437,8 @@ struct FeedList: View {
     var onReachEnd: (() -> Void)?
 
     var body: some View {
-        let items = hidesDismissed ? HiddenContentStore.shared.filter(self.items) : self.items
+        let visible = ContentFilter.shared.filter(self.items)
+        let items = hidesDismissed ? HiddenContentStore.shared.filter(visible) : visible
         let videos = items.compactMap(\.video)
         LazyVStack(spacing: compact ? 12 : 20) {
             ForEach(items) { item in

@@ -48,7 +48,8 @@ enum ItemParser {
         var seen = Set<String>()
         walk(node.raw, into: &result)
         // The same video sometimes appears twice (e.g. in a shelf and in the list).
-        return result.filter { seen.insert($0.id).inserted }
+        // Blocked keywords / hidden Shorts of the parental controls are left out everywhere.
+        return ContentFilter.shared.filter(result.filter { seen.insert($0.id).inserted })
     }
 
     static func continuation(in node: JNode) -> String? {
@@ -290,7 +291,11 @@ enum ItemParser {
     /// Items of the YouTube Charts endpoint (`videoViews`).
     static func chartVideos(_ node: JNode) -> [VideoItem] {
         guard let list = node.findAll("videoViews").first(where: { !$0.array.isEmpty }) else { return [] }
-        return list.array.compactMap { v in
+        return ContentFilter.shared.filter(chartItems(list))
+    }
+
+    private static func chartItems(_ list: JNode) -> [VideoItem] {
+        list.array.compactMap { v in
             guard let id = v["id"].string, v["isAvailable"].bool != false else { return nil }
             let artists = v["artists"].array.compactMap { $0["name"].string }.joined(separator: ", ")
             let seconds = v["videoDuration"].int

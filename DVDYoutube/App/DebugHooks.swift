@@ -25,17 +25,46 @@ final class DiagnosticsLog: @unchecked Sendable {
 
     private let lock = NSLock()
     private var lines: [String] = []
+    /// Player errors, HTTP failures… kept apart so they survive a long, chatty session.
+    private var errors: [String] = []
     private let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+    private let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
+
+    static let maxLines = 2000
 
     func append(_ line: String) {
         lock.lock()
         lines.append("\(formatter.string(from: Date())) \(line)")
-        if lines.count > 500 { lines.removeFirst(lines.count - 500) }
+        if lines.count > Self.maxLines { lines.removeFirst(lines.count - Self.maxLines) }
+        if Self.isError(line) {
+            errors.append("\(dayFormatter.string(from: Date())) \(line)")
+            if errors.count > 300 { errors.removeFirst(errors.count - 300) }
+        }
         lock.unlock()
+    }
+
+    private static func isError(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        if lower.contains("failed") || lower.contains("error") || lower.contains("lỗi") || lower.contains("refused") { return true }
+        // "… -> HTTP 403, 12 bytes"
+        if let range = line.range(of: #"HTTP [45]\d\d"#, options: .regularExpression), !range.isEmpty { return true }
+        return false
+    }
+
+    /// The last lines and the recent errors (for "Gửi nhật ký lỗi").
+    var snapshot: (lines: [String], errors: [String]) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (lines, errors)
     }
 
     @MainActor
@@ -50,13 +79,15 @@ final class DiagnosticsLog: @unchecked Sendable {
     func clear() {
         lock.lock()
         lines.removeAll()
+        errors.removeAll()
         lock.unlock()
     }
 }
 
 /// Launch arguments that drive the app into a given screen, for automated screenshots:
 /// `-DVDTubeDemoVideo <id>`, `-DVDTubeDemoSearch <query>`, `-DVDTubeDemoChannel <id or @handle>`,
-/// `-DVDTubeDemoTab shorts|subscriptions|library`.
+/// `-DVDTubeDemoTab shorts|subscriptions|library`, `-DVDTubeDemoMusic` (music screen),
+/// `-DVDTubeDemoMusicProbe` (music search / lyrics / DeArrow, logged as counts).
 @MainActor
 enum DebugHooks {
     static func apply() {
@@ -93,6 +124,35 @@ enum DebugHooks {
         if arguments.contains("-DVDTubeDemoCastRelay") {
             Task { await probeCastRelay() }
         }
+        if arguments.contains("-DVDTubeDemoMusic") {
+            router.open(.music)
+        }
+        if arguments.contains("-DVDTubeDemoMusicProbe") {
+            Task { await probeMusic() }
+        }
+    }
+
+    /// YouTube Music search, lyrics, an album page and DeArrow, logged as counts only.
+    private static func probeMusic() async {
+        do {
+            let songs = try await MusicService.search("Sơn Tùng M-TP", kind: .songs)
+            Log.debug("music probe: \(songs.count) songs, first has video id=\(songs.first.map { !$0.id.isEmpty } ?? false)")
+            let albums = try await MusicService.search("Sơn Tùng M-TP", kind: .albums)
+            Log.debug("music probe: \(albums.count) albums")
+            if let album = albums.first {
+                let page = try await MusicService.page(browseId: album.id)
+                Log.debug("music probe: album page tracks=\(page.tracks.count) shelves=\(page.shelves.count)")
+            }
+            for song in songs.prefix(3) {
+                let lyrics = try await MusicService.lyrics(videoId: song.id)
+                Log.debug("music probe: lyrics found=\(lyrics != nil) timed=\(lyrics?.isTimed ?? false) lines=\(lyrics?.lines.count ?? 0)")
+                if lyrics != nil { break }
+            }
+        } catch {
+            Log.debug("music probe failed: \(error.localizedDescription)")
+        }
+        let title = await DeArrow.shared.title(for: "dQw4w9WgXcQ")
+        Log.debug("dearrow probe: title replaced=\(title != nil)")
     }
 
     /// Finds a stream that is live right now, runs its chat for a while and logs what

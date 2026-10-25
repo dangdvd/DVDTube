@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var notificationsDenied = false
     @State private var refreshingConfig = false
     @State private var configStatus: String?
+    @State private var pinForSignOut = false
+    @State private var updateStatus: String?
 
     var body: some View {
         @Bindable var settings = settings
@@ -43,7 +45,11 @@ struct SettingsView: View {
                     }
                     Toggle("Ghi video đã xem vào nhật ký YouTube", isOn: $account.syncWatchHistory)
                     Button("Đăng xuất (mọi tài khoản)", role: .destructive) {
-                        Task { await account.signOut() }
+                        if ParentalControls.shared.isEnabled {
+                            pinForSignOut = true
+                        } else {
+                            Task { await account.signOut() }
+                        }
                     }
                 } else {
                     Button {
@@ -68,6 +74,34 @@ struct SettingsView: View {
                 Picker("Giao diện", selection: $settings.theme) {
                     ForEach(AppTheme.allCases) { Text($0.title).tag($0) }
                 }
+            }
+
+            Section {
+                NavigationLink {
+                    SyncSettingsView()
+                } label: {
+                    Label("Đồng bộ & sao lưu", systemImage: "arrow.triangle.2.circlepath")
+                }
+                NavigationLink {
+                    AlarmsView()
+                } label: {
+                    LabeledContent {
+                        Text(alarmCountText)
+                    } label: {
+                        Label("Hẹn giờ phát", systemImage: "alarm")
+                    }
+                }
+                NavigationLink {
+                    ParentalControlsView()
+                } label: {
+                    LabeledContent {
+                        Text(ParentalControls.shared.isEnabled ? "Bật" : "Tắt")
+                    } label: {
+                        Label("Kiểm soát của phụ huynh", systemImage: "figure.and.child.holdinghands")
+                    }
+                }
+            } footer: {
+                Text("Đồng bộ thư viện với DVDTube trên điện thoại, TV hoặc máy tính khác; hẹn giờ tự phát nhạc/video; giới hạn nội dung và thời gian xem cho trẻ.")
             }
 
             Section {
@@ -124,12 +158,35 @@ struct SettingsView: View {
                 Toggle("Tự động chỉ phát âm thanh khi dùng 4G/5G", isOn: $settings.audioOnlyOnCellular)
                 Toggle("Luôn chỉ phát âm thanh", isOn: Binding(
                     get: { settings.audioOnlyMode },
-                    set: { player.setAudioOnly($0) }
+                    set: { player.setAudioOnlyPreference($0) }
                 ))
             } header: {
                 Text("Tiết kiệm dữ liệu")
             } footer: {
                 Text("Tiết kiệm dữ liệu: khi dùng dữ liệu di động, video tối đa 360p, chế độ chỉ âm thanh dùng luồng nhỏ nhất (~0,4 MB/phút), ảnh thu nhỏ cỡ nhỏ và không tải trước Shorts. Chỉ âm thanh không tải hình nên tiết kiệm nhiều nhất; bật/tắt nhanh bằng nút tai nghe trên trình phát.")
+            }
+
+            Section {
+                NavigationLink(value: Route.music) {
+                    Label("Mở Nghe nhạc", systemImage: "music.note")
+                }
+                Toggle("Nghe nhạc: chỉ phát âm thanh", isOn: $settings.musicAudioOnly)
+            } header: {
+                Text("Nghe nhạc")
+            } footer: {
+                Text("Tìm bài hát, album, nghệ sĩ trên YouTube Music, xem lời bài hát, nghe radio từ một bài. Bài tiếp theo được tải trước để phát liền mạch.")
+            }
+
+            Section {
+                Toggle("DeArrow: thay tiêu đề và ảnh giật tít", isOn: $settings.deArrowEnabled)
+                if settings.deArrowEnabled {
+                    Toggle("Tiêu đề", isOn: $settings.deArrowTitles).padding(.leading, 12)
+                    Toggle("Ảnh thu nhỏ", isOn: $settings.deArrowThumbnails).padding(.leading, 12)
+                }
+            } header: {
+                Text("Chống giật tít")
+            } footer: {
+                Text("Tiêu đề và ảnh thu nhỏ do cộng đồng DeArrow (dearrow.ajay.app) đề xuất, chỉ gửi 4 ký tự đầu của mã băm video. Nhấn giữ tiêu đề để xem tiêu đề gốc.")
             }
 
             Section {
@@ -223,6 +280,12 @@ struct SettingsView: View {
                     ForEach(VideoQuality.allCases.filter { $0 != .auto }) { Text($0.title).tag($0) }
                 }
                 Toggle("Chỉ tải xuống qua Wi-Fi", isOn: $settings.downloadOnWifiOnly)
+                NavigationLink {
+                    AutoDownloadView()
+                } label: {
+                    LabeledContent("Tự động tải video mới",
+                                   value: AutoDownloadSettings.shared.isEnabled ? "\(AutoDownloadSettings.shared.channels.count) kênh" : "Tắt")
+                }
                 LabeledContent("Dung lượng đã dùng",
                                value: ByteCountFormatter.string(fromByteCount: downloads.totalSize, countStyle: .file))
             }
@@ -246,7 +309,7 @@ struct SettingsView: View {
                     Label("Chế độ ẩn danh", systemImage: "eyeglasses")
                 }
                 NavigationLink {
-                    HiddenContentView()
+                    ParentalGate { HiddenContentView() }
                 } label: {
                     LabeledContent("Nội dung đã ẩn",
                                    value: "\(HiddenContentStore.shared.videos.count + HiddenContentStore.shared.channels.count)")
@@ -305,6 +368,24 @@ struct SettingsView: View {
 
             Section("Giới thiệu") {
                 LabeledContent("Phiên bản", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+                Toggle("Tự kiểm tra cập nhật", isOn: $settings.autoCheckUpdates)
+                Button {
+                    Task { updateStatus = await UpdateChecker.shared.checkNow() }
+                } label: {
+                    HStack {
+                        Text("Kiểm tra cập nhật")
+                        Spacer()
+                        if UpdateChecker.shared.isChecking { ProgressView() }
+                    }
+                }
+                if let updateStatus {
+                    Text(updateStatus).font(.footnote).foregroundStyle(.secondary)
+                }
+                NavigationLink {
+                    LogExportView()
+                } label: {
+                    Label("Gửi nhật ký lỗi", systemImage: "ladybug")
+                }
                 Link(destination: URL(string: "https://github.com/dangdvd/DVDTube")!) {
                     Label("Mã nguồn trên GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
@@ -326,6 +407,9 @@ struct SettingsView: View {
         .confirmationDialog("Xóa toàn bộ nhật ký xem?", isPresented: $confirmClearHistory, titleVisibility: .visible) {
             Button("Xóa", role: .destructive) { library.clearHistory() }
         }
+        .sheet(isPresented: $pinForSignOut) {
+            PINPromptSheet(title: "Nhập mã PIN để đăng xuất") { Task { await account.signOut() } }
+        }
         .confirmationDialog("Xóa toàn bộ nhật ký tìm kiếm?", isPresented: $confirmClearSearches, titleVisibility: .visible) {
             Button("Xóa", role: .destructive) { library.clearSearchHistory() }
         }
@@ -333,6 +417,12 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    /// Number of enabled "Hẹn giờ phát" alarms ("" when none).
+    var alarmCountText: String {
+        let count = AlarmScheduler.shared.alarms.filter(\.isEnabled).count
+        return count == 0 ? "" : String(count)
+    }
+
     /// A time of day stored as minutes after midnight, for `DatePicker`.
     func minutesBinding(_ minutes: Binding<Int>) -> Binding<Date> {
         Binding(

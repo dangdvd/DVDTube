@@ -50,6 +50,18 @@ struct ClientProfile: Codable, Hashable {
         extraHeaders: ["X-Goog-Api-Format-Version": "2"]
     )
 
+    /// YouTube Music's web client (lyrics, music search, albums and artists).
+    static let music = ClientProfile(
+        name: "WEB_REMIX",
+        id: 67,
+        version: "1.20261020.01.00",
+        host: "music.youtube.com",
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15",
+        platform: "DESKTOP",
+        sendClientHeaders: true,
+        extraHeaders: ["Origin": "https://music.youtube.com", "Referer": "https://music.youtube.com/"]
+    )
+
     static let charts = ClientProfile(
         name: "WEB_MUSIC_ANALYTICS",
         id: 31,
@@ -85,6 +97,7 @@ struct RemoteConfig: Codable {
     var web: ClientProfile?
     var playerClients: [ClientProfile]?
     var charts: ClientProfile?
+    var music: ClientProfile?
     var message: String?
 }
 
@@ -103,6 +116,7 @@ enum APIConfig {
 
     static var webProfile: ClientProfile { remote?.web ?? .web }
     static var chartsProfile: ClientProfile { remote?.charts ?? .charts }
+    static var musicProfile: ClientProfile { remote?.music ?? .music }
 
     static var playerProfiles: [ClientProfile] {
         if let clients = remote?.playerClients, !clients.isEmpty { return clients }

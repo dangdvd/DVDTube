@@ -21,7 +21,8 @@ enum NewVideoNotifier {
     }
 
     static func schedule() {
-        guard isEnabled else { return }
+        // Also used by "Tự động tải" (automatic downloads of subscribed channels).
+        guard isEnabled || AutoDownloadSettings.isEnabledFlag else { return }
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 60 * 60)
         try? BGTaskScheduler.shared.submit(request)
@@ -35,7 +36,8 @@ enum NewVideoNotifier {
         schedule()
         let completion = CompletionOnce(task)
         let work = Task {
-            _ = await checkForNewVideos()
+            if isEnabled { _ = await checkForNewVideos() }
+            await AutoDownloader.runInBackground()
             completion.finish(success: true)
         }
         task.expirationHandler = {
@@ -49,6 +51,8 @@ enum NewVideoNotifier {
     static func checkForNewVideos() async -> Int {
         let videos = await latestSubscriptionVideos()
         guard !videos.isEmpty else { return 0 }
+        let sorted = videos.sorted { ($0.publishedDate ?? .distantPast) > ($1.publishedDate ?? .distantPast) }
+        await MainActor.run { WidgetBridge.setNewVideos(sorted) }
         let defaults = UserDefaults.standard
         let seen = Set(defaults.stringArray(forKey: seenKey) ?? [])
         let isFirstRun = seen.isEmpty

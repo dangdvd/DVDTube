@@ -129,6 +129,18 @@ final class AppSettings {
     /// Searches are not added to the search history.
     var pauseSearchHistory: Bool { didSet { defaults.set(pauseSearchHistory, forKey: "settings.pauseSearchHistory") } }
 
+    // Music mode
+    /// "Nghe nhạc" plays only the sound unless the picture is turned on.
+    var musicAudioOnly: Bool { didSet { defaults.set(musicAudioOnly, forKey: "settings.musicAudioOnly") } }
+
+    // DeArrow (crowd-sourced titles and thumbnails without clickbait)
+    var deArrowEnabled: Bool { didSet { defaults.set(deArrowEnabled, forKey: "settings.dearrow") } }
+    var deArrowTitles: Bool { didSet { defaults.set(deArrowTitles, forKey: "settings.dearrowTitles") } }
+    var deArrowThumbnails: Bool { didSet { defaults.set(deArrowThumbnails, forKey: "settings.dearrowThumbnails") } }
+
+    /// Look for a new release on GitHub (at most once a day).
+    var autoCheckUpdates: Bool { didSet { defaults.set(autoCheckUpdates, forKey: "settings.autoCheckUpdates") } }
+
     /// Incognito: nothing is added to the watch or search history (until the app restarts).
     var isIncognito = false
 
@@ -176,6 +188,11 @@ final class AppSettings {
             "settings.ambientMode": true,
             "settings.swipeControls": true,
             "settings.pauseSearchHistory": false,
+            "settings.musicAudioOnly": true,
+            "settings.dearrow": true,
+            "settings.dearrowTitles": true,
+            "settings.dearrowThumbnails": true,
+            "settings.autoCheckUpdates": true,
         ])
         language = d.string(forKey: SettingsKey.language) ?? "vi"
         region = d.string(forKey: SettingsKey.region) ?? "VN"
@@ -217,6 +234,11 @@ final class AppSettings {
         ambientMode = d.bool(forKey: "settings.ambientMode")
         swipeControls = d.bool(forKey: "settings.swipeControls")
         pauseSearchHistory = d.bool(forKey: "settings.pauseSearchHistory")
+        musicAudioOnly = d.bool(forKey: "settings.musicAudioOnly")
+        deArrowEnabled = d.bool(forKey: "settings.dearrow")
+        deArrowTitles = d.bool(forKey: "settings.dearrowTitles")
+        deArrowThumbnails = d.bool(forKey: "settings.dearrowThumbnails")
+        autoCheckUpdates = d.bool(forKey: "settings.autoCheckUpdates")
         syncEqualizer()
     }
 

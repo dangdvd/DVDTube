@@ -75,7 +75,8 @@ final class InnerTube {
         return [
             "client": client,
             "request": ["internalExperimentFlags": [Any](), "useSsl": true],
-            "user": ["lockedSafetyMode": false],
+            // "Chế độ hạn chế" of the parental controls.
+            "user": ["lockedSafetyMode": ParentalControls.restrictedModeActive],
         ]
     }
 
@@ -120,7 +121,9 @@ final class InnerTube {
         for (key, value) in profile.extraHeaders ?? [:] {
             request.setValue(value, forHTTPHeaderField: key)
         }
-        let authHeaders = authenticated ? AuthSession.shared.headers(for: url) : nil
+        // SAPISIDHASH is computed for the site the request claims to come from.
+        let authOrigin = profile.extraHeaders?["Origin"] ?? AuthSession.origin
+        let authHeaders = authenticated ? AuthSession.shared.headers(for: url, origin: authOrigin) : nil
         if let authHeaders {
             // Send exactly the account cookies (not the anonymous cookie jar).
             request.httpShouldHandleCookies = false
@@ -147,6 +150,17 @@ final class InnerTube {
     /// signed-in account when there is one (personalised results, account pages).
     func web(_ endpoint: String, body: [String: Any]) async throws -> JNode {
         let profile = APIConfig.webProfile
+        let visitor = await visitorStore.value(for: profile.name)
+        let json = try await post(endpoint, profile: profile, body: body, visitorData: visitor, authenticated: true)
+        if visitor == nil, let fresh = json.at("responseContext", "visitorData").string {
+            await visitorStore.set(fresh, for: profile.name)
+        }
+        return json
+    }
+
+    /// YouTube Music (WEB_REMIX) request, signed in when there is an account.
+    func music(_ endpoint: String, body: [String: Any]) async throws -> JNode {
+        let profile = APIConfig.musicProfile
         let visitor = await visitorStore.value(for: profile.name)
         let json = try await post(endpoint, profile: profile, body: body, visitorData: visitor, authenticated: true)
         if visitor == nil, let fresh = json.at("responseContext", "visitorData").string {

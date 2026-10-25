@@ -3,6 +3,8 @@ import SwiftUI
 struct RootView: View {
     @Environment(PlayerManager.self) private var player
     @Environment(Router.self) private var router
+    private var parental: ParentalControls { ParentalControls.shared }
+    private var updates: UpdateChecker { UpdateChecker.shared }
 
     var body: some View {
         @Bindable var router = router
@@ -15,11 +17,13 @@ struct RootView: View {
                 .tabItem { Label("Trang chủ", systemImage: "house.fill") }
                 .tag(AppTab.home)
 
-                NavigationStack(path: $router.shortsPath) {
-                    ShortsView().appDestinations()
+                if !parental.shortsHidden {
+                    NavigationStack(path: $router.shortsPath) {
+                        ShortsView().appDestinations()
+                    }
+                    .tabItem { Label("Shorts", systemImage: "play.rectangle.on.rectangle.fill") }
+                    .tag(AppTab.shorts)
                 }
-                .tabItem { Label("Shorts", systemImage: "play.rectangle.on.rectangle.fill") }
-                .tag(AppTab.shorts)
 
                 NavigationStack(path: $router.subscriptionsPath) {
                     SubscriptionsView().appDestinations()
@@ -42,8 +46,18 @@ struct RootView: View {
             }
 
             ToastOverlay()
+
+            if let reason = parental.lockReason {
+                ParentalLockView(reason: reason)
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
         .animation(.spring(response: 0.38, dampingFraction: 0.88), value: player.currentVideo == nil)
+        .animation(.easeInOut(duration: 0.25), value: parental.lockReason)
+        .onChange(of: parental.shortsHidden) { _, hidden in
+            if hidden, router.selectedTab == .shorts { router.selectedTab = .home }
+        }
         .wellbeingReminders()
         .task { DebugHooks.apply() }
         .sheet(item: $router.playlistSheetVideo) { video in
@@ -51,11 +65,31 @@ struct RootView: View {
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $router.showSignIn) {
-            GoogleSignInView(addsAccount: router.signInAddsAccount)
+            // Signing in needs the parental PIN when parental controls are on.
+            ParentalGate(title: "Nhập mã PIN để đăng nhập") {
+                GoogleSignInView(addsAccount: router.signInAddsAccount)
+            }
         }
-        .sheet(isPresented: $router.showCastPicker) {
+        .sheet(isPresented: $router.showCastPicker, onDismiss: { router.castVideo = nil }) {
             CastDevicesSheet()
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $router.showDVDRemote) {
+            DVDRemoteSheet()
+                .presentationDetents([.large])
+        }
+        .sheet(isPresented: $router.showMusicPlayer) {
+            MusicPlayerView()
+        }
+        .alert(
+            "Có bản mới v\(updates.available?.version ?? "")",
+            isPresented: Binding(get: { updates.available != nil }, set: { if !$0 { updates.available = nil } }),
+            presenting: updates.available
+        ) { release in
+            Button("Mở trang tải") { UIApplication.shared.open(release.page) }
+            Button("Để sau", role: .cancel) {}
+        } message: { release in
+            Text((release.notes.isEmpty ? "" : release.notes + "\n\n") + "Cài lại bằng SideStore/AltStore để cập nhật, dữ liệu được giữ nguyên.")
         }
         .sheet(isPresented: $router.showAccountSwitcher) {
             AccountSwitcherSheet()

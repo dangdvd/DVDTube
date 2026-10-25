@@ -189,7 +189,8 @@ struct PlayerSurface: View {
     }
 
     private var showPoster: Bool {
-        player.currentTime < 0.1 && !player.isPlaying && player.playbackError == nil
+        if player.isRestoredSession { return true }
+        return player.currentTime < 0.1 && !player.isPlaying && player.playbackError == nil
             && (player.isLoading || player.adWaitRemaining > 0)
     }
 

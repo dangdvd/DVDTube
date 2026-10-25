@@ -236,8 +236,10 @@ private struct ShortPage: View {
                                  info?.likeCountText ?? "Thích") {
                         LibraryActions.toggleLike(video, reported: info?.likeStatus)
                     }
-                    actionButton("text.bubble.fill", info?.commentCountText ?? "Bình luận") {
-                        if info?.commentsToken != nil { showComments = true }
+                    if !ParentalControls.shared.commentsHidden {
+                        actionButton("text.bubble.fill", info?.commentCountText ?? "Bình luận") {
+                            if info?.commentsToken != nil { showComments = true }
+                        }
                     }
                     ShareLink(item: video.shareURL) {
                         actionLabel("arrowshape.turn.up.right.fill", "Chia sẻ")

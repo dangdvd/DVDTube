@@ -19,6 +19,10 @@ enum Route: Hashable {
     case accountFeed(title: String, browseId: String)
     case notifications
     case settings
+    /// "Nghe nhạc" (YouTube Music search, recent songs).
+    case music
+    case musicAlbum(browseId: String, title: String)
+    case musicArtist(browseId: String, name: String)
 }
 
 /// Navigation state for every tab, so the watch page can push a channel or playlist
@@ -49,8 +53,14 @@ final class Router {
     /// The sign-in sheet adds another Google account instead of replacing the session.
     var signInAddsAccount = false
     var showAccountSwitcher = false
-    /// Chromecast device list.
+    /// Chromecast / DVDTube device list.
     var showCastPicker = false
+    /// The video to send from a ⋮ menu ("Truyền tới TV"); nil: the one playing.
+    var castVideo: VideoItem?
+    /// Remote control for DVDTube on a TV / computer.
+    var showDVDRemote = false
+    /// The music player ("Đang phát" in music mode).
+    var showMusicPlayer = false
     var showUpload = false
 
     func signIn(addingAccount: Bool = false) {
@@ -62,6 +72,10 @@ final class Router {
     private(set) var pendingShorts: (items: [VideoItem], startId: String)?
 
     func openShorts(_ items: [VideoItem], start: VideoItem) {
+        guard !ParentalControls.shared.shortsHidden else {
+            PlayerManager.shared.play(start)
+            return
+        }
         PlayerManager.shared.isExpanded = false
         pendingShorts = (items, start.id)
         selectedTab = .shorts
@@ -104,11 +118,14 @@ final class Router {
 
 extension View {
     /// Destinations shared by every tab's `NavigationStack`.
+    @MainActor
     func appDestinations() -> some View {
         navigationDestination(for: Route.self) { route in
             switch route {
-            case .search: SearchView()
-            case .searchResults(let query): SearchView(initialQuery: query)
+            case .search:
+                if ParentalControls.shared.searchDisabled { SearchDisabledView() } else { SearchView() }
+            case .searchResults(let query):
+                if ParentalControls.shared.searchDisabled { SearchDisabledView() } else { SearchView(initialQuery: query) }
             case .channel(let channel): ChannelView(channel: channel)
             case .playlist(let playlist): PlaylistView(playlist: playlist)
             case .localPlaylist(let id): LocalPlaylistView(playlistId: id)
@@ -120,6 +137,9 @@ extension View {
             case .accountFeed(let title, let browseId): AccountFeedView(title: title, browseId: browseId)
             case .notifications: NotificationsView()
             case .settings: SettingsView()
+            case .music: MusicHomeView()
+            case .musicAlbum(let browseId, let title): MusicAlbumView(browseId: browseId, title: title)
+            case .musicArtist(let browseId, let name): MusicArtistView(browseId: browseId, name: name)
             }
         }
     }

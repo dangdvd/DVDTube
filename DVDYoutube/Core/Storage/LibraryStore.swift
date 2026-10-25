@@ -72,6 +72,7 @@ final class LibraryStore {
     // MARK: Persistence
 
     private func scheduleSave() {
+        WidgetBridge.scheduleUpdate()
         saveTask?.cancel()
         let snapshot = LibraryData(
             subscriptions: subscriptions, history: history, watchLater: watchLater,
@@ -83,6 +84,29 @@ final class LibraryStore {
             guard !Task.isCancelled, let data = try? JSONEncoder().encode(snapshot) else { return }
             try? data.write(to: url, options: .atomic)
         }
+    }
+
+    // MARK: Sync
+
+    /// Everything that is synced between devices ("Đồng bộ thư viện").
+    var snapshot: LibrarySnapshot {
+        LibrarySnapshot(
+            subscriptions: subscriptions, history: history, watchLater: watchLater,
+            liked: liked, playlists: playlists, searchHistory: searchHistory
+        )
+    }
+
+    /// Replaces the library with a merged one (sync never deletes, so nothing is lost).
+    func replace(with merged: LibrarySnapshot) {
+        subscriptions = merged.subscriptions
+        history = Array(merged.history.prefix(1000))
+        watchLater = merged.watchLater
+        liked = merged.liked
+        playlists = merged.playlists
+        searchHistory = Array(merged.searchHistory.prefix(50))
+        rebuildProgress()
+        historyRevision += 1
+        scheduleSave()
     }
 
     // MARK: Subscriptions

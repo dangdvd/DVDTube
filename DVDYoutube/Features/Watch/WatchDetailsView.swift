@@ -16,6 +16,7 @@ struct WatchDetailsView: View {
     @State private var showTranscript = false
     @State private var showLiveChat = false
     @State private var showSleepTimer = false
+    @State private var showLyrics = false
     @State private var relatedMore: [FeedItem] = []
     @State private var relatedToken: String?
     @State private var loadingMore = false
@@ -40,7 +41,9 @@ struct WatchDetailsView: View {
                         if let chat = player.watchInfo?.liveChat {
                             liveChatCard(chat)
                         }
-                        commentsCard
+                        if !ParentalControls.shared.commentsHidden {
+                            commentsCard
+                        }
                         related
                     }
                 }
@@ -94,13 +97,17 @@ struct WatchDetailsView: View {
             NavigationStack { SleepTimerView() }
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showLyrics) {
+            LyricsSheet()
+                .presentationDetents([.medium, .large])
+        }
     }
 
     // MARK: Sections
 
     private func header(_ video: VideoItem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(player.watchInfo?.title.isEmpty == false ? player.watchInfo!.title : video.title)
+            DeArrowTitle(video: video, fallback: player.watchInfo?.title.isEmpty == false ? player.watchInfo!.title : video.title)
                 .font(.title3.weight(.semibold))
                 .lineLimit(3)
             HStack(spacing: 6) {
@@ -187,6 +194,7 @@ struct WatchDetailsView: View {
                 if !video.isLive {
                     downloadPill(video)
                 }
+                pill("quote.bubble", "Lời bài hát") { showLyrics = true }
                 if !player.captionTracks.isEmpty {
                     pill("text.quote", "Bản chép lời") { showTranscript = true }
                 }

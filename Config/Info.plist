@@ -38,9 +38,12 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_googlecast._tcp</string>
+		<string>_dvdtube._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Tìm Chromecast và Google TV trong mạng Wi-Fi để truyền video lên TV, và gửi đăng nhập tới DVDTube trên Android TV khi bạn quét mã QR.</string>
+	<string>Tìm Chromecast, Google TV và DVDTube trên TV hoặc máy tính trong mạng Wi-Fi để truyền video và điều khiển từ iPhone, đồng bộ thư viện với thiết bị khác, và gửi đăng nhập tới DVDTube trên Android TV khi bạn quét mã QR.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Dùng camera để quét mã QR của DVDTube trên TV, máy tính hoặc điện thoại khác (đồng bộ thư viện, đăng nhập trên TV).</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

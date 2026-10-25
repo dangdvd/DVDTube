@@ -46,6 +46,7 @@ struct AccountHeader: View {
     @Environment(AccountStore.self) private var account
     @Environment(Router.self) private var router
     @State private var confirmSignOut = false
+    @State private var pinForSignOut = false
 
     var body: some View {
         if account.isSignedIn {
@@ -105,10 +106,17 @@ struct AccountHeader: View {
             }
             .confirmationDialog("Đăng xuất khỏi tài khoản Google?", isPresented: $confirmSignOut, titleVisibility: .visible) {
                 Button("Đăng xuất", role: .destructive) {
-                    Task { await account.signOut() }
+                    if ParentalControls.shared.isEnabled {
+                        pinForSignOut = true
+                    } else {
+                        Task { await account.signOut() }
+                    }
                 }
             } message: {
                 Text("Dữ liệu trên thiết bị (tải xuống, danh sách phát riêng) vẫn được giữ lại.")
+            }
+            .sheet(isPresented: $pinForSignOut) {
+                PINPromptSheet(title: "Nhập mã PIN để đăng xuất") { Task { await account.signOut() } }
             }
         } else {
             VStack(alignment: .leading, spacing: 12) {
