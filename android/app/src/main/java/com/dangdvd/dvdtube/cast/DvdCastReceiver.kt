@@ -220,9 +220,9 @@ object DvdCastReceiver {
                 "next" -> PlayerController.playNext()
                 "previous" -> PlayerController.playPrevious()
                 "stop" -> TvNav.closePlayer()
-                "volume" -> value?.let { PlayerController.setRemoteVolume(it.toFloat()) }
+                "volume" -> value?.let { PlayerController.changeRemoteVolume(it.toFloat()) }
                     ?: return@withContext LanServer.Response.error(400, "Thiếu mức âm lượng.")
-                "mute" -> PlayerController.setRemoteMuted((value ?: 1.0) != 0.0)
+                "mute" -> PlayerController.changeRemoteMuted((value ?: 1.0) != 0.0)
                 else -> return@withContext LanServer.Response.error(400, "Lệnh không hợp lệ.")
             }
             LanServer.Response.ok(status())

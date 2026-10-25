@@ -23,7 +23,9 @@ android {
     }
 
     signingConfigs {
-        // A fixed key kept in the repo so that sideloaded updates install over each other.
+        // The original key, kept in the repo (and public since the repo became public). CI re-signs
+        // the release APK with the new key from the repo secrets plus a v3 rotation proof from this
+        // one (see .github/workflows/build.yml), so Android 9+ moves installs over to the new key.
         create("sideload") {
             storeFile = file("dvdtube-sideload.jks")
             storePassword = "dvdtube"

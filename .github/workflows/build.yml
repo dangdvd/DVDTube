@@ -15,9 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 # Keep CI cheap and fast (on private repos GitHub bills macOS minutes 10×, Windows 2×): a push
-# builds only the apps whose files changed; the smoke tests run only for commits containing
-# "[smoke]", "[screenshots]" or "[release]"; the macOS / Linux desktop builds only for "[release]" /
-# "[desktop]". "[all]", "[release]", v* tags and manual runs build everything.
+# builds only the apps whose files changed; keywords in the FIRST LINE of the commit message:
+# "[smoke]" / "[screenshots]" run the smoke tests, "[desktop]" the macOS / Linux desktop builds,
+# "[all]" builds every app, "[release]" does all of that and publishes a release (as do v* tags).
 jobs:
   # Which apps this push touches: a push builds only the platforms whose files changed (the
   # workflow itself, "[all]", "[release]", tags and manual runs build everything).
@@ -28,6 +28,10 @@ jobs:
       ios: ${{ steps.diff.outputs.ios }}
       android: ${{ steps.diff.outputs.android }}
       desktop: ${{ steps.diff.outputs.desktop }}
+      release: ${{ steps.diff.outputs.release }}
+      smoke: ${{ steps.diff.outputs.smoke }}
+      screenshots: ${{ steps.diff.outputs.screenshots }}
+      desktop_builds: ${{ steps.diff.outputs.desktop_builds }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,9 +42,24 @@ jobs:
           BEFORE: ${{ github.event.before }}
           MESSAGE: ${{ github.event.head_commit.message }}
         run: |
+          # Keywords count only in the first line of the commit message (bodies may mention them).
+          subject=$(printf '%s\n' "$MESSAGE" | head -n 1)
+          flag() { if [[ "$subject" == *"$2"* ]]; then echo "$1=true"; else echo "$1=false"; fi; }
+          tag=false
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then tag=true; fi
+          {
+            if [ "$tag" = true ]; then echo release=true; else flag release '[release]'; fi
+            if [ "$tag" = true ]; then echo smoke=true; else
+              if [[ "$subject" == *"[smoke]"* || "$subject" == *"[screenshots]"* || "$subject" == *"[release]"* ]]; then
+                echo smoke=true; else echo smoke=false; fi
+            fi
+            flag screenshots '[screenshots]'
+            if [ "$tag" = true ] || [[ "$subject" == *"[release]"* || "$subject" == *"[desktop]"* ]]; then
+              echo desktop_builds=true; else echo desktop_builds=false; fi
+          } | tee -a "$GITHUB_OUTPUT"
           all=false
           if [ "$GITHUB_EVENT_NAME" != "push" ] || [[ "$GITHUB_REF" == refs/tags/* ]] \
-            || [[ "$MESSAGE" == *"[all]"* ]] || [[ "$MESSAGE" == *"[release]"* ]]; then
+            || [[ "$subject" == *"[all]"* ]] || [[ "$subject" == *"[release]"* ]]; then
             all=true
           elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
             || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
@@ -102,7 +121,7 @@ jobs:
         with:
           name: DVDTube-unsigned-ipa
           path: DVDTube-unsigned.ipa
-          retention-days: 30
+          retention-days: 7
 
       - name: Upload build log
         if: failure()
@@ -140,9 +159,38 @@ jobs:
         run: |
           grep -E "^e: |^w: .*(deprecat|unchecked)|What went wrong|error:" gradle.log | grep -v "^w:" | head -150 || true
 
-      - name: Collect APK
+      # The key in the repo leaked when the repo became public. APKs are signed with a new key from
+      # the repo secrets plus an APK Signature Scheme v3 rotation proof from the old key, so Android 9+
+      # installs them over existing installs (keeping data) and stops accepting the old key.
+      - name: Sign with the new key (key rotation)
+        env:
+          NEW_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+          NEW_PASS: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
+          IS_RELEASE: ${{ needs.changes.outputs.release }}
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk DVDTube.apk
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          if [ -z "${NEW_KEY:-}" ] || [ -z "${NEW_PASS:-}" ]; then
+            echo "::warning::ANDROID_SIGNING_KEY / ANDROID_SIGNING_PASSWORD are not set: the APK keeps the old key."
+            if [ "$IS_RELEASE" = "true" ]; then echo "::error::Releases must be signed with the new key."; exit 1; fi
+            cp "$apk" DVDTube.apk
+            ls -lh DVDTube.apk
+            exit 0
+          fi
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "apksigner from $bt"
+          work=$(mktemp -d)
+          printf '%s' "$NEW_KEY" | base64 -d > "$work/new.jks"
+          old=(--ks android/app/dvdtube-sideload.jks --ks-key-alias dvdtube --ks-pass pass:dvdtube)
+          new=(--ks "$work/new.jks" --ks-key-alias dvdtube --ks-pass env:NEW_PASS)
+          "$bt/apksigner" rotate --out "$work/lineage" --old-signer "${old[@]}" --new-signer "${new[@]}"
+          # Updates signed only by the leaked old key must not install over existing data.
+          "$bt/apksigner" lineage --in "$work/lineage" --out "$work/lineage" --signer "${old[@]}" --set-installed-data false
+          "$bt/apksigner" lineage --in "$work/lineage" --print-certs
+          "$bt/apksigner" sign "${old[@]}" --next-signer "${new[@]}" --lineage "$work/lineage" \
+            --rotation-min-sdk-version 28 --out DVDTube.apk "$apk"
+          "$bt/apksigner" verify -v --print-certs DVDTube.apk | grep -vi "warning" | head -40
+          rm -rf "$work"
           ls -lh DVDTube.apk
 
       - name: Upload APK
@@ -150,7 +198,7 @@ jobs:
         with:
           name: DVDTube-apk
           path: DVDTube.apk
-          retention-days: 30
+          retention-days: 7
 
   windows:
     name: Build Windows app
@@ -201,12 +249,12 @@ jobs:
         with:
           name: DVDTube-windows
           path: win-out/
-          retention-days: 30
+          retention-days: 7
 
   macos:
     name: Build macOS app
     needs: changes
-    if: needs.changes.outputs.desktop == 'true' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[desktop]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    if: needs.changes.outputs.desktop == 'true' && needs.changes.outputs.desktop_builds == 'true'
     runs-on: macos-15
     timeout-minutes: 30
     defaults:
@@ -243,12 +291,12 @@ jobs:
         with:
           name: DVDTube-macos
           path: mac-out/
-          retention-days: 30
+          retention-days: 7
 
   linux:
     name: Build Linux app
     needs: changes
-    if: needs.changes.outputs.desktop == 'true' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[desktop]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    if: needs.changes.outputs.desktop == 'true' && needs.changes.outputs.desktop_builds == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -283,14 +331,14 @@ jobs:
         with:
           name: DVDTube-linux
           path: linux-out/
-          retention-days: 30
+          retention-days: 7
 
   # Publishes a GitHub Release with the IPA, APK and desktop apps: for a pushed v* tag, or for a push whose
   # commit message contains "[release]" (the tag v1.0.<run number> is then created here).
   release:
     name: Publish release
-    if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
-    needs: [build, android, windows, macos, linux]
+    if: needs.changes.outputs.release == 'true'
+    needs: [changes, build, android, windows, macos, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -316,7 +364,7 @@ jobs:
   windows-smoke:
     name: Windows smoke test
     needs: [changes, windows]
-    if: needs.changes.outputs.desktop == 'true' && (contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    if: needs.changes.outputs.desktop == 'true' && needs.changes.outputs.smoke == 'true'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -341,7 +389,7 @@ jobs:
 
       # Opt-in (commit message contains "[screenshots]"), like the iOS smoke test.
       - name: Publish screenshots branch
-        if: always() && contains(github.event.head_commit.message, '[screenshots]')
+        if: always() && needs.changes.outputs.screenshots == 'true'
         shell: bash
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -362,12 +410,12 @@ jobs:
           path: |
             smoke-windows/
             !smoke-windows/userdata/
-          retention-days: 14
+          retention-days: 5
 
   android-smoke:
     name: Android emulator smoke test
     needs: [changes, android]
-    if: needs.changes.outputs.android == 'true' && (contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    if: needs.changes.outputs.android == 'true' && needs.changes.outputs.smoke == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -397,7 +445,7 @@ jobs:
 
       # Opt-in (commit message contains "[screenshots]"), like the iOS smoke test.
       - name: Publish screenshots branch
-        if: always() && contains(github.event.head_commit.message, '[screenshots]')
+        if: always() && needs.changes.outputs.screenshots == 'true'
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -414,12 +462,12 @@ jobs:
         with:
           name: android-smoke-results
           path: smoke-android/
-          retention-days: 14
+          retention-days: 5
 
   smoke:
     name: Simulator smoke test
     needs: changes
-    if: needs.changes.outputs.ios == 'true' && (contains(github.event.head_commit.message, '[smoke]') || contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[screenshots]') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    if: needs.changes.outputs.ios == 'true' && needs.changes.outputs.smoke == 'true'
     runs-on: macos-15
     timeout-minutes: 40
     steps:
@@ -446,7 +494,7 @@ jobs:
       # branch so they can be fetched with plain git. Pushes made with GITHUB_TOKEN
       # do not trigger new workflow runs.
       - name: Publish screenshots branch
-        if: always() && contains(github.event.head_commit.message, '[screenshots]')
+        if: always() && needs.changes.outputs.screenshots == 'true'
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -463,4 +511,4 @@ jobs:
         with:
           name: smoke-results
           path: smoke/
-          retention-days: 14
+          retention-days: 5

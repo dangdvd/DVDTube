@@ -804,13 +804,13 @@ object PlayerController {
     }
 
     /** Volume asked by a cast sender (this device is the receiver). */
-    fun setRemoteVolume(level: Float) {
+    fun changeRemoteVolume(level: Float) {
         remoteVolume = level.coerceIn(0f, 1f)
         if (remoteVolume > 0f) remoteMuted = false
         applyVolume()
     }
 
-    fun setRemoteMuted(muted: Boolean) {
+    fun changeRemoteMuted(muted: Boolean) {
         remoteMuted = muted
         applyVolume()
     }
