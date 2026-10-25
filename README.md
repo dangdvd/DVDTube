@@ -7,6 +7,8 @@ cáo** và mở sẵn các tính năng của YouTube Premium: phát trong nền,
 > DVDTube là dự án cá nhân, không chính thức, không liên kết với Google/YouTube.
 > Không bắt buộc tài khoản Google: khi chưa đăng nhập, đăng ký kênh, nhật ký xem, danh sách phát… lưu trên máy.
 
+Nếu thấy DVDTube hữu ích, bạn có thể **[ủng hộ tác giả](#ủng-hộ-tác-giả)** ♡.
+
 ## Tải về
 
 Mọi bản cài đều nằm trong trang **[Releases](https://github.com/dangdvd/DVDTube/releases/latest)** (bản mới nhất,
@@ -301,3 +303,26 @@ nhận, không phải sửa `project.pbxproj`.
 - YouTube thay đổi API thường xuyên; khi có lỗi phát hàng loạt, hãy cập nhật `remote-config.json`
   hoặc mã nguồn.
 - Chặn quảng cáo vi phạm Điều khoản dịch vụ của YouTube. Chỉ nên dùng cho mục đích cá nhân.
+
+## Ủng hộ tác giả
+
+DVDTube miễn phí và không có quảng cáo. Nếu thấy ứng dụng hữu ích, bạn có thể ủng hộ tác giả một ly cà phê để có
+thêm động lực duy trì và phát triển ứng dụng. Mọi sự ủng hộ, dù nhỏ, đều rất đáng quý. Xin cảm ơn bạn!
+
+<p align="center">
+  <img src="webos/assets/donate-qr.png" alt="Mã VietQR ủng hộ tác giả – Techcombank, DANG VAN DANG" width="280">
+</p>
+
+| Chủ tài khoản | Ngân hàng | Số tài khoản |
+| --- | --- | --- |
+| **DANG VAN DANG** | **Techcombank** | **1903 3516 2700 19** |
+
+Quét mã bằng ứng dụng ngân hàng hoặc ví điện tử có hỗ trợ VietQR. Trong ứng dụng DVDTube cũng có mục ủng hộ:
+
+- **iPhone, điện thoại Android:** nút ♡ trên thanh tiêu đề ở Trang chủ. Ngoài mã QR và nút sao chép số tài khoản,
+  có thể mở thẳng ứng dụng ngân hàng trên điện thoại: **MB Bank, BIDV, VietinBank, ACB, OCB** mở với người nhận và
+  nội dung chuyển khoản điền sẵn; các ngân hàng khác (Vietcombank, Techcombank…) chưa cho ứng dụng khác điền sẵn,
+  nên DVDTube sao chép số tài khoản và lưu mã QR vào ảnh để bạn dán số tài khoản hoặc *Quét QR › chọn ảnh*.
+- **Windows, macOS, Linux:** nút ♡ trên thanh trên cùng: mã QR để quét bằng điện thoại, sao chép số tài khoản,
+  lưu ảnh mã QR.
+- **TV LG:** mục **Ủng hộ tác giả** ở cuối thanh bên trái: quét mã trên màn hình TV bằng điện thoại.
