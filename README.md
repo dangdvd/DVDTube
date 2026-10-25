@@ -42,6 +42,16 @@ hình trong hình (PiP), tải video xem offline.
 | Bình luận & đánh giá | Thích / không thích bình luận khi đã đăng nhập; hiện **số lượt không thích** của video (dữ liệu Return YouTube Dislike, tắt được). |
 | Nhật ký | Tạm dừng nhật ký xem, tạm dừng / xóa nhật ký tìm kiếm. |
 | Thông báo | Chuông thông báo của tài khoản YouTube (có số chưa đọc); tùy chọn báo trên màn hình khóa khi kênh đăng ký có video mới (*Cài đặt › Thông báo*). |
+| Truyền tới DVDTube trên TV / máy tính | Nút truyền liệt kê DVDTube trên Android TV và máy tính trong cùng Wi-Fi (thêm được bằng địa chỉ IP); TV tự lấy luồng phát (chất lượng tới 4K, không cần Chromecast), điện thoại thành điều khiển: phát/tạm dừng, tua, ±10 giây, âm lượng, hàng đợi, *Tiếp tục trên thiết bị này*. |
+| Đồng bộ & sao lưu | *Cài đặt › Đồng bộ & sao lưu*: gộp kênh đăng ký, nhật ký xem (kèm vị trí đang xem), Xem sau, video đã thích, danh sách phát giữa iPhone, Android, TV và máy tính bằng mã QR qua Wi-Fi (mã hoá), hoặc xuất/nhập tệp `.json`. |
+| Nghe nhạc & lời bài hát | Mục **Nghe nhạc** (dữ liệu YouTube Music): tìm bài hát, video, album, nghệ sĩ, danh sách phát; màn hình đang phát với ảnh bìa lớn, **lời bài hát** chạy theo nhạc (karaoke khi có lời theo thời gian), *Radio từ bài này*, trộn bài, lặp lại; mặc định chỉ tải âm thanh, bài sau nối liền. Nút *Lời bài hát* cũng có ở trang xem video. |
+| Tự động tải | Chọn kênh đăng ký để tự tải video mới (giữ tối đa N video mỗi kênh, chỉ qua Wi-Fi, có thể chỉ tải âm thanh). Bản máy tính tải được tới **4K** (AV1/VP9) và tải kèm **phụ đề .srt**. |
+| DeArrow | Thay tiêu đề và ảnh thu nhỏ "giật tít" bằng bản do cộng đồng sửa (dữ liệu DeArrow); nhấn giữ để xem tiêu đề gốc; tắt được. |
+| Kiểm soát của phụ huynh | Khóa bằng mã PIN: chế độ hạn chế của YouTube, giới hạn thời gian xem mỗi ngày, khung giờ được xem, chặn từ khoá / kênh, ẩn bình luận, ẩn Shorts, tắt tìm kiếm. |
+| Màn hình chính | Widget *Tiếp tục xem* / *Video mới* trên iPhone và Android, hàng **Xem tiếp** trên màn hình chính Android TV, Jump List trên thanh tác vụ Windows. |
+| Cập nhật | Tự kiểm tra bản mới: Android và Windows tải và cài bản mới ngay trong ứng dụng (giữ nguyên dữ liệu); iPhone báo và mở trang tải. |
+| Nhật ký lỗi | *Cài đặt › Giới thiệu › Gửi nhật ký lỗi*: tạo tệp nhật ký đã xoá thông tin đăng nhập để gửi khi cần sửa lỗi. |
+| Hàng đợi & hẹn giờ phát | Mở lại ứng dụng là thấy video/hàng đợi đang nghe dở trong mini player; **Hẹn giờ phát** (báo thức bằng nhạc: một lần, hằng ngày, ngày thường, cuối tuần) với danh sách phát, Xem sau, Radio…, âm lượng tăng dần. |
 
 ## Đăng nhập tài khoản Google (tùy chọn)
 
@@ -166,6 +176,15 @@ Phím tắt giống YouTube: `Space`/`K` phát–tạm dừng (giữ `Space` đ�
 `←`/`→` lùi/tới, `↑`/`↓` âm lượng, `M` tắt tiếng, `F` toàn màn hình, `T` rạp hát, `I` trình phát mini,
 `C` phụ đề, `Shift`+`<`/`>` tốc độ, `0`–`9` nhảy tới 0–90 %, `Shift`+`N`/`P` video tiếp theo / trước,
 `Ctrl`+`K` hoặc `/` tìm kiếm, dán (`Ctrl`+`V`) một link YouTube ở bất kỳ đâu để mở ngay.
+
+### macOS và Linux
+
+Cùng mã nguồn với bản Windows, có trong mục **Releases**:
+- **macOS** (11 trở lên): `DVDTube-mac-arm64.dmg` cho Mac chip Apple (M1…), `DVDTube-mac-x64.dmg` cho Mac Intel.
+  Ứng dụng chưa ký số: lần đầu mở, nhấn chuột phải (hoặc Control + bấm) vào DVDTube trong *Ứng dụng* → **Mở** → **Mở**
+  (hoặc *Cài đặt hệ thống › Quyền riêng tư & Bảo mật* → **Vẫn mở**).
+- **Linux** (x86-64): `DVDTube-linux-x86_64.AppImage` (cho quyền chạy: `chmod +x`, rồi mở) hoặc
+  `DVDTube-linux-amd64.deb` (`sudo apt install ./DVDTube-linux-amd64.deb`).
 
 ## Cách hoạt động
 
