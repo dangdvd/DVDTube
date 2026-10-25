@@ -134,7 +134,7 @@ function web(): WebPlayback {
     webPlayer.onError = (message) => {
       if (!webActive) return
       note(`web player: ${message} (${get().current?.id ?? ''})`)
-      set({ status: 'error', error: message, errorDetail: 'Trình phát web (YouTube nhúng)', playing: false })
+      set({ status: 'error', ...webFailure(message), playing: false })
     }
   }
   return webPlayer
@@ -159,6 +159,17 @@ function onWebState(state: WebPlayerState): void {
       web().command('playVideo')
     } else handleEnded()
   } else if (state.s !== 0) webEnded = false
+}
+
+/**
+ * When the embed fails too (e.g. the owner disabled embedding), the reason the native player
+ * failed is still the one that matters (a bot check means: sign in), so it stays the message.
+ */
+function webFailure(message: string): { error: string; errorDetail: string } {
+  const reason = get().fallbackReason
+  if (!reason) return { error: message, errorDetail: 'Trình phát web (YouTube nhúng)' }
+  const hint = /robot|not a bot/i.test(reason) ? ' Hãy đăng nhập tài khoản Google (Tài khoản › Đăng nhập) rồi thử lại.' : ''
+  return { error: reason + hint, errorDetail: `Trình phát web cũng không phát được: ${message}` }
 }
 
 /** Native playback is impossible here (bot check, 403, no streams) — not for offline / gone videos. */
@@ -189,7 +200,10 @@ async function startWeb(my: number, startAt: number | null, reason: string): Pro
   try {
     await web().load(item.id, startAt ?? 0, get().loop)
   } catch (error) {
-    if (my === token) fail(errorMessage(error), 'Trình phát web (YouTube nhúng)')
+    if (my === token) {
+      const failure = webFailure(errorMessage(error))
+      fail(failure.error, failure.errorDetail)
+    }
   }
 }
 
