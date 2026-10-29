@@ -93,11 +93,39 @@ Vào tab **Bạn** (hoặc *Cài đặt*) → **Đăng nhập tài khoản Googl
 Cách hoạt động: bạn đăng nhập trên chính trang của Google (mật khẩu không đi qua ứng dụng). Ứng dụng
 chỉ giữ lại *phiên YouTube* (cookie của youtube.com), lưu trong **Keychain** của máy, và chỉ gửi
 chúng tới `youtube.com` — giống như trang web YouTube làm. Ngoại lệ duy nhất: khi bạn quét mã QR *Đăng nhập
-bằng điện thoại* của DVDTube trên TV nhà mình và bấm *Gửi*, phiên được mã hoá rồi gửi tới TV đó qua mạng nội bộ.
+bằng điện thoại* của DVDTube trên TV hoặc máy tính của mình và bấm *Gửi*, phiên được mã hoá rồi gửi tới
+thiết bị đó qua mạng nội bộ (xem bên dưới).
 
-Nếu Google báo *"Trình duyệt hoặc ứng dụng này có thể không an toàn"*, dùng **Nhập cookie thủ
-công** (menu ⋯ trên màn hình đăng nhập): đăng nhập youtube.com trên máy tính (cửa sổ ẩn danh), xuất
-cookie bằng tiện ích *Get cookies.txt LOCALLY*, đóng cửa sổ ẩn danh rồi dán nội dung vào ứng dụng.
+### Đăng nhập bằng điện thoại (máy tính, Android TV, TV LG)
+
+Đăng nhập trên điện thoại một lần, rồi "chuyển" phiên đăng nhập sang máy tính hoặc TV bằng mã QR — không
+phải gõ mật khẩu trên TV, và là cách nên dùng khi trên máy tính Google báo **"Không thể đăng nhập cho bạn —
+Trình duyệt hoặc ứng dụng này có thể không an toàn"** hoặc Windows hiện hộp *"Making sure it's you — Insert
+your security key"*. Google chặn đăng nhập trong cửa sổ của ứng dụng trên một số máy / tài khoản; khi đó
+DVDTube trên máy tính tự đóng cửa sổ đăng nhập và mở luôn cách này.
+
+1. Trên điện thoại (iPhone hoặc Android), đăng nhập tài khoản Google trong DVDTube (tab **Bạn**).
+2. Trên máy tính hoặc TV, mở **Tài khoản** → **Đăng nhập bằng điện thoại**: màn hình hiện mã QR (máy tính
+   hiện mã ngay bên cạnh nút *Đăng nhập bằng Google*). Mã dùng được một lần, trong 10 phút.
+3. Quét mã bằng điện thoại:
+   - **iPhone**: mở ứng dụng **Camera**, hướng vào mã rồi chạm thông báo *Mở trong DVDTube* (hoặc trong
+     DVDTube: *Cài đặt › Đồng bộ & sao lưu › Quét mã QR của thiết bị khác*).
+   - **Android**: DVDTube → tab **Bạn** → **Đăng nhập cho TV (quét mã QR)** — dùng cho cả máy tính.
+4. Điện thoại hỏi *Đăng nhập trên TV?* (kèm tên máy tính / TV) → bấm **Gửi**. Vài giây sau máy tính / TV hiện
+   tên tài khoản.
+
+Lưu ý:
+
+- Điện thoại và máy tính / TV phải **cùng mạng Wi-Fi** (cùng modem). Nếu Windows Defender Firewall hỏi
+  quyền mạng cho DVDTube, chọn **Cho phép** (mạng riêng).
+- Phiên đăng nhập chỉ được gửi tới đúng địa chỉ trong mạng nội bộ ghi trong mã QR, đã mã hoá bằng khoá chỉ
+  có trong mã đó; mật khẩu không được gửi đi. Đăng xuất trên máy tính / TV không ảnh hưởng điện thoại.
+- Muốn thêm tài khoản thứ hai trên máy tính: trên điện thoại chuyển sang tài khoản đó (*Chuyển đổi tài khoản*)
+  rồi quét lại mã mới.
+
+Trên **iPhone / Android**, nếu Google báo *"Trình duyệt hoặc ứng dụng này có thể không an toàn"*, dùng
+**Nhập cookie thủ công** (menu ⋯ trên màn hình đăng nhập): đăng nhập youtube.com trên máy tính (cửa sổ ẩn
+danh), xuất cookie bằng tiện ích *Get cookies.txt LOCALLY*, đóng cửa sổ ẩn danh rồi dán nội dung vào ứng dụng.
 
 > ⚠️ Đây là ứng dụng không chính thức. Dùng tài khoản với ứng dụng bên thứ ba có rủi ro (Google có
 > thể yêu cầu xác minh lại hoặc hạn chế tài khoản), nên cân nhắc dùng tài khoản phụ. Cookie cho
@@ -149,9 +177,9 @@ khiển bằng remote, và có biểu tượng trên màn hình chính của TV.
 3. Khi xem: **OK** phát/tạm dừng, **◀ ▶** tua 10 giây (giữ để tua nhanh), **▲** hiện nút điều khiển (phụ đề,
    chất lượng, tốc độ, chỉ âm thanh, bản âm thanh, EQ, hẹn giờ tắt, thích, đăng ký…), **▼** video tiếp theo.
 4. **Đăng nhập bằng điện thoại**: *Tài khoản › Đăng nhập bằng điện thoại* hiện mã QR — quét bằng Camera trên
-   iPhone (hoặc *Bạn › Đăng nhập cho TV* trong DVDTube trên Android), xác nhận trên điện thoại là TV đăng nhập.
-   Điện thoại và TV phải cùng mạng Wi-Fi. Phiên đăng nhập chỉ được gửi tới địa chỉ trong mạng nội bộ ghi
-   trong mã QR, đã mã hoá bằng khoá chỉ có trong mã đó. Cũng có thể *Đăng nhập trên TV* bằng trang của Google.
+   iPhone (hoặc *Bạn › Đăng nhập cho TV* trong DVDTube trên Android), xác nhận trên điện thoại là TV đăng nhập
+   (chi tiết: [Đăng nhập bằng điện thoại](#đăng-nhập-bằng-điện-thoại-máy-tính-android-tv-tv-lg)). Cũng có thể
+   *Đăng nhập trên TV* bằng trang của Google.
 
 ### Android Auto (nghe trong xe)
 
@@ -178,7 +206,8 @@ Windows 10 / 11 (64-bit).
 Bản Windows có các tính năng như bản điện thoại, giao diện theo YouTube trên máy tính: trang chủ theo
 chủ đề, tìm kiếm có bộ lọc, kênh, danh sách phát, Shorts, kênh đăng ký, nhật ký xem, Xem sau, tải video /
 âm thanh về máy (MP4 / M4A), đăng nhập Google (nhiều tài khoản, kênh thương hiệu) hoặc **đăng nhập
-bằng điện thoại** (quét mã QR bằng DVDTube trên điện thoại, như Android TV). Trình phát hỗ trợ tới
+bằng điện thoại** (quét mã QR bằng DVDTube trên điện thoại, như Android TV — dùng cách này nếu Google chặn
+đăng nhập trên máy, xem [Đăng nhập bằng điện thoại](#đăng-nhập-bằng-điện-thoại-máy-tính-android-tv-tv-lg)). Trình phát hỗ trợ tới
 4K/8K (VP9, AV1, H.264), chế độ rạp hát, toàn màn hình, trình phát mini khi duyệt trang khác, hình
 trong hình, phụ đề (tự dịch), bản âm thanh lồng tiếng, SponsorBlock, bộ chỉnh âm 10 băng tần với các
 mẫu Rock, Pop, EDM, Dance, Trap, Cổ điển, Jazz…, âm lượng ổn định, hẹn giờ tắt, phím media và nút
@@ -222,7 +251,8 @@ Lưu ý:
   **Extend** trước khi hết hạn (Dev Manager cũng gia hạn được); nếu để hết hạn, TV sẽ gỡ các ứng dụng đã cài
   theo cách này và phải cài lại. TV đã cài *Homebrew Channel* (root) thì không bị giới hạn này — cài tệp ipk
   qua Homebrew Channel.
-- Đăng nhập: *Tài khoản* → **Đăng nhập bằng điện thoại**, quét mã QR bằng DVDTube trên iPhone/Android.
+- Đăng nhập: *Tài khoản* → **Đăng nhập bằng điện thoại**, quét mã QR bằng DVDTube trên iPhone/Android
+  (xem [Đăng nhập bằng điện thoại](#đăng-nhập-bằng-điện-thoại-máy-tính-android-tv-tv-lg)).
 - Truyền video: trên điện thoại bấm nút **Truyền** và chọn TV LG (DVDTube phải đang mở trên TV).
 - Điều khiển bằng các phím mũi tên / OK / Back hoặc con trỏ của Magic Remote; phím ⏯ ⏪ ⏩ để phát và tua.
 - Cập nhật: *Cài đặt › Giới thiệu › Kiểm tra cập nhật* báo khi có bản mới; cài bản mới bằng Dev Manager như
