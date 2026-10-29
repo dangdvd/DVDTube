@@ -45,6 +45,14 @@ import type {
 import type { LibraryExport } from './library'
 import type { CoreConfig } from './settings'
 
+
+/**
+ * Google's "Không thể đăng nhập cho bạn" ("this browser or app may not be secure"): it refuses
+ * sign-in inside apps on some computers / accounts. Signing in from the phone (QR) still works.
+ */
+export const SIGNIN_REFUSED =
+  'Google không cho đăng nhập trong cửa sổ của ứng dụng trên máy này. Hãy dùng "Đăng nhập bằng điện thoại": mở DVDTube trên điện thoại đã đăng nhập tài khoản Google rồi quét mã QR ở trang Tài khoản.'
+
 export interface AppInfo {
   version: string
   platform: string
@@ -196,7 +204,10 @@ export interface DvdApi {
 
   // Account
   account(): Promise<AccountState>
-  /** Opens the Google sign-in window; resolves when it closes. */
+  /**
+   * Opens the Google sign-in window; resolves when it closes. Rejects with SIGNIN_REFUSED when
+   * Google refuses to sign in inside the app on this computer.
+   */
   signIn(addAccount?: boolean): Promise<AccountState>
   signOut(): Promise<AccountState>
   switchIdentity(identityId: string): Promise<AccountState>

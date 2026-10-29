@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { SIGNIN_REFUSED } from '@shared/api'
 import type { ThemeMode } from '@shared/settings'
 import { api, errorMessage } from '@/lib/api'
 import { confirmDialog } from '@/lib/dialogs'
@@ -24,7 +25,21 @@ export async function signIn(addAccount = false): Promise<void> {
     useAccount.setState({ ...state, loaded: true })
     if (state.signedIn) toast(`Đã đăng nhập: ${state.profile?.name ?? 'tài khoản Google'}`)
   } catch (error) {
-    toast('Không đăng nhập được: ' + errorMessage(error))
+    const message = errorMessage(error)
+    if (!message.includes(SIGNIN_REFUSED)) {
+      toast('Không đăng nhập được: ' + message)
+      return
+    }
+    const usePhone = await confirmDialog({
+      title: 'Google không cho đăng nhập ở đây',
+      message: SIGNIN_REFUSED,
+      confirmLabel: 'Đăng nhập bằng điện thoại',
+      cancelLabel: 'Đóng',
+    })
+    if (usePhone) {
+      window.location.hash = '#' + paths.account
+      setTimeout(() => document.querySelector('[data-testid="pairing-card"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)
+    }
   }
 }
 

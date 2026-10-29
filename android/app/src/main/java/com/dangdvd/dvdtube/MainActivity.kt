@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Rational
 import android.view.OrientationEventListener
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,6 +38,7 @@ import com.dangdvd.dvdtube.widget.AppWidgets
 import com.dangdvd.dvdtube.core.services.YouTubeService
 import com.dangdvd.dvdtube.player.PlaybackService
 import com.dangdvd.dvdtube.player.PlayerController
+import com.dangdvd.dvdtube.player.ShortsPlayer
 import com.dangdvd.dvdtube.player.Toasts
 import com.dangdvd.dvdtube.tv.TvActivity
 import com.dangdvd.dvdtube.ui.DVDTubeTheme
@@ -75,6 +77,15 @@ class MainActivity : AppCompatActivity() {
         NewVideoWorker.sync(this)
         AutoDownloadWorker.sync(this)
         lifecycleScope.launch { AppUpdater.checkAtLaunch() }
+        // Keep the screen on while a video plays here (not audio only, not while a TV plays it).
+        lifecycleScope.launch {
+            snapshotFlow {
+                (PlayerController.isPlaying && !PlayerController.isAudioOnly && !PlayerController.isCasting) || ShortsPlayer.isPlaying
+            }.collect { playing ->
+                if (playing) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
         // Home screen widgets follow the history.
         lifecycleScope.launch {
             snapshotFlow { LibraryStore.history.firstOrNull()?.let { it.video.id to (it.position / 30).toInt() } }

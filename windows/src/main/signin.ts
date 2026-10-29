@@ -3,6 +3,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { BrowserWindow, session, shell } from 'electron'
+import { SIGNIN_REFUSED } from '@shared/api'
 import type { AccountState } from '@shared/models'
 import { accountState, completeAddAccount, completeWindowSignIn, currentIdentity } from './accounts'
 import { coreState } from './core/config'
@@ -20,6 +21,16 @@ function isGoogleOrYouTube(url: string): boolean {
   try {
     const host = new URL(url).hostname
     return /(^|\.)(google|youtube|gstatic|googleusercontent)\.com$/.test(host) || /(^|\.)google\.[a-z.]+$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+/** Google's "Không thể đăng nhập cho bạn" page (it refuses this browser / app). */
+function isRefusal(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname === 'accounts.google.com' && parsed.pathname.includes('/signin/rejected')
   } catch {
     return false
   }
@@ -73,6 +84,15 @@ export async function signIn(parent: BrowserWindow | null, addAccount: boolean):
 
     const check = async (url: string) => {
       if (finished || checking) return
+      if (isRefusal(url)) {
+        // Nothing to retry in this window: say so and point to signing in from the phone.
+        finished = true
+        log.warn('sign-in: Google refused to sign in inside the app')
+        window.destroy()
+        if (addAccount) void ses.clearStorageData().catch(() => {})
+        reject(new Error(SIGNIN_REFUSED))
+        return
+      }
       let parsed: URL
       try {
         parsed = new URL(url)
