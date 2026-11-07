@@ -222,14 +222,20 @@ export function move(dir: Direction): boolean {
   return true
 }
 
-/** Hover with the Magic Remote moves the focus too (no scrolling, the pointer is there). */
+/**
+ * Hover with the Magic Remote moves the focus too (no scrolling, the pointer is there), except
+ * while typing: the TV's on-screen keyboard closes as soon as the text field loses the focus, so
+ * moving the pointer down to the keyboard must not take the focus away.
+ */
 export function initPointerFocus(isPointerActive: () => boolean): void {
   document.addEventListener(
     'mouseover',
     (event) => {
       if (!isPointerActive()) return
+      const active = document.activeElement as HTMLElement | null
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return
       const target = (event.target as HTMLElement | null)?.closest?.('[data-f]') as HTMLElement | null
-      if (!target || target === document.activeElement || !visible(target)) return
+      if (!target || target === active || !visible(target)) return
       if (!currentScope().contains(target)) return
       focusElement(target, { scroll: false })
     },
