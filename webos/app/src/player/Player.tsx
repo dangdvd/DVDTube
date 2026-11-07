@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { api, type StreamInfo } from '../api'
 import { branded, useBranding } from '../dearrow'
 import { focusByKey, focusElement, focusFirst } from '../focus'
-import { KEY, isBackKey } from '../platform'
+import { KEY, isBackKey, isPointerVisible } from '../platform'
 import { useScreen, useScreenKeys } from '../screen'
 import { accountStore } from '../state/account'
 import { library, libraryStore } from '../state/library'
@@ -415,6 +415,9 @@ export function PlayerScreen() {
   // scrolling shows the controls, clicking the picture pauses / plays.
 
   const lastToggle = useRef(0)
+  const lastKeyAt = useRef(0)
+  /** Where the pointer was when it last counted as a move. */
+  const pointerAt = useRef<{ x: number; y: number } | null>(null)
 
   /** Play / pause from OK or a click on the picture (OK can arrive as a key and a click at once). */
   function togglePlayback(): void {
@@ -423,7 +426,17 @@ export function PlayerScreen() {
     playback.current?.toggle()
   }
 
-  function onPointerMove(): void {
+  function onPointerMove(event: MouseEvent): void {
+    const here = { x: event.screenX, y: event.screenY }
+    const from = pointerAt.current
+    // Pressing a button nudges the Magic Remote and its pointer: only a real move counts
+    // (otherwise Back hides the controls and the nudge brings them straight back).
+    if (!from || Date.now() - lastKeyAt.current < 800) {
+      pointerAt.current = here
+      return
+    }
+    if (Math.abs(here.x - from.x) + Math.abs(here.y - from.y) < 40) return
+    pointerAt.current = here
     if (lock || upNext) return
     if (!controls) showControls(false)
     else scheduleHide()
@@ -475,6 +488,7 @@ export function PlayerScreen() {
   useScreenKeys((event) => {
     const code = event.keyCode
     const pb = playback.current
+    lastKeyAt.current = Date.now()
     if (lock) return false
     // Every key counts as activity: the controls stay while the user does something.
     if (controls) scheduleHide()
@@ -533,7 +547,8 @@ export function PlayerScreen() {
         showControls(true)
         return true
       }
-      if (controls && !music && status === 'playing') {
+      // With the keys, Back first hides the controls; with the pointer on screen it goes back at once.
+      if (controls && !music && status === 'playing' && !isPointerVisible()) {
         setControls(false)
         return true
       }
