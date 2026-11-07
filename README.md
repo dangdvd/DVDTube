@@ -254,7 +254,9 @@ Lưu ý:
 - Đăng nhập: *Tài khoản* → **Đăng nhập bằng điện thoại**, quét mã QR bằng DVDTube trên iPhone/Android
   (xem [Đăng nhập bằng điện thoại](#đăng-nhập-bằng-điện-thoại-máy-tính-android-tv-tv-lg)).
 - Truyền video: trên điện thoại bấm nút **Truyền** và chọn TV LG (DVDTube phải đang mở trên TV).
-- Điều khiển bằng các phím mũi tên / OK / Back hoặc con trỏ của Magic Remote; phím ⏯ ⏪ ⏩ để phát và tua.
+- Khi xem video: **OK** tạm dừng / phát tiếp và hiện các nút điều khiển, **◀ ▶** tua 10 giây, **▲** hiện nút,
+  **▼** xem video tiếp theo, **Back** ẩn nút / thoát; phím ⏯ ⏪ ⏩ trên điều khiển cũng dùng được. Với con trỏ
+  **Magic Remote**: di chuyển hoặc lăn bánh xe để hiện nút điều khiển, nhấp vào hình để tạm dừng / phát tiếp.
 - Cập nhật: *Cài đặt › Giới thiệu › Kiểm tra cập nhật* báo khi có bản mới; cài bản mới bằng Dev Manager như
   bước 5 (dữ liệu trong ứng dụng được giữ nguyên).
 

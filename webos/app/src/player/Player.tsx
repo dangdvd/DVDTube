@@ -410,6 +410,53 @@ export function PlayerScreen() {
     if (focusPlay) setTimeout(() => focusByKey('pl-play') || focusFirst(), 30)
   }
 
+  // MARK: Magic Remote pointer
+  // With the pointer on screen OK is a click (not a key) and the wheel scrolls: moving or
+  // scrolling shows the controls, clicking the picture pauses / plays.
+
+  const lastToggle = useRef(0)
+
+  /** Play / pause from OK or a click on the picture (OK can arrive as a key and a click at once). */
+  function togglePlayback(): void {
+    if (Date.now() - lastToggle.current < 400) return
+    lastToggle.current = Date.now()
+    playback.current?.toggle()
+  }
+
+  function onPointerMove(): void {
+    if (lock || upNext) return
+    if (!controls) showControls(false)
+    else scheduleHide()
+  }
+
+  function onWheel(event: WheelEvent): void {
+    if (lock || upNext || hasDialog()) return
+    if (!controls) {
+      event.preventDefault()
+      showControls(false)
+      return
+    }
+    scheduleHide()
+    if (music) return
+    // Down shows "Tiếp theo" like ▼, up hides it again.
+    if (event.deltaY > 0 && !related) {
+      event.preventDefault()
+      setRelated(true)
+    } else if (event.deltaY < 0 && related) {
+      event.preventDefault()
+      setRelated(false)
+    }
+  }
+
+  function onPictureClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null
+    // Buttons, cards and dialogs handle their own clicks.
+    if (target?.closest('button, [data-f], .upnext, .player-error')) return
+    if (lock || upNext || hasDialog()) return
+    togglePlayback()
+    showControls(false)
+  }
+
   function seekBy(delta: number): void {
     const pb = playback.current
     if (!pb || stream?.isLive && !pb.duration) return
@@ -509,7 +556,13 @@ export function PlayerScreen() {
         setTimeout(() => focusByKey('rel-0') || focusByKey('pl-play'), 60)
         return true
       }
-      if (code === KEY.ENTER || code === KEY.UP) {
+      if (code === KEY.ENTER) {
+        // Like YouTube on the TV: OK pauses (or resumes) and shows the controls.
+        togglePlayback()
+        showControls(true)
+        return true
+      }
+      if (code === KEY.UP) {
         showControls(true)
         return true
       }
@@ -736,7 +789,15 @@ export function PlayerScreen() {
   }, [screen.active, player.session])
 
   return (
-    <div class={`player${music ? ' music' : ''}${controls ? ' controls' : ''}`} data-testid="player" data-status={status} data-source={source ?? ''}>
+    <div
+      class={`player${music ? ' music' : ''}${controls ? ' controls' : ''}`}
+      data-testid="player"
+      data-status={status}
+      data-source={source ?? ''}
+      onMouseMove={onPointerMove}
+      onWheel={onWheel}
+      onClick={onPictureClick}
+    >
       <video ref={videoRef} class="player-video" preload="auto" style={music || source === 'audio' || source === 'mock' ? { visibility: 'hidden' } : undefined} />
       {(source === 'mock' || (status === 'loading' && !music)) && shown?.thumbnail && !music && <LazyImg src={shown.thumbnail} class="player-poster" eager />}
       {music && video && <MusicStage video={video} title={shown?.title ?? video.title} showLyrics={showLyrics} time={time} />}
