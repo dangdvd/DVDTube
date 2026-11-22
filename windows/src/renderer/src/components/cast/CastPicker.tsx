@@ -9,6 +9,7 @@ import { useCast } from '@/state/cast'
 import { Icon } from '../Icon'
 import { Modal } from '../Modal'
 import { Spinner } from '../States'
+import { ThisDeviceAddress } from './ThisDevice'
 
 function DeviceRow({ device, onPick, onForget }: { device: CastDevice; onPick: () => void; onForget?: () => void }) {
   const connected = useCast((s) => s.connected?.id === device.id)
@@ -79,25 +80,33 @@ export function CastPicker() {
         ))}
         {!devices.length && (
           <div className="cast-empty">
-            {scanning ? 'Đang tìm TV và máy tính trong mạng…' : 'Không tìm thấy thiết bị nào. Mở DVDTube trên TV (hoặc máy tính khác) và dùng cùng mạng Wi-Fi.'}
+            {scanning
+              ? 'Đang tìm TV và máy tính trong mạng…'
+              : 'Không tìm thấy thiết bị nào. Mở DVDTube trên TV (hoặc máy tính khác) và dùng cùng mạng Wi-Fi, hoặc thêm bằng địa chỉ IP hiện trong Cài đặt của DVDTube trên thiết bị đó.'}
           </div>
         )}
       </div>
       {adding ? (
-        <div className="cast-add">
-          <input
-            className="text-input"
-            autoFocus
-            placeholder="192.168.1.20 hoặc 192.168.1.20:8766"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void add()}
-            data-testid="cast-address"
-          />
-          <button className="btn btn-accent" disabled={busy || !address.trim()} onClick={() => void add()}>
-            {busy ? <Spinner size={16} /> : 'Thêm'}
-          </button>
-        </div>
+        <>
+          <div className="cast-add">
+            <input
+              className="text-input"
+              autoFocus
+              placeholder="192.168.1.20 hoặc 192.168.1.20:8766"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void add()}
+              data-testid="cast-address"
+            />
+            <button className="btn btn-accent" disabled={busy || !address.trim()} onClick={() => void add()}>
+              {busy ? <Spinner size={16} /> : 'Thêm'}
+            </button>
+          </div>
+          <p className="muted small cast-note">
+            Địa chỉ hiện trong DVDTube trên thiết bị kia: TV LG / Android TV ở <b>Cài đặt › Truyền tới DVDTube</b>, máy tính ở{' '}
+            <b>Cài đặt › Truyền video</b> hoặc mục <b>Máy tính này</b> trong hộp Truyền tới thiết bị.
+          </p>
+        </>
       ) : (
         <button className="cast-add-link" onClick={() => setAdding(true)}>
           <Icon name="plusCircle" size={20} />
@@ -107,6 +116,7 @@ export function CastPicker() {
       <p className="muted small cast-note">
         Chromecast không có trên máy tính. Thiết bị nhận tự tải video ở chất lượng cao nhất; chỉ mã video được gửi đi, không gửi tài khoản.
       </p>
+      <ThisDeviceAddress />
       {connected && (
         <div className="modal-actions cast-picker-actions">
           <button className="btn btn-text" onClick={() => (close(), void useCast.getState().disconnect(true))}>

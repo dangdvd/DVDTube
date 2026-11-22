@@ -151,6 +151,13 @@ fun TvSettingsScreen() {
                     com.dangdvd.dvdtube.cast.DvdCastReceiver.refresh(context)
                 }, modifier = Modifier.widthIn(max = 820.dp))
         }
+        com.dangdvd.dvdtube.cast.DvdCastReceiver.address?.let { address ->
+            item("castAddress") {
+                TvOptionRow("Địa chỉ IP của TV", value = address, icon = Icons.Default.Info,
+                    subtitle = "Điện thoại / máy tính không tự tìm thấy TV: chọn Thêm thiết bị bằng địa chỉ IP và nhập địa chỉ này",
+                    onClick = {}, modifier = Modifier.widthIn(max = 820.dp))
+            }
+        }
         item("musicSection") { Section("Nghe nhạc và DeArrow") }
         item("musicAudio") {
             TvOptionRow("Chỉ phát âm thanh khi nghe nhạc", value = onOff(AppSettings.musicAudioOnly), icon = Icons.Default.MusicNote,

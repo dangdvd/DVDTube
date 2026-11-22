@@ -88,6 +88,8 @@ export interface ServiceInfo {
   deviceId: string
   castPort: number
   castRunning: boolean
+  /** "192.168.1.50:8766" per network adapter, the likeliest first (empty while not receiving). */
+  castAddresses?: string[]
   signedIn: boolean
 }
 

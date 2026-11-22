@@ -53,6 +53,15 @@ import type { CoreConfig } from './settings'
 export const SIGNIN_REFUSED =
   'Google không cho đăng nhập trong cửa sổ của ứng dụng trên máy này. Hãy dùng "Đăng nhập bằng điện thoại": mở DVDTube trên điện thoại đã đăng nhập tài khoản Google rồi quét mã QR ở trang Tài khoản.'
 
+
+/** "Cho phép truyền video tới máy tính này": what other devices type in "Thêm thiết bị bằng địa chỉ IP". */
+export interface CastReceiverInfo {
+  running: boolean
+  name: string
+  /** "192.168.1.5:8766", one per network adapter, the likeliest first. Empty while the receiver is off. */
+  addresses: string[]
+}
+
 export interface AppInfo {
   version: string
   platform: string
@@ -299,6 +308,8 @@ export interface DvdApi {
   // Cast to DVDTube — receiver (this computer)
   /** The renderer's playback state, answered to `GET /api/status`. */
   castReceiverStatus(status: CastStatus): Promise<void>
+  /** This computer as a receiver: the addresses to type on devices that do not find it by themselves. */
+  castReceiverInfo(): Promise<CastReceiverInfo>
 
   // Library sync over the local network (receiving side)
   startSyncReceiver(): Promise<SyncInfo>

@@ -173,6 +173,7 @@ let syncTimer: ReturnType<typeof setTimeout> | null = null
 export const mockFeatureApi: Partial<DvdApi> = {
   // Cast
   castDevices: async () => devices(),
+  castReceiverInfo: async () => ({ running: true, name: 'Máy tính này', addresses: ['192.168.1.5:8766', '10.0.0.7:8766'] }),
   castScan: async () => {
     await wait(300)
     setTimeout(() => emit('castDevices', devices()), 600)

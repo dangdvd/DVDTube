@@ -148,7 +148,7 @@ export function SettingsScreen() {
           icon="cast"
           subtitle={
             s.castReceiver && service?.castRunning
-              ? `Tên: ${service.deviceName}${service.castPort ? ` • Cổng: ${service.castPort}` : ''}`
+              ? `Tên: ${service.deviceName}${service.castAddresses?.[0] ? ` • Địa chỉ IP: ${service.castAddresses[0]}` : service.castPort ? ` • Cổng: ${service.castPort}` : ''}`
               : 'Điện thoại / máy tính cùng mạng Wi-Fi chọn "Truyền tới TV" để phát trên TV này'
           }
           onClick={() => set({ castReceiver: !s.castReceiver })}
@@ -162,6 +162,15 @@ export function SettingsScreen() {
             if (name !== null) set({ deviceName: name.trim().slice(0, 60) })
           }}
         />
+        {s.castReceiver && service?.castAddresses?.[0] && (
+          <OptionRow
+            title="Địa chỉ IP của TV"
+            subtitle="Điện thoại / máy tính không tự tìm thấy TV: chọn Thêm thiết bị bằng địa chỉ IP và nhập địa chỉ này"
+            value={service.castAddresses[0]}
+            icon="info"
+            testid="settings-cast-address"
+          />
+        )}
 
         <SectionTitle>Nghe nhạc và DeArrow</SectionTitle>
         <OptionRow title="Chỉ phát âm thanh khi nghe nhạc" value={onOff(s.musicAudioOnly)} icon="music" onClick={() => set({ musicAudioOnly: !s.musicAudioOnly })} />
@@ -519,6 +528,13 @@ export function AboutScreen() {
         <OptionRow title="Phiên bản" value={APP_VERSION} icon="info" autofocus />
         <OptionRow title="Dịch vụ trên TV" value={service ? `${service.version} • Node.js ${service.node ?? '?'}` : apiMode() === 'mock' ? 'Chế độ mẫu' : '…'} icon="tv" />
         <OptionRow title="Tên TV" value={service?.deviceName ?? '…'} icon="cast" />
+        <OptionRow
+          title="Địa chỉ IP để truyền video"
+          subtitle="Khi điện thoại / máy tính không tự tìm thấy TV: chọn Thêm thiết bị bằng địa chỉ IP và nhập địa chỉ này"
+          value={service?.castAddresses?.[0] ?? (service && !service.castRunning ? 'Đang tắt nhận video' : '…')}
+          icon="tv"
+          testid="about-cast-address"
+        />
         <OptionRow title="Kiểm tra cập nhật" icon="refresh" onClick={() => void showUpdate(true)} />
       </div>
     </div>

@@ -616,6 +616,10 @@ export function createApi(context: ApiContext): DvdApi {
       return context.cast.devices()
     },
 
+    async castReceiverInfo() {
+      return { running: context.cast.receiverRunning, name: deviceName(), addresses: context.cast.receiverAddresses() }
+    },
+
     async castScan() {
       await context.cast.scan()
     },

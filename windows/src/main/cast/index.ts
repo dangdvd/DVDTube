@@ -5,7 +5,7 @@
 import { request } from 'node:http'
 import type { CastAction, CastCommand, CastDevice, CastDeviceKind, CastPlayRequest, CastStatus, VideoItem } from '@shared/models'
 import { cleanVideoItem } from '@shared/models'
-import { deviceId, deviceName, isLanAddress } from '../lan'
+import { deviceId, deviceName, isLanAddress, lanInterfaces } from '../lan'
 import { readJsonSync, userDataFile, writeJson } from '../store'
 import { Mdns, pickAddress, type FoundService } from './mdns'
 import { CAST_PORT, CastReceiver, IDLE_STATUS, cleanStatus } from './receiver'
@@ -182,6 +182,17 @@ export class CastService {
 
   setStatus(status: unknown): void {
     this.status = cleanStatus(status)
+  }
+
+  get receiverRunning(): boolean {
+    return !!this.receiver?.running
+  }
+
+  /** "ip:port" of the receiver on each LAN adapter, the likeliest first (empty when it is off). */
+  receiverAddresses(): string[] {
+    const receiver = this.receiver
+    if (!receiver?.running || !receiver.port) return []
+    return lanInterfaces().map((i) => `${i.address}:${receiver.port}`)
   }
 
   // Sender

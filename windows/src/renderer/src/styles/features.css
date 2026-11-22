@@ -290,6 +290,35 @@
   line-height: 1.45;
 }
 
+.cast-self {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.cast-self p {
+  margin: 4px 0;
+  line-height: 1.45;
+}
+
+.cast-self-address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.cast-self-address code {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--tint);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  user-select: all;
+}
+
 .cast-picker-actions {
   padding: 12px 0 0;
 }

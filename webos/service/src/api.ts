@@ -19,6 +19,7 @@ import {
   type StreamFormat,
 } from '../../../windows/src/shared/models'
 import { AuthSession } from '../../../windows/src/main/core/auth'
+import { lanInterfaces } from '../../../windows/src/main/lan'
 import { refreshRemoteConfig } from '../../../windows/src/main/core/clients'
 import { coreState, debug } from '../../../windows/src/main/core/config'
 import { DeArrow } from '../../../windows/src/main/core/dearrow'
@@ -179,6 +180,8 @@ export function createApi(ctx: ApiContext): Record<string, ApiMethod> {
         deviceId: identity.id,
         castPort: ctx.cast.port,
         castRunning: ctx.cast.running,
+        // What phones / PCs type in "Thêm thiết bị bằng địa chỉ IP" when they do not find the TV.
+        castAddresses: ctx.cast.running && ctx.cast.port ? lanInterfaces().map((i) => `${i.address}:${ctx.cast.port}`) : [],
         signedIn: ctx.session.signedIn,
       }
     },

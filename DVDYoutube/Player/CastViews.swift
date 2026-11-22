@@ -148,7 +148,7 @@ struct CastDevicesSheet: View {
                 Button("Hủy", role: .cancel) {}
                 Button("Thêm") { addAddress() }
             } message: {
-                Text("Mở DVDTube trên TV hoặc máy tính để xem địa chỉ (Cài đặt › Truyền video). Dùng khi mạng chặn tìm thiết bị tự động.")
+                Text("Xem địa chỉ trong DVDTube trên thiết bị kia: TV ở Cài đặt › Truyền tới DVDTube › Địa chỉ IP của TV; máy tính ở Cài đặt › Truyền video (hoặc Truyền tới thiết bị › Máy tính này). Dùng khi không tự tìm thấy thiết bị.")
             }
         }
         .onAppear {

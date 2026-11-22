@@ -248,6 +248,7 @@ export const mockApi: Partial<TvApi> = {
     deviceId: 'b2f0c1aa-0000-4000-8000-000000000tv1',
     castPort: 8766,
     castRunning: true,
+    castAddresses: ['192.168.1.50:8766'],
     signedIn,
   }),
   configure: async () => {},

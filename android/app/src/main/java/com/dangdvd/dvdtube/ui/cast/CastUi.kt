@@ -272,7 +272,8 @@ private fun AddDeviceDialog(onDismiss: () -> Unit, onAdded: (DvdCastSender.Devic
         title = { Text("Thêm thiết bị bằng địa chỉ IP") },
         text = {
             Column {
-                Text("Xem địa chỉ trong Cài đặt của DVDTube trên TV hoặc máy tính (mục Truyền tới DVDTube).",
+                Text("Xem địa chỉ trong DVDTube trên thiết bị kia: TV ở Cài đặt › Truyền tới DVDTube › Địa chỉ IP của TV; " +
+                    "máy tính ở Cài đặt › Truyền video (hoặc Truyền tới thiết bị › Máy tính này).",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(
                     text, { text = it; error = null },

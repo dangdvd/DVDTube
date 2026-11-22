@@ -10,6 +10,7 @@ import { Modal } from '@/components/Modal'
 import { ButtonRow, CheckRow, SelectRow, SettingsSection, ToggleRow } from '@/components/SettingRows'
 import { Spinner } from '@/components/States'
 import { Switch } from '@/components/Switch'
+import { useReceiverInfo } from '@/components/cast/ThisDevice'
 import { REPEAT_TITLES, contentTitle, newAlarm, nextOccurrence, useAlarms, type Alarm, type AlarmContent, type AlarmRepeat } from '@/lib/alarms'
 import { api, errorMessage } from '@/lib/api'
 import { confirmDialog, pinDialog } from '@/lib/dialogs'
@@ -28,11 +29,16 @@ import { useSettings } from '@/state/settings'
 export function CastSection({ deviceName }: { deviceName: string }) {
   const enabled = useSettings((s) => s.settings.castReceiver)
   const update = useSettings((s) => s.update)
+  const addresses = useReceiverInfo()?.addresses ?? []
   return (
     <SettingsSection id="truyen-video" title="Truyền video" description="Truyền tới DVDTube trên TV hoặc máy tính khác trong cùng mạng Wi-Fi.">
       <ToggleRow
         title="Cho phép truyền video tới máy tính này"
-        subtitle={`Điện thoại, TV và máy tính có DVDTube sẽ thấy "${deviceName || 'máy tính này'}" trong mục Truyền tới TV`}
+        subtitle={
+          enabled && addresses[0]
+            ? `Điện thoại, TV và máy tính có DVDTube sẽ thấy "${deviceName || 'máy tính này'}" trong mục Truyền tới TV. Nếu không thấy, thêm bằng địa chỉ IP: ${addresses.join(' hoặc ')}`
+            : `Điện thoại, TV và máy tính có DVDTube sẽ thấy "${deviceName || 'máy tính này'}" trong mục Truyền tới TV`
+        }
         checked={enabled}
         onChange={(v) => update({ castReceiver: v })}
         testId="setting-cast-receiver"
