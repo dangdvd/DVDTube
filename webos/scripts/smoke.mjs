@@ -156,6 +156,8 @@ async function newPage(browser, pass, service) {
       page.evaluate(([id, payload]) => window.__smokeDeliver(id, payload), [msg.id, msg.payload]).catch(() => {})
     }
     await context.addInitScript(BRIDGE_SCRIPT)
+    // The smoke service runs as 1.0.0, so the daily update check would pop "Có bản mới" over the screens 8 s in.
+    await context.addInitScript(() => localStorage.setItem('dvd.update-check', JSON.stringify(Date.now())))
     page.on('response', async (response) => {
       const m = /\/api\/call\?m=([A-Za-z]+)/.exec(response.url())
       if (!m) return
@@ -184,7 +186,7 @@ function makeHelpers(page, pass) {
     },
     async closeOverlays() {
       for (let i = 0; i < 3; i++) {
-        const open = await page.evaluate(() => !!document.querySelector('[data-testid="player"], [data-testid="dialog"]'))
+        const open = await page.evaluate(() => !!document.querySelector('[data-testid="player"], .dialog-backdrop'))
         if (!open) return
         await page.keyboard.press('Escape')
         await sleep(400)
