@@ -339,7 +339,8 @@ jobs:
     name: Build LG webOS app
     needs: changes
     if: needs.changes.outputs.webos == 'true'
-    runs-on: ubuntu-latest
+    # Playwright 1.56 has no Chromium for Ubuntu 26.04 (the new ubuntu-latest), so the smoke test stays on 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
       run:
